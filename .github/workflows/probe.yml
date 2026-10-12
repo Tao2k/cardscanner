@@ -1,0 +1,33 @@
+name: Quellen prüfen (temporär)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36'
+          for u in "https://api.riftcodex.com/cards?page=1&size=2" "https://playriftbound.com/en-us/card-gallery/" "https://cmsassets.rgpub.io/"; do
+            echo "=== $u"
+            curl -sS -m 30 -A "$UA" -o body -w "HTTP %{http_code} size %{size_download} type %{content_type}\n" "$u" || true
+            head -c 300 body; echo
+          done
+          echo "=== gallery script hints"
+          curl -sS -m 30 -A "$UA" https://playriftbound.com/en-us/card-gallery/ -o g.html
+          grep -o '__NEXT_DATA__' g.html | head -1
+          grep -o 'cmsassets.rgpub.io[^"\\ ]*' g.html | head -5
+          grep -o 'https://[^"\\ ]*card[^"\\ ]*\.json[^"\\ ]*' g.html | head -5
+          python3 - <<'P'
+          import re,json
+          h=open('g.html').read()
+          m=re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',h,re.S)
+          if m:
+              d=json.loads(m.group(1))
+              def walk(o,p='',depth=0):
+                  if depth>7: return
+                  if isinstance(o,dict):
+                      for k,v in o.items(): walk(v,p+'.'+k,depth+1)
+                  elif isinstance(o,list) and o:
+                      print(p, 'list', len(o), (list(o[0].keys())[:25] if isinstance(o[0],dict) else type(o[0]).__name__))
+                      walk(o[0],p+'[0]',depth+1)
+              walk(d)
+          P
