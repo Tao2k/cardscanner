@@ -6,7 +6,7 @@ import type { Condition, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
 import { detectLanguage } from '../core/language';
-import { readText, warmUpOcr } from './ocr';
+import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
@@ -80,7 +80,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (!running || !recognizer || !catalogs) return;
     let active = true;
     stabilizer.current.reset();
-    if (prefsRef.current.language === 'auto') warmUpOcr().catch(() => undefined);
+    if (prefsRef.current.language === 'auto') warmUpOcr();
     (async () => {
       await recognizer.ready;
       while (active) {
@@ -104,10 +104,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           if (language === 'auto' || !languages.includes(language)) {
             const ctx = drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT);
             setReadingLanguage(true);
-            const text = ctx ? await readText(ocrCanvasRef.current!) : '';
+            const region = ctx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
+            const guess = region
+              ? await detectLanguage((script) => readText(region, script), printing.texts ?? {}, languages)
+              : { lang: null };
             setReadingLanguage(false);
             if (!active) break;
-            const guess = detectLanguage(text, printing.texts ?? {}, languages);
             language = guess.lang ?? lastLanguage.current ?? languages[0];
             if (guess.lang) lastLanguage.current = guess.lang;
           }

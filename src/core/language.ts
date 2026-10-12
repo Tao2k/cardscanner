@@ -2,9 +2,10 @@
  * Bestimmt die Drucksprache einer Karte aus OCR-Text.
  *
  * Der Druck ist zu diesem Zeitpunkt schon über das Bild erkannt; wir kennen also Name und
- * Regeltext der Karte in jeder Sprache und prüfen nur, welche Fassung der gelesene Text trifft.
- * Chinesisch erkennt man an Han-Schriftzeichen, Englisch und Französisch an Wörtern, die nur
- * in einer der beiden Fassungen vorkommen.
+ * Regeltext der Karte in jeder Sprache und prüfen nur, welche Fassung der gelesene Text trifft:
+ * - Englisch/Französisch: Wörter, die nur in einer der beiden Fassungen vorkommen.
+ * - Chinesisch: Han-Zeichen, die tatsächlich im chinesischen Text dieser Karte stehen.
+ *   (Die OCR erfindet auf Bildern gern Han-Zeichen; die treffen den echten Text aber kaum.)
  */
 
 export interface LanguageGuess {
@@ -14,13 +15,19 @@ export interface LanguageGuess {
 }
 
 export interface DetectOptions {
-  /** Mindestanzahl Han-Zeichen für Chinesisch. */
+  /** Mindestanzahl passender Han-Zeichen für Chinesisch. */
   minHan: number;
   /** Mindestanzahl sprachtypischer Wörter für eine Latin-Sprache. */
   minWords: number;
 }
 
-const DEFAULTS: DetectOptions = { minHan: 4, minWords: 2 };
+export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
+
+/**
+ * Bereich der Karte mit Name und Regeltext (Anteile von Breite/Höhe). Nur dieser Teil wird gelesen;
+ * auf dem Artwork liefert die OCR nur Rauschen.
+ */
+export const TEXT_REGION = { left: 0.04, top: 0.5, right: 0.96, bottom: 0.97 };
 
 /** Häufige Wörter auf Kartentexten; helfen, wenn Name und Text kaum Unterschiede liefern. */
 const COMMON_WORDS: Record<string, string[]> = {
@@ -30,8 +37,8 @@ const COMMON_WORDS: Record<string, string[]> = {
 
 const HAN = /\p{Script=Han}/gu;
 
-export function hanCount(text: string): number {
-  return text.match(HAN)?.length ?? 0;
+export function hanChars(text: string): Set<string> {
+  return new Set(text.match(HAN) ?? []);
 }
 
 /** Kleingeschriebene Wörter aus Buchstaben (inkl. Akzenten), mindestens 3 Zeichen. */
@@ -40,39 +47,61 @@ export function latinWords(text: string): Set<string> {
   return new Set(words);
 }
 
-/**
- * @param ocrText    gelesener Text der Karte
- * @param texts      Name + Regeltext der erkannten Karte je Sprache, z. B. { en, fr, 'zh-CN' }
- * @param languages  erlaubte Sprachen des Spiels
- */
-export function detectLanguage(
-  ocrText: string,
-  texts: Record<string, string>,
-  languages: string[],
-  options: DetectOptions = DEFAULTS,
-): LanguageGuess {
-  const scores: Record<string, number> = {};
-  const han = languages.find((l) => l.startsWith('zh'));
-  if (han) {
-    scores[han] = hanCount(ocrText);
-    if (scores[han] >= options.minHan) return { lang: han, scores };
-  }
+export const isHanLanguage = (lang: string) => lang.startsWith('zh') || lang === 'ja';
 
-  const latin = languages.filter((l) => !l.startsWith('zh'));
+/** Anzahl unterschiedlicher Han-Zeichen aus dem OCR-Text, die im chinesischen Kartentext vorkommen. */
+export function scoreHan(ocrText: string, cardText: string | undefined): number {
+  if (!cardText) return 0;
+  const expected = hanChars(cardText);
+  let score = 0;
+  for (const c of hanChars(ocrText)) if (expected.has(c)) score++;
+  return score;
+}
+
+/** Punkte je Latin-Sprache: sprachtypische Wörter der Karte, die im OCR-Text auftauchen. */
+export function scoreLatin(ocrText: string, texts: Record<string, string>, latin: string[]): Record<string, number> {
   const vocab = new Map(latin.map((l) => [l, latinWords(`${texts[l] ?? ''} ${(COMMON_WORDS[l] ?? []).join(' ')}`)]));
   const seen = latinWords(ocrText);
+  const scores: Record<string, number> = {};
   for (const lang of latin) {
     const others = latin.filter((l) => l !== lang).map((l) => vocab.get(l)!);
     let score = 0;
-    for (const w of vocab.get(lang)!) {
-      if (seen.has(w) && !others.some((o) => o.has(w))) score++;
-    }
+    for (const w of vocab.get(lang)!) if (seen.has(w) && !others.some((o) => o.has(w))) score++;
     scores[lang] = score;
   }
-  const ranked = latin.map((l) => [l, scores[l]] as const).sort((a, b) => b[1] - a[1]);
+  return scores;
+}
+
+function pickLatin(scores: Record<string, number>, latin: string[], minWords: number): string | null {
+  const ranked = latin.map((l) => [l, scores[l] ?? 0] as const).sort((a, b) => b[1] - a[1]);
   const [best, second] = ranked;
-  if (best && best[1] >= options.minWords && best[1] > (second?.[1] ?? 0)) return { lang: best[0], scores };
-  // Nur eine Latin-Sprache im Spiel: lesbarer Latin-Text reicht.
-  if (latin.length === 1 && seen.size >= options.minWords) return { lang: latin[0], scores };
+  return best && best[1] >= minWords && best[1] > (second?.[1] ?? 0) ? best[0] : null;
+}
+
+/**
+ * Zweistufig: erst mit Latin-OCR lesen (schnell, deckt die meisten Karten ab), nur wenn das nicht
+ * eindeutig ist, mit chinesischer OCR nachlesen.
+ * @param read  liest das Textfeld mit 'latin'- oder 'han'-Modell
+ * @param texts Name + Regeltext der erkannten Karte je Sprache
+ */
+export async function detectLanguage(
+  read: (script: 'latin' | 'han') => Promise<string>,
+  texts: Record<string, string>,
+  languages: string[],
+  options: DetectOptions = DEFAULT_DETECT,
+): Promise<LanguageGuess> {
+  const latin = languages.filter((l) => !isHanLanguage(l));
+  const han = languages.find(isHanLanguage);
+  let scores: Record<string, number> = {};
+
+  if (latin.length) {
+    scores = scoreLatin(await read('latin'), texts, latin);
+    const lang = latin.length === 1 && !han ? latin[0] : pickLatin(scores, latin, options.minWords);
+    if (lang) return { lang, scores };
+  }
+  if (han) {
+    scores[han] = scoreHan(await read('han'), texts[han]);
+    if (scores[han] >= options.minHan) return { lang: han, scores };
+  }
   return { lang: null, scores };
 }

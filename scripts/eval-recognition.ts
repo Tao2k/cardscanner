@@ -14,8 +14,8 @@ import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
 import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
-import { detectLanguage } from '../src/core/language';
-import { OCR_LANGS } from '../src/app/ocr';
+import { detectLanguage, TEXT_REGION } from '../src/core/language';
+import { OCR_MODELS } from '../src/app/ocr';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -115,31 +115,52 @@ async function main() {
  */
 async function evalLanguage(file: CatalogFile, perLang: number) {
   const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker(OCR_LANGS, 1);
+  const workers = { latin: await createWorker(OCR_MODELS.latin, 1), han: await createWorker(OCR_MODELS.han, 1) };
   const languages = file.meta.languages.map((l) => l.code);
   for (const lang of ['en', 'zh-CN']) {
     const rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === lang).sort(() => rand() - 0.5).slice(0, perLang);
     const outcome = new Map<string, number>();
     let ms = 0;
+    let shown = 0;
     for (const r of rows) {
       const p = file.printings[file.refs[r].p];
       const full = new URL(imageIn(p, lang).imageUrl);
       full.searchParams.delete('w');
       full.searchParams.delete('fm');
-      const url = full.toString();
-      const res = await fetch(url);
+      const res = await fetch(full.toString());
       if (!res.ok) continue;
-      const png = await (await distortTo(Buffer.from(await res.arrayBuffer()), 1100)).png().toBuffer();
+      const card = await (await distortTo(Buffer.from(await res.arrayBuffer()), 1100)).png().toBuffer();
+      const meta = await sharp(card).metadata();
+      const region = await sharp(card)
+        .extract({
+          left: Math.round(meta.width! * TEXT_REGION.left),
+          top: Math.round(meta.height! * TEXT_REGION.top),
+          width: Math.round(meta.width! * (TEXT_REGION.right - TEXT_REGION.left)),
+          height: Math.round(meta.height! * (TEXT_REGION.bottom - TEXT_REGION.top)),
+        })
+        .png()
+        .toBuffer();
       const start = Date.now();
-      const text = (await worker.recognize(png)).data.text;
+      const read: string[] = [];
+      const guess = await detectLanguage(
+        async (script) => {
+          const text = (await workers[script].recognize(region)).data.text;
+          read.push(`${script}: ${text.replace(/\s+/g, ' ').slice(0, 140)}`);
+          return text;
+        },
+        p.texts ?? {},
+        languages,
+      );
       ms += Date.now() - start;
-      const guess = detectLanguage(text, p.texts ?? {}, languages).lang ?? 'unklar';
-      outcome.set(guess, (outcome.get(guess) ?? 0) + 1);
+      const key = guess.lang ?? 'unklar';
+      outcome.set(key, (outcome.get(key) ?? 0) + 1);
+      if (key !== lang && shown++ < 3) console.log(`  [${lang}→${key}] ${p.printingId} ${JSON.stringify(guess.scores)}\n    ${read.join('\n    ')}`);
     }
     const parts = [...outcome].map(([g, n]) => `${g} ${((100 * n) / rows.length).toFixed(0)} %`).join(', ');
     console.log(`Sprache ${lang}: ${rows.length} Bilder → ${parts}  (OCR im Schnitt ${Math.round(ms / rows.length)} ms)`);
   }
-  await worker.terminate();
+  await workers.latin.terminate();
+  await workers.han.terminate();
 }
 
 main().catch((e) => {
