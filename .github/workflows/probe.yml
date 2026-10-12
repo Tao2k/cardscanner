@@ -1,0 +1,37 @@
+name: Quellen prüfen (temporär)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA='Mozilla/5.0 (compatible; CardScanner/0.1; +https://github.com/Tao2k/cardscanner)'
+          for l in en-us fr-fr zh-cn; do curl -sS -m 60 -A "$UA" https://playriftbound.com/$l/card-gallery/ -o $l.html -w "$l HTTP %{http_code} %{size_download}\n"; done
+          python3 - <<'P'
+          import re,json
+          def load(l):
+              h=open(l+'.html').read()
+              d=json.loads(re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',h,re.S).group(1))
+              best=[];sets=[]
+              def walk(o):
+                  nonlocal best,sets
+                  if isinstance(o,dict):
+                      it=(o.get('cards') or {}).get('items') if isinstance(o.get('cards'),dict) else None
+                      if isinstance(it,list) and len(it)>len(best): best=it
+                      si=(o.get('sets') or {}).get('items') if isinstance(o.get('sets'),dict) else None
+                      if isinstance(si,list) and len(si)>len(sets): sets=si
+                      for v in o.values(): walk(v)
+                  elif isinstance(o,list):
+                      for v in o: walk(v)
+              walk(d); return best,sets
+          data={l:load(l) for l in ['en-us','fr-fr','zh-cn']}
+          en={c['id']:c for c in data['en-us'][0]}
+          for l,(cards,sets) in data.items():
+              ids={c['id'] for c in cards}
+              same_img=sum(1 for c in cards if c['id'] in en and c.get('cardImage',{}).get('url')==en[c['id']].get('cardImage',{}).get('url'))
+              print(l,'cards',len(cards),'sets',[(s['id'],s['name']) for s in sets],'only_here',len(ids-set(en)),'missing_vs_en',len(set(en)-ids),'same_image_as_en',same_img)
+              c=next(x for x in cards if x['id']=='unl-131-219') if any(x['id']=='unl-131-219' for x in cards) else cards[0]
+              print('  sample',c['id'],c['name'],c.get('publicCode'),c.get('cardImage',{}).get('url'))
+              print('  keys',list(c.keys()))
+              print('  id examples',[x['id'] for x in cards[:5]], sorted(ids-set(en))[:8])
+          P
