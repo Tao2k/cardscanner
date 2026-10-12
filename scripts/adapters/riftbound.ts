@@ -3,6 +3,11 @@ import type { GameAdapter } from './types';
 
 const API = 'https://api.riftcodex.com';
 const PAGE_SIZE = 100;
+/** Ohne erkennbaren User-Agent lehnt die API Anfragen aus Rechenzentren ab. */
+export const HTTP_HEADERS = {
+  'User-Agent': 'CardScanner/0.1 (+https://github.com/Tao2k/cardscanner)',
+  Accept: 'application/json',
+};
 
 /** Ausschnitt der Riftcodex-Kartenstruktur; alle Felder optional, weil die Quelle inoffiziell ist. */
 export interface RiftcodexCard {
@@ -77,9 +82,12 @@ export function setsFrom(cards: RiftcodexCard[]): CardSet[] {
 
 async function fetchPage(page: number): Promise<Page> {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(`${API}/cards?page=${page}&size=${PAGE_SIZE}`);
+    const res = await fetch(`${API}/cards?page=${page}&size=${PAGE_SIZE}`, { headers: HTTP_HEADERS });
     if (res.ok) return res.json() as Promise<Page>;
-    if (attempt >= 4 || res.status < 500) throw new Error(`Riftcodex Seite ${page}: HTTP ${res.status}`);
+    if (attempt >= 4 || res.status < 500) {
+      const body = (await res.text()).replace(/\s+/g, ' ').slice(0, 300);
+      throw new Error(`Riftcodex Seite ${page}: HTTP ${res.status} (server: ${res.headers.get('server') ?? '?'}) ${body}`);
+    }
     await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
   }
 }
