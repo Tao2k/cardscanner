@@ -5,9 +5,9 @@
  *   npm run build && npx tsx scripts/e2e-scan.ts
  * Voraussetzung: `npm run catalog -- riftbound` ist gelaufen (Bild-Cache), Port 4173 ist frei.
  */
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -48,13 +48,38 @@ async function cardFrame(image: Buffer, guide: { x: number; y: number; width: nu
     .toBuffer({ resolveWithObject: true });
   const left = Math.round(guide.x + guide.width / 2 - rotated.info.width / 2);
   const top = Math.round(guide.y + guide.height / 2 - rotated.info.height / 2);
-  const png = path.join(path.dirname(out), 'frame.png');
-  await sharp({ create: { width: VIDEO.width, height: VIDEO.height, channels: 3, background: { r: 105, g: 110, b: 112 } } })
+  const { data: rgb } = await sharp({ create: { width: VIDEO.width, height: VIDEO.height, channels: 3, background: { r: 105, g: 110, b: 112 } } })
     .composite([{ input: rotated.data, left, top }])
     .blur(0.7)
-    .png()
-    .toFile(png);
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-loop', '1', '-i', png, '-t', '4', '-r', '10', '-pix_fmt', 'yuv420p', out]);
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  await writeFile(out, toY4m(rgb, VIDEO.width, VIDEO.height, 20));
+}
+
+/** Standbild als Y4M-Video (YUV 4:2:0), das Format, das Chromium als Kamera-Attrappe abspielt. */
+function toY4m(rgb: Buffer, w: number, h: number, frames: number): Buffer {
+  const Y = Buffer.alloc(w * h);
+  const U = Buffer.alloc((w / 2) * (h / 2));
+  const V = Buffer.alloc((w / 2) * (h / 2));
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = (y * w + x) * 3;
+    Y[y * w + x] = clamp(0.299 * rgb[k] + 0.587 * rgb[k + 1] + 0.114 * rgb[k + 2]);
+  }
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    let r = 0, g = 0, b = 0;
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const k = ((y + dy) * w + (x + dx)) * 3;
+      r += rgb[k] / 4;
+      g += rgb[k + 1] / 4;
+      b += rgb[k + 2] / 4;
+    }
+    const i = (y / 2) * (w / 2) + x / 2;
+    U[i] = clamp(128 - 0.168736 * r - 0.331264 * g + 0.5 * b);
+    V[i] = clamp(128 + 0.5 * r - 0.418688 * g - 0.081312 * b);
+  }
+  const frame = Buffer.concat([Buffer.from('FRAME\n'), Y, U, V]);
+  return Buffer.concat([Buffer.from(`YUV4MPEG2 W${w} H${h} F10:1 Ip A1:1 C420jpeg\n`), ...Array(frames).fill(frame)]);
 }
 
 async function main() {
