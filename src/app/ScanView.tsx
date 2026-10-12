@@ -31,6 +31,8 @@ const thumb = (p: Printing, lang: string) => {
   return img.thumbUrl ?? img.imageUrl;
 };
 
+const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
+
 interface Saved {
   result: AddResult;
   printing: Printing;
@@ -160,15 +162,24 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (saved.sample?.source === 'auto') onLearn();
   };
 
-  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
-  const flag = async (saved: Saved) => {
+  /** Scan mit geänderten Angaben neu speichern (nur dieses Exemplar, nicht schon vorhandene im selben Eintrag). */
+  const resave = async (saved: Saved, patch: Partial<ScanInput>, flagged = saved.flagged) => {
     await service.undo(saved.result);
-    const result = await service.addScan({ ...saved.input, confirmed: false });
-    if (saved.sample) await learning.reassign(saved.sample, result.item.itemId);
-    setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input: { ...s.input, confirmed: false }, sample: s.sample && { ...s.sample, itemId: result.item.itemId, source: 'pending' }, flagged: true } : s)));
+    const input = { ...saved.input, ...patch };
+    const result = await service.addScan(input);
+    const old = saved.sample;
+    const sample: Sample | undefined =
+      old && (result.item.itemId !== old.itemId || patch.confirmed === false)
+        ? { ...old, itemId: result.item.itemId, source: patch.confirmed === false ? 'pending' : old.source }
+        : old;
+    if (old && sample && sample !== old) await learning.reassign(old, sample.itemId!, sample.source);
+    setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input, sample, flagged } : s)));
     onChange();
-    if (saved.sample?.source === 'auto') onLearn();
+    if (old?.source === 'auto' && sample?.source !== 'auto') onLearn();
   };
+
+  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
+  const flag = (saved: Saved) => resave(saved, { confirmed: false }, true);
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
   const ready = !status && recognizer && catalogs;
@@ -231,7 +242,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           Foil
         </label>
         <select value={prefs.condition} onChange={(e) => setPrefs({ condition: e.currentTarget.value as Condition })}>
-          {['NM', 'LP', 'MP', 'HP', 'DMG'].map((c) => <option value={c}>{c}</option>)}
+          {CONDITIONS.map((c) => <option value={c}>{c}</option>)}
         </select>
         <input
           placeholder="Lagerort (z. B. Binder 1)"
@@ -242,7 +253,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
       {recent.length > 0 && (
         <ul class="recent">
-          {recent.map((s) => (
+          {recent.map((s, i) => (
             <li key={s.result.item.itemId + s.result.item.quantity}>
               <img src={thumb(s.printing, s.result.item.language)} alt="" loading="lazy" />
               <span>
@@ -253,6 +264,20 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               </span>
               {s.result.item.confirmed && !s.flagged && <button onClick={() => flag(s)}>Falsch</button>}
               <button onClick={() => undo(s)}>Rückgängig</button>
+              {i === 0 && (
+                <div class="segmented condition" role="radiogroup" aria-label="Zustand dieser Karte">
+                  {CONDITIONS.map((c) => (
+                    <button
+                      role="radio"
+                      aria-checked={s.input.condition === c}
+                      class={s.input.condition === c ? 'active' : ''}
+                      onClick={() => s.input.condition !== c && resave(s, { condition: c })}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
             </li>
           ))}
         </ul>

@@ -154,8 +154,8 @@ export class LearningService {
   }
 
   /** Scan gehört jetzt zu einem anderen Eintrag (z. B. „Falsch erkannt“ → zum Prüfen). */
-  async reassign(sample: Sample, itemId: string): Promise<void> {
-    await this.store.put({ ...sample, itemId, source: 'pending' });
+  async reassign(sample: Sample, itemId: string, source: SampleSource = 'pending'): Promise<void> {
+    await this.store.put({ ...sample, itemId, source });
   }
 
   /** Du hast den Druck bestätigt oder korrigiert: alle Scans des Eintrags werden zu Referenzbildern. */
