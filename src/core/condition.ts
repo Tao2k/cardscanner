@@ -50,16 +50,19 @@ export const DEFAULT_THRESHOLDS: ConditionThresholds = {
   MP: [0.08, 0.35],
 };
 
-/** Auflösung der entzerrten Karte: 3 Pixel je Millimeter (63 × 88 mm). */
-const MM = 3;
+/** Auflösung der entzerrten Karte: 6 Pixel je Millimeter (63 × 88 mm); Abnutzung ist oft unter 1 mm breit. */
+const MM = 6;
 const CARD_W = 63 * MM;
 const CARD_H = 88 * MM;
 /** Rand um die entzerrte Karte, um den Hintergrund zu prüfen. */
 const PAD = 4 * MM;
 const CORNER_RADIUS = 3 * MM;
-/** Kantenstreifen: 0,33 bis 1,67 mm von der Kante (die äußerste Pixelreihe mischt sich mit dem Hintergrund). */
-const RING_INNER = 1;
-const RING_OUTER = 5;
+/**
+ * Kantenstreifen: die äußeren 1,5 mm. Abnutzung sitzt direkt an der Kante; dass sich die äußersten
+ * Pixel mit der Unterlage mischen, fängt der Vergleich mit der Helligkeit der Unterlage ab.
+ */
+const RING_INNER = 0;
+const RING_OUTER = 1.5 * MM;
 /** Ecke = Kantenstreifen innerhalb von 6 mm zur Ecke. */
 const CORNER_ZONE = 6 * MM;
 
@@ -298,11 +301,11 @@ export function classify(edge: number, corner: number, t: ConditionThresholds = 
 function alignToReference(card: Gray, ref: Gray) {
   const W = card.width;
   let best = { r: -1, a: 1, b: 0, dx: 0, dy: 0 };
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
       let n = 0, sr = 0, sc = 0, srr = 0, scc = 0, src = 0;
-      for (let y = Math.round(CARD_H * 0.08); y < CARD_H * 0.92; y += 3) {
-        for (let x = Math.round(CARD_W * 0.08); x < CARD_W * 0.92; x += 3) {
+      for (let y = Math.round(CARD_H * 0.08); y < CARD_H * 0.92; y += 5) {
+        for (let x = Math.round(CARD_W * 0.08); x < CARD_W * 0.92; x += 5) {
           const r = ref.data[y * CARD_W + x];
           const c = card.data[(y + dy + PAD) * W + (x + dx + PAD)];
           n++;
@@ -362,14 +365,15 @@ export function estimateCondition(
   const white = best.a * 255 + best.b;
   if (background > best.b + best.a * 150) return none('Unterlage zu hell, bitte eine mittelgraue oder farbige Unterlage nehmen', quad, best.r);
 
-  // Weiße Pixel im Kantenstreifen: im Foto fast papierweiß, deutlich heller als im Original
+  // Abgenutzte Pixel im Kantenstreifen: deutlich heller als das Original an dieser Stelle und heller
+  // als die Unterlage (sonst wäre es nur der Übergang zum Tisch)
   const threshold = 0.18 * (white - best.b);
-  const minWhite = best.b + best.a * 190;
+  const minWhite = Math.max(best.b + best.a * 120, background + 0.15 * (white - best.b));
   const isWhite = new Uint8Array(CARD_W * CARD_H);
   for (let y = 0; y < CARD_H; y++) {
     for (let x = 0; x < CARD_W; x++) {
       const d = insideDistance(x + 0.5, y + 0.5);
-      if (d < RING_INNER || d >= RING_OUTER + 1) continue;
+      if (d < RING_INNER - 1 || d >= RING_OUTER + 1) continue;
       const c = at(x + best.dx, y + best.dy);
       const p = best.a * ref.data[y * CARD_W + x] + best.b;
       if (c - p > threshold && c > minWhite) isWhite[y * CARD_W + x] = 1;
@@ -386,7 +390,8 @@ export function estimateCondition(
       let w = 0;
       if (isWhite[y * CARD_W + x]) {
         for (let j = -1; j <= 1 && !w; j++) for (let i = -1; i <= 1; i++) {
-          if ((i || j) && isWhite[(y + j) * CARD_W + (x + i)]) { w = 1; break; }
+          const nx = x + i, ny = y + j;
+          if ((i || j) && nx >= 0 && ny >= 0 && nx < CARD_W && ny < CARD_H && isWhite[ny * CARD_W + nx]) { w = 1; break; }
         }
       }
       const nearX = x < CORNER_ZONE ? 0 : x >= CARD_W - CORNER_ZONE ? 1 : -1;
