@@ -8,6 +8,7 @@ const service = () => new CollectionService(new IndexedDbStore(`test-${dbCounter
 const scan = (patch: Partial<ScanInput> = {}): ScanInput => ({
   gameId: 'riftbound',
   printingId: 'ogn-001-298',
+  language: 'en',
   finish: 'normal',
   condition: 'NM',
   location: '',
@@ -33,7 +34,9 @@ describe('CollectionService', () => {
     await s.addScan(scan({ condition: 'LP' }));
     await s.addScan(scan({ location: 'Binder 2' }));
     await s.addScan(scan({ confirmed: false }));
-    expect(await s.list()).toHaveLength(5);
+    await s.addScan(scan({ language: 'fr' }));
+    await s.addScan(scan({ language: 'zh-CN' }));
+    expect(await s.list()).toHaveLength(7);
   });
 
   it('macht Hinzufügen rückgängig', async () => {
@@ -58,6 +61,17 @@ describe('CollectionService', () => {
     const { item } = await s.addScan(scan());
     await s.update(item.itemId, { quantity: 0 });
     expect(await s.list()).toHaveLength(0);
+  });
+
+  it('behandelt Einträge ohne Sprache (ältere Version) als englisch und zählt sie zusammen', async () => {
+    const store = new IndexedDbStore(`test-${dbCounter++}`);
+    const s = new CollectionService(store);
+    const { item } = await s.addScan(scan());
+    const { language: _drop, ...legacy } = item;
+    await store.put(legacy as typeof item);
+    expect((await s.list())[0].language).toBe('en');
+    await s.addScan(scan());
+    expect(await s.list()).toMatchObject([{ quantity: 2, language: 'en' }]);
   });
 
   it('filtert nach Spiel', async () => {

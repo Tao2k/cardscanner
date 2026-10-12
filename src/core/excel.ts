@@ -1,4 +1,5 @@
 import type { Workbook } from 'exceljs';
+import { nameIn } from './catalog';
 import type { CollectionItem, Condition, Finish, Printing } from './types';
 
 /** Lädt exceljs erst bei Bedarf (das Paket ist groß und wird nur für Export/Import gebraucht). */
@@ -16,6 +17,8 @@ export const COLLECTION_COLUMNS = [
   { header: 'Set', key: 'setCode', width: 8 },
   { header: 'Nummer', key: 'collectorNumber', width: 9 },
   { header: 'Name', key: 'cardName', width: 36 },
+  { header: 'Name (EN)', key: 'cardNameEn', width: 36 },
+  { header: 'Sprache', key: 'language', width: 9 },
   { header: 'Variante', key: 'variant', width: 13 },
   { header: 'Seltenheit', key: 'rarity', width: 12 },
   { header: 'Anzahl', key: 'quantity', width: 8 },
@@ -60,7 +63,8 @@ export async function exportWorkbook(
       ...item,
       setCode: p?.setCode ?? '',
       collectorNumber: p?.collectorNumber ?? '',
-      cardName: p?.cardName ?? '(unbekannter Druck)',
+      cardName: p ? nameIn(p, item.language) : '(unbekannter Druck)',
+      cardNameEn: p?.cardName ?? '',
       variant: p?.variant ?? '',
       rarity: p?.rarity ?? '',
       confirmed: item.confirmed ? 'ja' : 'nein',
@@ -76,12 +80,14 @@ export async function exportWorkbook(
       { header: 'Set', key: 'setCode', width: 8 },
       { header: 'Nummer', key: 'collectorNumber', width: 9 },
       { header: 'Name', key: 'cardName', width: 36 },
+      { header: 'Name (FR)', key: 'nameFr', width: 36 },
+      { header: 'Name (ZH)', key: 'nameZh', width: 24 },
       { header: 'Variante', key: 'variant', width: 13 },
       { header: 'Seltenheit', key: 'rarity', width: 12 },
       { header: 'Typ', key: 'type', width: 14 },
       { header: 'Druck-ID', key: 'printingId', width: 24 },
     ];
-    for (const p of printings) cat.addRow(p);
+    for (const p of printings) cat.addRow({ ...p, nameFr: p.names?.fr ?? '', nameZh: p.names?.['zh-CN'] ?? '' });
     cat.getRow(1).font = { bold: true };
   }
 
@@ -113,6 +119,7 @@ function cellText(value: unknown): string {
 export async function importWorkbook(
   data: ArrayBuffer,
   isKnownPrinting: (gameId: string, printingId: string) => boolean,
+  languages: string[] = ['en'],
 ): Promise<ImportResult> {
   const wb = await newWorkbook();
   await wb.xlsx.load(data);
@@ -152,10 +159,16 @@ export async function importWorkbook(
     const condition = get('Zustand').toUpperCase() as Condition;
     const finish = get('Finish').toLowerCase() as Finish;
     const score = Number.parseFloat(get('Erkennungswert'));
+    const language = languages.find((l) => l.toLowerCase() === get('Sprache').toLowerCase());
+    if (get('Sprache') && !language) {
+      errors.push(`Zeile ${rowNumber}: Sprache „${get('Sprache')}“ unbekannt (erlaubt: ${languages.join(', ')}).`);
+      return;
+    }
     items.push({
       itemId: get('Eintrag-ID') || globalThis.crypto.randomUUID(),
       gameId,
       printingId,
+      language: language ?? languages[0],
       quantity,
       condition: CONDITIONS.includes(condition) ? condition : 'NM',
       finish: FINISHES.includes(finish) ? finish : 'normal',

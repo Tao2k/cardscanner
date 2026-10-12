@@ -1,9 +1,10 @@
 import type { CollectionStore } from '../storage/store';
-import type { CollectionItem, Condition, Finish, GameId } from './types';
+import type { CollectionItem, Condition, Finish, GameId, Language } from './types';
 
 export interface ScanInput {
   gameId: GameId;
   printingId: string;
+  language: Language;
   finish: Finish;
   condition: Condition;
   location: string;
@@ -24,20 +25,22 @@ function newId(): string {
 
 /**
  * Fachlogik der Sammlung, unabhängig vom Speicherort.
- * Gleiche Drucke mit gleichem Finish, Zustand und Lagerort werden zusammengezählt statt doppelt angelegt.
+ * Gleiche Drucke mit gleicher Sprache, Finish, Zustand und Lagerort werden zusammengezählt statt doppelt angelegt.
  */
 export class CollectionService {
   constructor(private readonly store: CollectionStore, private readonly now: () => Date = () => new Date()) {}
 
-  list(gameId?: GameId) {
-    return this.store.list(gameId);
+  /** Einträge aus Versionen vor der Sprachunterstützung gelten als englisch. */
+  async list(gameId?: GameId): Promise<CollectionItem[]> {
+    return (await this.store.list(gameId)).map((i) => (i.language ? i : { ...i, language: 'en' }));
   }
 
   async addScan(input: ScanInput): Promise<AddResult> {
     const timestamp = this.now().toISOString();
-    const existing = (await this.store.list(input.gameId)).find(
+    const existing = (await this.list(input.gameId)).find(
       (i) =>
         i.printingId === input.printingId &&
+        i.language === input.language &&
         i.finish === input.finish &&
         i.condition === input.condition &&
         i.location === input.location &&
@@ -52,6 +55,7 @@ export class CollectionService {
       itemId: newId(),
       gameId: input.gameId,
       printingId: input.printingId,
+      language: input.language,
       quantity: 1,
       condition: input.condition,
       finish: input.finish,

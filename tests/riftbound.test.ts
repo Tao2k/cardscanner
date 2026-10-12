@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { extractGallery, normalizeCard, parseNextData } from '../scripts/adapters/riftbound';
+import { addLocale, extractGallery, normalizeCard, parseNextData } from '../scripts/adapters/riftbound';
 
 const html = readFileSync(new URL('./fixtures/riftbound-gallery.html', import.meta.url), 'utf8');
 const { cards, sets } = extractGallery(parseNextData(html));
@@ -36,6 +36,16 @@ describe('Riftbound-Adapter (offizielle Galerie)', () => {
 
   it('überspringt Karten ohne Bild', () => {
     expect(normalizeCard(cards[4])).toBeNull();
+  });
+
+  it('ergänzt Namen und abweichende Bilder anderer Sprachen', () => {
+    const base = normalizeCard(cards[0], max('UNL'))!;
+    const fr = addLocale(base, { ...cards[0], name: 'Abandon' }, 'fr');
+    expect(fr.names).toBeUndefined(); // gleicher Name wie Englisch
+    expect(fr.images).toBeUndefined(); // gleiches Bild wie Englisch
+    const zh = addLocale(base, { ...cards[0], name: '遗弃', cardImage: { url: 'https://cmsassets.rgpub.io/sanity/images/zh.png?accountingTag=RB' } }, 'zh-CN');
+    expect(zh.names).toEqual({ 'zh-CN': '遗弃' });
+    expect(zh.images?.['zh-CN'].imageUrl).toBe('https://cmsassets.rgpub.io/sanity/images/zh.png?accountingTag=RB&w=480&fm=png');
   });
 
   it('meldet fehlende Seitendaten verständlich', () => {

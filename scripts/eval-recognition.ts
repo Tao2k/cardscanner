@@ -11,7 +11,8 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { createEmbedder } from '../src/core/embedder';
 import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
-import { topK } from '../src/core/matcher';
+import { collapseToPrintings, topK } from '../src/core/matcher';
+import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
 
 const args = process.argv.slice(2);
@@ -62,31 +63,41 @@ async function main() {
   const embeddings = parseEmbeddings((await readFile(path.join(dir, 'embeddings.f32'))).buffer.slice(0) as ArrayBuffer, file.meta);
   const embedder = await createEmbedder({ cacheDir: 'public/models' });
 
-  const indices = [...file.printings.keys()].sort(() => rand() - 0.5).slice(0, samples);
+  // Stichprobe über Referenzbilder (alle Sprachen); richtig ist, wenn der Druck stimmt.
+  const rowIdx = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, samples);
+  const indices = rowIdx;
   let top1 = 0, top3 = 0, confident = 0, confidentCorrect = 0, sameName = 0;
+  const perLang = new Map<string, { n: number; hit: number }>();
   const misses: string[] = [];
-  for (const i of indices) {
+  for (const r of rowIdx) {
+    const { p: i, lang } = file.refs[r];
     const p = file.printings[i];
-    const cached = path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex'));
+    const url = imageIn(p, lang).imageUrl;
+    const cached = path.join('.cache/images', createHash('sha1').update(url).digest('hex'));
     const query = await embedder.embed(await distort(await readFile(cached)));
-    const res = topK(query, embeddings, file.meta.dim, 3);
+    const res = collapseToPrintings(topK(query, embeddings, file.meta.dim, 9), (row) => file.refs[row].p, 3);
     const hit = res[0].index === i;
+    const stat = perLang.get(lang) ?? { n: 0, hit: 0 };
+    stat.n++;
+    if (hit) stat.hit++;
+    perLang.set(lang, stat);
     if (hit) top1++;
-    if (res.some((r) => r.index === i)) top3++;
+    if (res.some((m) => m.index === i)) top3++;
     if (!hit && file.printings[res[0].index].cardName === p.cardName) sameName++;
-    const isConfident = res[0].score >= DEFAULT_STABILIZER.minScore && res[0].score - res[1].score >= DEFAULT_STABILIZER.confidentMargin;
+    const isConfident = res[0].score >= DEFAULT_STABILIZER.minScore && res[0].score - (res[1]?.score ?? 0) >= DEFAULT_STABILIZER.confidentMargin;
     if (isConfident) {
       confident++;
       if (hit) confidentCorrect++;
     }
     if (!hit && misses.length < 15) {
       const got = file.printings[res[0].index];
-      misses.push(`${p.printingId} (${p.cardName}, ${p.variant}) → ${got.printingId} (${got.cardName}, ${got.variant}) ${res[0].score.toFixed(3)}`);
+      misses.push(`${p.printingId} [${lang}] (${p.cardName}, ${p.variant}) → ${got.printingId} (${got.cardName}, ${got.variant}) ${res[0].score.toFixed(3)}`);
     }
   }
   const pct = (n: number, d = indices.length) => `${((100 * n) / d).toFixed(1)} %`;
-  console.log(`\n=== Erkennung ${game}: ${indices.length} verzerrte Referenzbilder, Katalog ${file.printings.length} Drucke`);
+  console.log(`\n=== Erkennung ${game}: ${indices.length} verzerrte Referenzbilder, Katalog ${file.printings.length} Drucke / ${file.refs.length} Referenzbilder`);
   console.log(`Top-1: ${pct(top1)}   Top-3: ${pct(top3)}`);
+  for (const [lang, st] of perLang) console.log(`  Bilder ${lang}: ${st.n}, Top-1 ${pct(st.hit, st.n)}`);
   console.log(`Falsch, aber gleiche Karte in anderer Variante: ${sameName}`);
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);

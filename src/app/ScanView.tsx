@@ -8,6 +8,7 @@ import { grabCard, startCamera, stopCamera } from './camera';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
+import { imageIn, nameIn } from '../core/catalog';
 
 interface Props {
   catalogs: Catalogs | null;
@@ -18,6 +19,11 @@ interface Props {
   service: CollectionService;
   onChange(): void;
 }
+
+const thumb = (p: Printing, lang: string) => {
+  const img = imageIn(p, lang);
+  return img.thumbUrl ?? img.imageUrl;
+};
 
 interface Saved {
   result: AddResult;
@@ -79,7 +85,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         }
         const { matches, ms } = await recognizer.match(gameId, pixels);
         if (!active) break;
-        const printings = [...(catalogs.byGame.get(gameId)?.values() ?? [])];
+        const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
         setGuess(top ? { printing: printings[top.index], score: top.score, ms } : null);
         const stable = stabilizer.current.push(matches);
@@ -89,6 +95,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           const result = await service.addScan({
             gameId,
             printingId: printing.printingId,
+            language: p.language,
             finish: p.finish,
             condition: p.condition,
             location: p.location,
@@ -137,7 +144,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <div class="hud">
             {guess ? (
               <span>
-                {guess.printing.cardName} · {Math.round(guess.score * 100)} % · {guess.ms} ms
+                {nameIn(guess.printing, prefs.language)} · {Math.round(guess.score * 100)} % · {guess.ms} ms
               </span>
             ) : (
               <span>Karte in den Rahmen halten</span>
@@ -152,6 +159,20 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <select value={prefs.gameId} onChange={(e) => setPrefs({ gameId: e.currentTarget.value })}>
             {catalogs.games.map((g) => <option value={g.gameId}>{g.gameName}</option>)}
           </select>
+        )}
+        {catalogs && (catalogs.languages.get(prefs.gameId)?.length ?? 0) > 1 && (
+          <div class="segmented" role="radiogroup" aria-label="Sprache der Karten">
+            {catalogs.languages.get(prefs.gameId)!.map((l) => (
+              <button
+                role="radio"
+                aria-checked={prefs.language === l.code}
+                class={prefs.language === l.code ? 'active' : ''}
+                onClick={() => setPrefs({ language: l.code })}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
         )}
         <label class="toggle">
           <input type="checkbox" checked={prefs.finish === 'foil'} onChange={(e) => setPrefs({ finish: e.currentTarget.checked ? 'foil' : 'normal' })} />
@@ -171,9 +192,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <ul class="recent">
           {recent.map((s) => (
             <li key={s.result.item.itemId + s.result.item.quantity}>
-              <img src={s.printing.thumbUrl ?? s.printing.imageUrl} alt="" loading="lazy" />
+              <img src={thumb(s.printing, s.result.item.language)} alt="" loading="lazy" />
               <span>
-                {printingLabel(s.printing)}
+                {printingLabel(s.printing, s.result.item.language)}
                 {!s.result.item.confirmed && <em> · prüfen</em>}
                 <small> ×{s.result.item.quantity}</small>
               </span>

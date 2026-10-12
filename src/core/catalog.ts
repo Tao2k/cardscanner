@@ -1,14 +1,15 @@
-import type { Catalog, CatalogMeta, Printing } from './types';
+import type { Catalog, CatalogMeta, Language, Printing, PrintingImage, ReferenceRow } from './types';
 
 /**
  * Dateiformat eines gebauten Katalogs (pro Spiel ein Ordner unter `data/<gameId>/`):
- *   catalog.json    { meta, printings }
- *   embeddings.f32  Float32 little-endian, count × dim, Zeile i ↔ printings[i]
+ *   catalog.json    { meta, printings, refs }
+ *   embeddings.f32  Float32 little-endian, count × dim, Zeile i ↔ printings[refs[i].p] in Sprache refs[i].lang
  * `data/games.json` listet alle verfügbaren Spiele.
  */
 export interface CatalogFile {
   meta: CatalogMeta;
   printings: Printing[];
+  refs: ReferenceRow[];
 }
 
 export interface GameEntry {
@@ -43,5 +44,15 @@ export async function loadCatalog(baseUrl: string, gameId: string): Promise<Cata
       return r.arrayBuffer();
     }),
   ]);
-  return { meta: json.meta, printings: json.printings, embeddings: parseEmbeddings(bin, json.meta) };
+  return { meta: json.meta, printings: json.printings, refs: json.refs, embeddings: parseEmbeddings(bin, json.meta) };
+}
+
+/** Name eines Drucks in der gewünschten Sprache, sonst Englisch. */
+export function nameIn(p: Printing, lang: Language): string {
+  return p.names?.[lang] ?? p.cardName;
+}
+
+/** Kartenbild in der gewünschten Sprache, sonst das englische. */
+export function imageIn(p: Printing, lang: Language): PrintingImage {
+  return p.images?.[lang] ?? { imageUrl: p.imageUrl, thumbUrl: p.thumbUrl };
 }

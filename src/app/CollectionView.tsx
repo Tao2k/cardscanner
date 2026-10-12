@@ -4,6 +4,7 @@ import { exportWorkbook, importWorkbook } from '../core/excel';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingLabel } from './format';
+import { imageIn, nameIn } from '../core/catalog';
 import type { Prefs } from './prefs';
 
 interface Props {
@@ -23,10 +24,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const langLabel = (gameId: string, code: string) => catalogs.languages.get(gameId)?.find((l) => l.code === code)?.label ?? code;
   const q = query.trim().toLowerCase();
   const rows = items
     .map((item) => ({ item, printing: catalogs.lookup(item.gameId, item.printingId) }))
-    .filter(({ item, printing }) => !q || `${printing?.cardName} ${printing?.setCode} ${printing?.collectorNumber} ${item.location}`.toLowerCase().includes(q))
+    .filter(({ item, printing }) => !q || `${printing?.cardName} ${printing ? nameIn(printing, item.language) : ''} ${printing?.setCode} ${printing?.collectorNumber} ${item.location}`.toLowerCase().includes(q))
     .sort((a, b) => (b.item.updatedAt).localeCompare(a.item.updatedAt));
   const total = items.reduce((n, i) => n + i.quantity, 0);
 
@@ -54,7 +56,8 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
   const doImport = async (file: File) => {
     setBusy(true);
     try {
-      const { items: imported, errors } = await importWorkbook(await file.arrayBuffer(), (g, id) => !!catalogs.lookup(g, id));
+      const languages = [...new Set([...catalogs.languages.values()].flat().map((l) => l.code))];
+      const { items: imported, errors } = await importWorkbook(await file.arrayBuffer(), (g, id) => !!catalogs.lookup(g, id), languages);
       if (!imported.length) {
         setMessage(`Nichts importiert. ${errors.join(' ')}`);
         return;
@@ -112,11 +115,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       <ul class="items">
         {rows.slice(0, 300).map(({ item, printing }) => (
           <li key={item.itemId}>
-            {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
+            {printing && <img src={imageIn(printing, item.language).thumbUrl ?? imageIn(printing, item.language).imageUrl} alt="" loading="lazy" />}
             <div class="info">
-              <strong>{printing ? printingLabel(printing) : item.printingId}</strong>
+              <strong>{printing ? printingLabel(printing, item.language) : item.printingId}</strong>
               <small>
-                {item.finish === 'foil' ? 'Foil · ' : ''}
+                {langLabel(item.gameId, item.language)} · {item.finish === 'foil' ? 'Foil · ' : ''}
                 {item.condition}
                 {item.location ? ` · ${item.location}` : ''}
                 {!item.confirmed ? ' · ungeprüft' : ''}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { l2normalize, topK } from '../src/core/matcher';
+import { collapseToPrintings, l2normalize, topK } from '../src/core/matcher';
 import { Stabilizer } from '../src/core/stabilizer';
 import { boxToVideo, CARD_ASPECT, guideRect } from '../src/core/geometry';
 import { letterboxToSquare, toPortrait } from '../src/core/imageops';
@@ -14,6 +14,20 @@ describe('matcher', () => {
     const res = topK(q, emb, dim, 2);
     expect(res.map((m) => m.index)).toEqual([0, 2]);
     expect(res[0].score).toBeGreaterThan(res[1].score);
+  });
+
+  it('fasst mehrere Referenzbilder desselben Drucks zusammen', () => {
+    const rows = [
+      { index: 0, score: 0.9 },
+      { index: 1, score: 0.85 },
+      { index: 2, score: 0.8 },
+    ];
+    // Zeilen 0 und 1 gehören zu Druck 5 (englisches und chinesisches Bild), Zeile 2 zu Druck 7.
+    const refs = [5, 5, 7];
+    expect(collapseToPrintings(rows, (r) => refs[r], 2)).toEqual([
+      { index: 5, score: 0.9 },
+      { index: 7, score: 0.8 },
+    ]);
   });
 
   it('lehnt falsche Dimension ab', () => {

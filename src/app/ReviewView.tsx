@@ -2,6 +2,7 @@ import type { CollectionService } from '../core/collection';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { printingLabel } from './format';
+import { imageIn } from '../core/catalog';
 
 interface Props {
   items: CollectionItem[];
@@ -38,8 +39,8 @@ export function ReviewView({ items, catalogs, service, onChange }: Props) {
             <div class="candidates">
               {candidates.map((p, i) => (
                 <button key={p.printingId} class={i === 0 ? 'candidate first' : 'candidate'} onClick={() => choose(item, p.printingId)}>
-                  <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
-                  <small>{printingLabel(p)}</small>
+                  <img src={imageIn(p, item.language).imageUrl} alt={p.cardName} loading="lazy" />
+                  <small>{printingLabel(p, item.language)}</small>
                 </button>
               ))}
             </div>

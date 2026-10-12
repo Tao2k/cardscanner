@@ -33,3 +33,21 @@ export function topK(query: Float32Array, embeddings: Float32Array, dim: number,
   }
   return best;
 }
+
+/**
+ * Fasst Treffer auf Referenzbild-Ebene zu Treffern auf Druck-Ebene zusammen
+ * (ein Druck kann mehrere Referenzbilder haben, z. B. englisch und chinesisch).
+ * Ergebnis-Indizes zeigen auf Drucke; je Druck zählt das beste Referenzbild.
+ */
+export function collapseToPrintings(matches: Match[], rowToPrinting: (row: number) => number, k: number): Match[] {
+  const seen = new Set<number>();
+  const out: Match[] = [];
+  for (const m of matches) {
+    const p = rowToPrinting(m.index);
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push({ index: p, score: m.score });
+    if (out.length === k) break;
+  }
+  return out;
+}

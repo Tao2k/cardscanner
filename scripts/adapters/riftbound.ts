@@ -6,7 +6,17 @@ import type { GameAdapter } from './types';
  * als JSON (Next.js `__NEXT_DATA__`). Riftcodex wäre bequemer, sperrt aber Anfragen aus
  * Rechenzentren (Cloudflare) und damit auch GitHub Actions.
  */
-const GALLERY_URL = 'https://playriftbound.com/en-us/card-gallery/';
+const GALLERY_URL = (locale: string) => `https://playriftbound.com/${locale}/card-gallery/`;
+
+/**
+ * Drucksprachen und ihre Galerie-Locale. Englisch ist die Basis; die anderen Galerien
+ * liefern lokalisierte Namen und (bisher nur teilweise, v. a. Chinesisch) eigene Kartenbilder.
+ */
+export const LOCALES = [
+  { code: 'en', label: 'EN', locale: 'en-us' },
+  { code: 'fr', label: 'FR', locale: 'fr-fr' },
+  { code: 'zh-CN', label: '中文', locale: 'zh-cn' },
+] as const;
 const USER_AGENT = 'Mozilla/5.0 (compatible; CardScanner/0.1; +https://github.com/Tao2k/cardscanner)';
 
 interface Labeled<T> {
@@ -101,7 +111,6 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
     setCode: card.set?.value?.id ?? '',
     collectorNumber: number || (card.collectorNumber === undefined ? '' : String(card.collectorNumber)),
     variant: variantOf(card, setMax),
-    language: 'en',
     rarity: card.rarity?.value?.label,
     type: card.cardType?.type?.map((t) => t.label).join(' / '),
     imageUrl: sizedImage(imageUrl, 480, 'png'),
@@ -115,29 +124,59 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
       artist: card.illustrator?.values?.map((a) => a.label).join(', ') || null,
       orientation: card.orientation ?? 'portrait',
     },
-    externalIds: { riot: card.id, ...(card.publicCode ? { publicCode: card.publicCode } : {}) },
+    externalIds: { riot: card.id, imageSource: imageUrl, ...(card.publicCode ? { publicCode: card.publicCode } : {}) },
   };
+}
+
+/**
+ * Ergänzt einen Druck um Name und Bild aus einer anderen Sprachgalerie.
+ * Ein Bild wird nur übernommen, wenn es sich vom englischen unterscheidet, sonst wäre es doppelt im Index.
+ */
+export function addLocale(printing: Printing, card: GalleryCard, lang: string): Printing {
+  const names = card.name && card.name !== printing.cardName ? { ...printing.names, [lang]: card.name } : printing.names;
+  const url = card.cardImage?.url;
+  const baseUrl = printing.externalIds?.imageSource;
+  const images =
+    url && url !== baseUrl
+      ? { ...printing.images, [lang]: { imageUrl: sizedImage(url, 480, 'png'), thumbUrl: sizedImage(url, 120, 'webp') } }
+      : printing.images;
+  return { ...printing, ...(names ? { names } : {}), ...(images ? { images } : {}) };
+}
+
+async function fetchGallery(locale: string) {
+  const res = await fetch(GALLERY_URL(locale), { headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } });
+  if (!res.ok) throw new Error(`Kartengalerie ${locale}: HTTP ${res.status}`);
+  const gallery = extractGallery(parseNextData(await res.text()));
+  if (!gallery.cards.length) throw new Error(`Kartengalerie ${locale}: keine Karten in den Seitendaten gefunden.`);
+  return gallery;
 }
 
 export const riftbound: GameAdapter = {
   gameId: 'riftbound',
   gameName: 'Riftbound',
   source: 'Offizielle Riftbound-Kartengalerie (playriftbound.com); Kartendaten und Bilder © Riot Games',
+  languages: LOCALES.map(({ code, label }) => ({ code, label })),
   async fetchCatalog({ limit } = {}) {
-    const res = await fetch(GALLERY_URL, { headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } });
-    if (!res.ok) throw new Error(`Kartengalerie: HTTP ${res.status}`);
-    const { cards, sets } = extractGallery(parseNextData(await res.text()));
-    if (!cards.length) throw new Error('Kartengalerie: keine Karten in den Seitendaten gefunden.');
-
+    const galleries = [];
+    for (const l of LOCALES) galleries.push({ lang: l.code, ...(await fetchGallery(l.locale)) });
+    const sets = galleries[0].sets;
     const setMax = new Map(sets.map((s) => [s.id, s.collectorNumberMax]));
-    const seen = new Set<string>();
-    const printings: Printing[] = [];
-    for (const card of limit ? cards.slice(0, limit) : cards) {
-      const p = normalizeCard(card, setMax.get(card.set?.value?.id ?? ''));
-      if (!p || seen.has(p.printingId)) continue;
-      seen.add(p.printingId);
-      printings.push(p);
+
+    // Englisch ist die Basis; Karten, die nur in einer anderen Galerie stehen, kommen mit deren Daten dazu.
+    const byId = new Map<string, Printing>();
+    for (const { lang, cards } of galleries) {
+      for (const card of cards) {
+        const existing = byId.get(card.id);
+        if (existing) {
+          byId.set(card.id, addLocale(existing, card, lang));
+          continue;
+        }
+        const p = normalizeCard(card, setMax.get(card.set?.value?.id ?? ''));
+        if (!p) continue;
+        byId.set(card.id, p);
+      }
     }
+    const printings = [...byId.values()].slice(0, limit ?? Infinity);
     const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name }));
     return { sets: cardSets, printings };
   },

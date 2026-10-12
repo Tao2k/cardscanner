@@ -1,4 +1,4 @@
-import type { CardSet, Printing } from '../../src/core/types';
+import type { CardSet, LanguageInfo, Printing } from '../../src/core/types';
 
 /**
  * Anbindung eines Spiels an seine Kartendatenquelle. Für ein neues TCG wird nur ein
@@ -10,5 +10,7 @@ export interface GameAdapter {
   gameName: string;
   /** Kurzbeschreibung der Datenquelle, erscheint in den Katalog-Metadaten. */
   source: string;
+  /** Unterstützte Drucksprachen; die erste ist die Standardsprache. */
+  languages: LanguageInfo[];
   fetchCatalog(options?: { limit?: number }): Promise<{ sets: CardSet[]; printings: Printing[] }>;
 }

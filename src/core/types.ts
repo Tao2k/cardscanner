@@ -17,19 +17,41 @@ export interface CardSet {
 
 export type Variant = 'normal' | 'alt_art' | 'overnumbered' | 'signature' | 'promo';
 
-/** Ein konkreter Druck einer Karte (Set + Sammlernummer + Variante + Sprache). */
+/** Sprachcode nach BCP 47, z. B. 'en', 'fr', 'zh-CN'. */
+export type Language = string;
+
+export interface LanguageInfo {
+  code: Language;
+  label: string;
+}
+
+export interface PrintingImage {
+  imageUrl: string;
+  thumbUrl?: string;
+}
+
+/**
+ * Ein konkreter Druck einer Karte (Set + Sammlernummer + Variante).
+ * Die Sprache gehört nicht zum Druck, sondern zum gesammelten Exemplar: Drucke in
+ * verschiedenen Sprachen teilen sich Nummer und Artwork und unterscheiden sich nur im Text.
+ */
 export interface Printing {
   printingId: string;
+  /** Englischer Name (Referenz für Suche und Export). */
   cardName: string;
+  /** Lokalisierte Namen, z. B. { fr: '…', 'zh-CN': '…' }. */
+  names?: Record<Language, string>;
   setCode: string;
   collectorNumber: string;
   variant: Variant;
-  language: string;
   rarity?: string;
   type?: string;
+  /** Englisches Kartenbild. */
   imageUrl: string;
   /** Kleines Vorschaubild für Listen; fehlt es, wird imageUrl verwendet. */
   thumbUrl?: string;
+  /** Kartenbilder in anderen Sprachen, nur wo sie sich vom englischen unterscheiden. */
+  images?: Record<Language, PrintingImage>;
   attributes?: Record<string, unknown>;
   externalIds?: Record<string, string>;
 }
@@ -41,14 +63,25 @@ export interface CatalogMeta {
   builtAt: string;
   model: string;
   dim: number;
+  /** Anzahl Embedding-Zeilen (Referenzbilder), nicht Anzahl Drucke. */
   count: number;
   sets: CardSet[];
+  /** Sprachen, in denen das Spiel gedruckt wird; die erste ist die Standardsprache. */
+  languages: LanguageInfo[];
+}
+
+/** Embedding-Zeile → Druck (Index in printings) und Sprache des Referenzbilds. */
+export interface ReferenceRow {
+  p: number;
+  lang: Language;
 }
 
 export interface Catalog {
   meta: CatalogMeta;
   printings: Printing[];
-  /** L2-normalisierte Embeddings, Zeile i gehört zu printings[i]. Länge count × dim. */
+  /** Zuordnung der Embedding-Zeilen zu Drucken. */
+  refs: ReferenceRow[];
+  /** L2-normalisierte Embeddings, Länge count × dim. */
   embeddings: Float32Array;
 }
 
@@ -59,6 +92,7 @@ export interface CollectionItem {
   itemId: string;
   gameId: GameId;
   printingId: string;
+  language: Language;
   quantity: number;
   condition: Condition;
   finish: Finish;

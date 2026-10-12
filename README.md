@@ -19,6 +19,8 @@ src/storage/          Speicher-Interface; heute IndexedDB, später austauschbar 
 src/app/              Oberfläche (Preact), Kamera, Erkennungs-Worker
 ```
 
+**Sprachen:** Riftbound wird auf Englisch, Französisch und vereinfachtem Chinesisch erfasst. Die Sprache gehört zum gesammelten Exemplar, nicht zum Druck; beim Scannen wird sie oben gewählt. Riot veröffentlicht französische Kartenbilder bisher nicht, französische Karten werden daher über das englische Bild erkannt. Für etwa 560 Karten gibt es eigene chinesische Bilder, die zusätzlich im Index stehen.
+
 **Neues Spiel:** Adapter in `scripts/adapters/` schreiben (Interface `GameAdapter`), in `index.ts` registrieren und im Workflow einen weiteren `npm run catalog -- <spiel>` aufrufen.
 
 **Server später:** `CollectionStore` (`src/storage/store.ts`) mit einer HTTP-Umsetzung implementieren. Die App spricht nur über dieses Interface mit dem Speicher; Excel-Export und -Import bleiben gleich.

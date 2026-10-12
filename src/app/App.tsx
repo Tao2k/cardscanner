@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
-import type { CollectionItem, Printing } from '../core/types';
+import type { CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbStore } from '../storage/indexeddb';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Recognizer } from './recognizer';
@@ -14,6 +14,9 @@ const BASE = import.meta.env.BASE_URL;
 export interface Catalogs {
   games: GameEntry[];
   byGame: Map<string, Map<string, Printing>>;
+  /** Drucke in Katalogreihenfolge (Index = Ergebnis der Erkennung). */
+  ordered: Map<string, Printing[]>;
+  languages: Map<string, LanguageInfo[]>;
   lookup(gameId: string, printingId: string): Printing | undefined;
 }
 
@@ -44,11 +47,15 @@ export function App() {
       try {
         const games = await loadGames(BASE);
         const byGame = new Map<string, Map<string, Printing>>();
+        const ordered = new Map<string, Printing[]>();
+        const languages = new Map<string, LanguageInfo[]>();
         for (const g of games) {
           const file: CatalogFile = await fetch(`${BASE}data/${g.gameId}/catalog.json`).then((r) => r.json());
           byGame.set(g.gameId, new Map(file.printings.map((p) => [p.printingId, p])));
+          ordered.set(g.gameId, file.printings);
+          languages.set(g.gameId, file.meta.languages ?? [{ code: 'en', label: 'EN' }]);
         }
-        setCatalogs({ games, byGame, lookup: (gameId, id) => byGame.get(gameId)?.get(id) });
+        setCatalogs({ games, byGame, ordered, languages, lookup: (gameId, id) => byGame.get(gameId)?.get(id) });
         if (!games.some((g) => g.gameId === prefs.gameId) && games[0]) setPrefs({ gameId: games[0].gameId });
         const r = new Recognizer(BASE, games.map((g) => g.gameId), setStatus);
         setRecognizer(r);
