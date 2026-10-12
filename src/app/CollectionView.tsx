@@ -112,7 +112,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       <ul class="items">
         {rows.slice(0, 300).map(({ item, printing }) => (
           <li key={item.itemId}>
-            {printing && <img src={printing.imageUrl} alt="" loading="lazy" />}
+            {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
             <div class="info">
               <strong>{printing ? printingLabel(printing) : item.printingId}</strong>
               <small>
@@ -133,7 +133,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       {rows.length > 300 && <p class="muted">Es werden die 300 zuletzt geänderten Einträge angezeigt. Suche nutzen, um weitere zu finden.</p>}
       <footer class="legal">
         CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games
-        does not endorse or sponsor this project. Kartendaten: Riftcodex (inoffiziell).
+        does not endorse or sponsor this project. Kartendaten und Bilder: offizielle Riftbound-Kartengalerie.
       </footer>
     </section>
   );

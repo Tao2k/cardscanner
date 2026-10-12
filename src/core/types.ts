@@ -28,6 +28,8 @@ export interface Printing {
   rarity?: string;
   type?: string;
   imageUrl: string;
+  /** Kleines Vorschaubild für Listen; fehlt es, wird imageUrl verwendet. */
+  thumbUrl?: string;
   attributes?: Record<string, unknown>;
   externalIds?: Record<string, string>;
 }

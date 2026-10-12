@@ -12,7 +12,7 @@ Sammelkarten mit der Handykamera erkennen und als eigene Sammlung erfassen. Star
 ## Aufbau
 
 ```
-scripts/adapters/     Anbindung je Spiel an seine Kartendatenquelle (Riftbound → Riftcodex)
+scripts/adapters/     Anbindung je Spiel an seine Kartendatenquelle (Riftbound → offizielle Kartengalerie)
 scripts/build-catalog Katalog + Embeddings bauen (läuft in GitHub Actions)
 src/core/             Datenmodell, Suche, Stabilisierung, Sammlung, Excel – ohne UI
 src/storage/          Speicher-Interface; heute IndexedDB, später austauschbar gegen einen Server
@@ -42,4 +42,4 @@ Jeder Push auf `main` und jeden Montag baut die GitHub-Action den Katalog neu un
 
 CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games does not endorse or sponsor this project.
 
-Kartendaten stammen von [Riftcodex](https://riftcodex.com) (inoffiziell). Die App liefert nur Embeddings aus und zeigt Kartenbilder über die Original-URLs an.
+Kartendaten und Bilder stammen aus der [offiziellen Riftbound-Kartengalerie](https://playriftbound.com/en-us/card-gallery/). Die App liefert nur Embeddings aus und zeigt Kartenbilder über die Original-URLs an. ([Riftcodex](https://riftcodex.com) wäre eine Alternative, sperrt aber Anfragen aus GitHub Actions.)

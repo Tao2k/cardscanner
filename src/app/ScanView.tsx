@@ -171,7 +171,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <ul class="recent">
           {recent.map((s) => (
             <li key={s.result.item.itemId + s.result.item.quantity}>
-              <img src={s.printing.imageUrl} alt="" loading="lazy" />
+              <img src={s.printing.thumbUrl ?? s.printing.imageUrl} alt="" loading="lazy" />
               <span>
                 {printingLabel(s.printing)}
                 {!s.result.item.confirmed && <em> · prüfen</em>}
