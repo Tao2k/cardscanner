@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { chromium } from 'playwright';
 import type { CatalogFile } from '../src/core/catalog';
@@ -25,7 +26,7 @@ const URL_ = `http://localhost:${PORT}/`;
 let seed = 11;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 
-async function cardFrame(image: Buffer, guide: { x: number; y: number; width: number; height: number }, specks: number, out: string) {
+export async function cardFrame(image: Buffer, guide: { x: number; y: number; width: number; height: number }, specks: number, out: string) {
   const h = Math.round(guide.height * 0.95);
   const { data, info } = await sharp(image).resize({ height: h }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const w = info.width;
@@ -52,6 +53,7 @@ async function cardFrame(image: Buffer, guide: { x: number; y: number; width: nu
   const { data: rgb } = await sharp({ create: { width: VIDEO.width, height: VIDEO.height, channels: 3, background: { r: 105, g: 110, b: 112 } } })
     .composite([{ input: rotated.data, left, top }])
     .blur(0.7)
+    .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
   await writeFile(out, toY4m(rgb, VIDEO.width, VIDEO.height, 20));
@@ -166,7 +168,9 @@ async function main() {
   if (failures) process.exit(1);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
