@@ -29,10 +29,14 @@ export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
  */
 export const TEXT_REGION = { left: 0.04, top: 0.5, right: 0.96, bottom: 0.97 };
 
-/** Häufige Wörter auf Kartentexten; helfen, wenn Name und Text kaum Unterschiede liefern. */
+/**
+ * Typische Wörter je Sprache auf Kartentexten. Wichtig für Französisch: Riots Galerie zeigt auch
+ * auf der französischen Seite den englischen Regeltext, es gibt also keinen französischen
+ * Vergleichstext. Wörter, die in beiden Sprachen vorkommen (z. B. „main“), fehlen bewusst.
+ */
 const COMMON_WORDS: Record<string, string[]> = {
-  en: ['the', 'you', 'your', 'and', 'this', 'that', 'with', 'when', 'each', 'play', 'card', 'cards', 'unit', 'units', 'may', 'its', 'from', 'into', 'enemy', 'friendly', 'turn', 'draw', 'deal', 'damage', 'might'],
-  fr: ['les', 'des', 'une', 'vous', 'votre', 'vos', 'cette', 'avec', 'quand', 'chaque', 'jouez', 'carte', 'cartes', 'unité', 'unités', 'peut', 'pouvez', 'dans', 'sur', 'ennemie', 'alliée', 'tour', 'piochez', 'infligez', 'dégâts', 'puissance'],
+  en: ['the', 'you', 'your', 'and', 'this', 'that', 'with', 'when', 'each', 'play', 'card', 'cards', 'unit', 'units', 'may', 'its', 'from', 'into', 'enemy', 'friendly', 'turn', 'draw', 'deal', 'damage', 'might', 'return', 'hand', 'any', 'time', 'before', 'after', 'other', 'ready', 'exhaust', 'kill', 'gain', 'start', 'then', 'all', 'one', 'two', 'three', 'here', 'there', 'have', 'has', 'can', 'instead', 'until', 'battlefield', 'spell', 'spells', 'counter', 'owner', 'controller', 'choose', 'look', 'top', 'deck'],
+  fr: ['les', 'des', 'une', 'vous', 'votre', 'vos', 'cette', 'avec', 'quand', 'chaque', 'jouez', 'carte', 'cartes', 'unité', 'unités', 'peut', 'pouvez', 'dans', 'sur', 'ennemie', 'ennemi', 'ennemies', 'alliée', 'allié', 'alliées', 'tour', 'piochez', 'infligez', 'dégâts', 'puissance', 'pour', 'son', 'ses', 'leur', 'leurs', 'qui', 'est', 'aux', 'lorsque', 'elle', 'pas', 'plus', 'tout', 'toute', 'moment', 'avant', 'après', 'sort', 'sorts', 'renvoyez', 'propriétaire', 'contrôleur', 'choisissez', 'regardez', 'dessus', 'deck', 'champ', 'bataille', 'gagnez', 'tuez', 'jusqu', 'début', 'fin', 'lui', 'cela', 'ceci', 'chacune', 'chacun', 'autre', 'autres', 'phase'],
 };
 
 const HAN = /\p{Script=Han}/gu;
@@ -58,24 +62,36 @@ export function scoreHan(ocrText: string, cardText: string | undefined): number 
   return score;
 }
 
-/** Punkte je Latin-Sprache: sprachtypische Wörter der Karte, die im OCR-Text auftauchen. */
+/**
+ * Punkte je Latin-Sprache: Wörter aus dem OCR-Text, die nur zum Vokabular dieser Sprache passen.
+ * Vokabular = Kartentext dieser Sprache (nur wenn er sich von dem einer früheren Sprache unterscheidet) + typische Wörter.
+ */
 export function scoreLatin(ocrText: string, texts: Record<string, string>, latin: string[]): Record<string, number> {
-  const vocab = new Map(latin.map((l) => [l, latinWords(`${texts[l] ?? ''} ${(COMMON_WORDS[l] ?? []).join(' ')}`)]));
+  const vocab = new Map(
+    latin.map((l, i) => {
+      // Gleicher Text wie eine frühere Sprache (Galerie ohne Übersetzung) zählt nur für die frühere.
+      const own = texts[l];
+      const distinctText = own && !latin.slice(0, i).some((o) => texts[o] === own) ? own : '';
+      return [l, latinWords(`${distinctText} ${(COMMON_WORDS[l] ?? []).join(' ')}`)];
+    }),
+  );
   const seen = latinWords(ocrText);
   const scores: Record<string, number> = {};
   for (const lang of latin) {
     const others = latin.filter((l) => l !== lang).map((l) => vocab.get(l)!);
     let score = 0;
-    for (const w of vocab.get(lang)!) if (seen.has(w) && !others.some((o) => o.has(w))) score++;
+    for (const w of seen) if (vocab.get(lang)!.has(w) && !others.some((o) => o.has(w))) score++;
     scores[lang] = score;
   }
   return scores;
 }
 
+/** Beste Sprache, wenn sie genug Treffer hat und deutlich (mindestens 1,5×) vor der zweiten liegt. */
 function pickLatin(scores: Record<string, number>, latin: string[], minWords: number): string | null {
   const ranked = latin.map((l) => [l, scores[l] ?? 0] as const).sort((a, b) => b[1] - a[1]);
   const [best, second] = ranked;
-  return best && best[1] >= minWords && best[1] > (second?.[1] ?? 0) ? best[0] : null;
+  if (!best || best[1] < minWords) return null;
+  return best[1] >= 1.5 * (second?.[1] ?? 0) && best[1] > (second?.[1] ?? 0) ? best[0] : null;
 }
 
 /**

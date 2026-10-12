@@ -4,7 +4,8 @@ import { detectLanguage, hanChars, latinWords, scoreHan } from '../src/core/lang
 const LANGS = ['en', 'fr', 'zh-CN'];
 const texts = {
   en: 'Abandon [Reaction] (Play any time, even before spells and abilities resolve.) Counter a spell. Return it to its owner’s hand instead of putting it in their trash.',
-  fr: 'Abandon [Réaction] (Jouez à tout moment, même avant la résolution des sorts et capacités.) Contrez un sort. Renvoyez-le dans la main de son propriétaire au lieu de le mettre dans sa défausse.',
+  // Wie in Riots Galerie: die französische Seite zeigt den englischen Regeltext.
+  fr: 'Abandon [Reaction] (Play any time, even before spells and abilities resolve.) Counter a spell. Return it to its owner’s hand instead of putting it in their trash.',
   'zh-CN': '遗弃 [反应] 反制一个法术。将其返回其拥有者的手牌，而不是放入其废弃堆。',
 };
 
@@ -23,6 +24,11 @@ describe('Spracherkennung', () => {
     const r = reader('Abandon\nReaction Play any time even before spells and\nabilities resolve Counter a spell Return it to its owner hand');
     expect((await detectLanguage(r.read, texts, LANGS)).lang).toBe('en');
     expect(r.calls).toEqual(['latin']);
+  });
+
+  it('erkennt Englisch trotz OCR-Fehlern und Rauschen', async () => {
+    const r = reader('6) our - encemarer 4 Transpositionist R , @: Retum a friendly unit to its. owner\'s hand. You may play a unit with less Might than that unit');
+    expect((await detectLanguage(r.read, { en: 'Transpositionist Return a friendly unit to its owner’s hand. You may play a unit with less Might than that unit, ignoring its cost.' }, LANGS)).lang).toBe('en');
   });
 
   it('erkennt Französisch auch bei OCR-Fehlern', async () => {
