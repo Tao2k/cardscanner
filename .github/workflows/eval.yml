@@ -1,0 +1,31 @@
+name: Erkennungsqualität messen
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Anzahl Testbilder
+        default: '300'
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/images
+            public/models
+          key: catalog-none
+          restore-keys: catalog-
+      - run: npm run catalog -- riftbound
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }}

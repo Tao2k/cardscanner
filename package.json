@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "catalog": "tsx scripts/build-catalog.ts"
+    "catalog": "tsx scripts/build-catalog.ts",
+    "eval": "tsx scripts/eval-recognition.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
