@@ -3,7 +3,7 @@ import type { Condition, Finish } from '../core/types';
 /** Kleine Einstellungen pro Gerät. localStorage kann im privaten Modus fehlen, daher immer abgesichert. */
 export interface Prefs {
   gameId: string;
-  /** Drucksprache der gerade gescannten Karten. */
+  /** Drucksprache der gescannten Karten; 'auto' = per Texterkennung bestimmen. */
   language: string;
   finish: Finish;
   condition: Condition;
@@ -12,7 +12,7 @@ export interface Prefs {
 }
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'en', finish: 'normal', condition: 'NM', location: '', lastExportAt: null };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', condition: 'NM', location: '', lastExportAt: null };
 
 export function loadPrefs(): Prefs {
   try {

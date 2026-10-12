@@ -92,3 +92,4 @@ input[type='search'], .controls input { width: 100%; }
 .segmented button { border: none; border-radius: 0; flex: 1; min-width: 56px; }
 .segmented button + button { border-left: 1px solid var(--border); }
 .segmented button.active { background: var(--accent); color: var(--accent-text); }
+select.lang { min-height: 36px; padding: 4px 6px; font-size: 0.85rem; }

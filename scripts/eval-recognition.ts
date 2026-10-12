@@ -14,17 +14,20 @@ import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
 import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
+import { detectLanguage } from '../src/core/language';
+import { OCR_LANGS } from '../src/app/ocr';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
 const samples = Number(args[args.indexOf('--samples') + 1]) || 300;
+const ocrSamples = args.includes('--ocr') ? Number(args[args.indexOf('--ocr') + 1]) || 60 : 0;
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
 let seed = 42;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 const between = (a: number, b: number) => a + rand() * (b - a);
 
-async function distort(buf: Buffer): Promise<{ data: Uint8ClampedArray; width: number; height: number; channels: 3 }> {
+async function distortTo(buf: Buffer, outHeight: number): Promise<sharp.Sharp> {
   const base = sharp(buf).removeAlpha();
   const meta = await base.metadata();
   const w = meta.width!;
@@ -49,11 +52,13 @@ async function distort(buf: Buffer): Promise<{ data: Uint8ClampedArray; width: n
   const m2 = await img.metadata();
   const targetW = Math.min(m2.width!, Math.round((m2.height! * 63) / 88));
   const targetH = Math.min(m2.height!, Math.round((targetW * 88) / 63));
-  const { data, info } = await img
+  return img
     .extract({ left: Math.floor((m2.width! - targetW) / 2), top: Math.floor((m2.height! - targetH) / 2), width: targetW, height: targetH })
-    .resize({ height: 320 })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+    .resize({ height: outHeight });
+}
+
+async function distort(buf: Buffer): Promise<{ data: Uint8ClampedArray; width: number; height: number; channels: 3 }> {
+  const { data, info } = await (await distortTo(buf, 320)).raw().toBuffer({ resolveWithObject: true });
   return { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 };
 }
 
@@ -101,6 +106,40 @@ async function main() {
   console.log(`Falsch, aber gleiche Karte in anderer Variante: ${sameName}`);
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
+  if (ocrSamples) await evalLanguage(file, ocrSamples);
+}
+
+/**
+ * Spracherkennung per OCR auf verzerrten Kartenbildern in voller Auflösung.
+ * Französische Kartenbilder veröffentlicht Riot nicht, daher nur Englisch und Chinesisch.
+ */
+async function evalLanguage(file: CatalogFile, perLang: number) {
+  const { createWorker } = await import('tesseract.js');
+  const worker = await createWorker(OCR_LANGS, 1);
+  const languages = file.meta.languages.map((l) => l.code);
+  for (const lang of ['en', 'zh-CN']) {
+    const rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === lang).sort(() => rand() - 0.5).slice(0, perLang);
+    const outcome = new Map<string, number>();
+    let ms = 0;
+    for (const r of rows) {
+      const p = file.printings[file.refs[r].p];
+      const full = new URL(imageIn(p, lang).imageUrl);
+      full.searchParams.delete('w');
+      full.searchParams.delete('fm');
+      const url = full.toString();
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const png = await (await distortTo(Buffer.from(await res.arrayBuffer()), 1100)).png().toBuffer();
+      const start = Date.now();
+      const text = (await worker.recognize(png)).data.text;
+      ms += Date.now() - start;
+      const guess = detectLanguage(text, p.texts ?? {}, languages).lang ?? 'unklar';
+      outcome.set(guess, (outcome.get(guess) ?? 0) + 1);
+    }
+    const parts = [...outcome].map(([g, n]) => `${g} ${((100 * n) / rows.length).toFixed(0)} %`).join(', ');
+    console.log(`Sprache ${lang}: ${rows.length} Bilder → ${parts}  (OCR im Schnitt ${Math.round(ms / rows.length)} ms)`);
+  }
+  await worker.terminate();
 }
 
 main().catch((e) => {

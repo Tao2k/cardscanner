@@ -45,6 +45,7 @@ export interface GalleryCard {
   energy?: Labeled<Option>;
   might?: Labeled<Option>;
   power?: Labeled<Option>;
+  text?: { richText?: { body?: string } };
   tags?: unknown;
 }
 
@@ -99,6 +100,21 @@ export function sizedImage(url: string, width: number, format?: 'webp' | 'png'):
   return u.toString();
 }
 
+/** Name und Regeltext als einfacher Text (für die Spracherkennung). */
+export function plainText(card: GalleryCard): string {
+  const body = card.text?.richText?.body ?? '';
+  const text = body
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x27;|&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${card.name} ${text}`.trim();
+}
+
 const optionId = (l?: Labeled<Option>) => (l?.value?.id === undefined ? null : l.value.id);
 
 export function normalizeCard(card: GalleryCard, setMax?: number): Printing | null {
@@ -111,6 +127,7 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
     setCode: card.set?.value?.id ?? '',
     collectorNumber: number || (card.collectorNumber === undefined ? '' : String(card.collectorNumber)),
     variant: variantOf(card, setMax),
+    texts: { en: plainText(card) },
     rarity: card.rarity?.value?.label,
     type: card.cardType?.type?.map((t) => t.label).join(' / '),
     imageUrl: sizedImage(imageUrl, 480, 'png'),
@@ -134,13 +151,14 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
  */
 export function addLocale(printing: Printing, card: GalleryCard, lang: string): Printing {
   const names = card.name && card.name !== printing.cardName ? { ...printing.names, [lang]: card.name } : printing.names;
+  const texts = { ...printing.texts, [lang]: plainText(card) };
   const url = card.cardImage?.url;
   const baseUrl = printing.externalIds?.imageSource;
   const images =
     url && url !== baseUrl
       ? { ...printing.images, [lang]: { imageUrl: sizedImage(url, 480, 'png'), thumbUrl: sizedImage(url, 120, 'webp') } }
       : printing.images;
-  return { ...printing, ...(names ? { names } : {}), ...(images ? { images } : {}) };
+  return { ...printing, texts, ...(names ? { names } : {}), ...(images ? { images } : {}) };
 }
 
 async function fetchGallery(locale: string) {

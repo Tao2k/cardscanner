@@ -24,7 +24,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const langLabel = (gameId: string, code: string) => catalogs.languages.get(gameId)?.find((l) => l.code === code)?.label ?? code;
   const q = query.trim().toLowerCase();
   const rows = items
     .map((item) => ({ item, printing: catalogs.lookup(item.gameId, item.printingId) }))
@@ -119,12 +118,22 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
             <div class="info">
               <strong>{printing ? printingLabel(printing, item.language) : item.printingId}</strong>
               <small>
-                {langLabel(item.gameId, item.language)} · {item.finish === 'foil' ? 'Foil · ' : ''}
+                {item.finish === 'foil' ? 'Foil · ' : ''}
                 {item.condition}
                 {item.location ? ` · ${item.location}` : ''}
                 {!item.confirmed ? ' · ungeprüft' : ''}
               </small>
             </div>
+            {(catalogs.languages.get(item.gameId)?.length ?? 0) > 1 && (
+              <select
+                class="lang"
+                aria-label="Sprache"
+                value={item.language}
+                onChange={(e) => service.update(item.itemId, { language: e.currentTarget.value }).then(onChange)}
+              >
+                {catalogs.languages.get(item.gameId)!.map((l) => <option value={l.code}>{l.label}</option>)}
+              </select>
+            )}
             <div class="qty">
               <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
               <span>{item.quantity}</span>

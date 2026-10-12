@@ -4,7 +4,9 @@ import { guideRect } from '../core/geometry';
 import { Stabilizer } from '../core/stabilizer';
 import type { Condition, Printing } from '../core/types';
 import type { Catalogs } from './App';
-import { grabCard, startCamera, stopCamera } from './camera';
+import { drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
+import { detectLanguage } from '../core/language';
+import { readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
@@ -42,6 +44,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [guess, setGuess] = useState<{ printing: Printing; score: number; ms: number } | null>(null);
   const [recent, setRecent] = useState<Saved[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
+  const [readingLanguage, setReadingLanguage] = useState(false);
+  const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
+  /** Zuletzt erkannte Sprache; Fallback, wenn der Text nicht eindeutig ist (Stapel sind meist einsprachig). */
+  const lastLanguage = useRef<string | null>(null);
 
   // Kamera starten/stoppen
   useEffect(() => {
@@ -74,6 +80,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (!running || !recognizer || !catalogs) return;
     let active = true;
     stabilizer.current.reset();
+    if (prefsRef.current.language === 'auto') warmUpOcr().catch(() => undefined);
     (async () => {
       await recognizer.ready;
       while (active) {
@@ -92,10 +99,22 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         if (stable) {
           const p = prefsRef.current;
           const printing = printings[stable.index];
+          const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
+          let language = p.language;
+          if (language === 'auto' || !languages.includes(language)) {
+            const ctx = drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT);
+            setReadingLanguage(true);
+            const text = ctx ? await readText(ocrCanvasRef.current!) : '';
+            setReadingLanguage(false);
+            if (!active) break;
+            const guess = detectLanguage(text, printing.texts ?? {}, languages);
+            language = guess.lang ?? lastLanguage.current ?? languages[0];
+            if (guess.lang) lastLanguage.current = guess.lang;
+          }
           const result = await service.addScan({
             gameId,
             printingId: printing.printingId,
-            language: p.language,
+            language,
             finish: p.finish,
             condition: p.condition,
             location: p.location,
@@ -129,6 +148,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       <div class="viewfinder">
         <video ref={videoRef} playsInline muted />
         <canvas ref={canvasRef} hidden />
+        <canvas ref={ocrCanvasRef} hidden />
         {running && guide && (
           <div class="guide" style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
         )}
@@ -142,9 +162,11 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
         {running && (
           <div class="hud">
-            {guess ? (
+            {readingLanguage ? (
+              <span>Lese Sprache …</span>
+            ) : guess ? (
               <span>
-                {nameIn(guess.printing, prefs.language)} · {Math.round(guess.score * 100)} % · {guess.ms} ms
+                {nameIn(guess.printing, prefs.language === 'auto' ? lastLanguage.current ?? 'en' : prefs.language)} · {Math.round(guess.score * 100)} % · {guess.ms} ms
               </span>
             ) : (
               <span>Karte in den Rahmen halten</span>
@@ -162,7 +184,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
         {catalogs && (catalogs.languages.get(prefs.gameId)?.length ?? 0) > 1 && (
           <div class="segmented" role="radiogroup" aria-label="Sprache der Karten">
-            {catalogs.languages.get(prefs.gameId)!.map((l) => (
+            {[{ code: 'auto', label: 'Auto' }, ...catalogs.languages.get(prefs.gameId)!].map((l) => (
               <button
                 role="radio"
                 aria-checked={prefs.language === l.code}
@@ -195,6 +217,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <img src={thumb(s.printing, s.result.item.language)} alt="" loading="lazy" />
               <span>
                 {printingLabel(s.printing, s.result.item.language)}
+                <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
                 <small> ×{s.result.item.quantity}</small>
               </span>

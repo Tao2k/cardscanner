@@ -18,18 +18,28 @@ export function stopCamera(stream: MediaStream | null) {
   stream?.getTracks().forEach((t) => t.stop());
 }
 
-/** Schneidet den Bereich des Zielrahmens aus dem aktuellen Kamerabild aus. */
-export function grabCard(video: HTMLVideoElement, canvas: HTMLCanvasElement): Pixels | null {
+/** Zeichnet den Bereich des Zielrahmens in voller Kameraauflösung (höchstens maxHeight) auf ein Canvas. */
+export function drawCard(video: HTMLVideoElement, canvas: HTMLCanvasElement, maxHeight: number): CanvasRenderingContext2D | null {
   const { videoWidth, videoHeight, clientWidth, clientHeight } = video;
   if (!videoWidth || !videoHeight || !clientWidth || !clientHeight) return null;
   const src = boxToVideo(guideRect(clientWidth, clientHeight), videoWidth, videoHeight, clientWidth, clientHeight);
-  const height = CROP_HEIGHT;
+  const height = Math.round(Math.min(maxHeight, src.height));
   const width = Math.round((src.width / src.height) * height);
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
   ctx.drawImage(video, src.x, src.y, src.width, src.height, 0, 0, width, height);
-  const { data } = ctx.getImageData(0, 0, width, height);
-  return { data, width, height, channels: 4 };
+  return ctx;
 }
+
+/** Schneidet den Bereich des Zielrahmens für die Bilderkennung aus. */
+export function grabCard(video: HTMLVideoElement, canvas: HTMLCanvasElement): Pixels | null {
+  const ctx = drawCard(video, canvas, CROP_HEIGHT);
+  if (!ctx) return null;
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return { data, width: canvas.width, height: canvas.height, channels: 4 };
+}
+
+/** Höhere Auflösung für die Texterkennung; Kartentext ist klein. */
+export const OCR_CROP_HEIGHT = 1100;

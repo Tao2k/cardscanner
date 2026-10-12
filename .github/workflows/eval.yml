@@ -6,6 +6,9 @@ on:
       samples:
         description: Anzahl Testbilder
         default: '300'
+      ocr:
+        description: Testbilder je Sprache für die Spracherkennung (0 = aus)
+        default: '60'
 
 permissions:
   contents: read
@@ -28,4 +31,4 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
-      - run: npm run eval -- riftbound --samples ${{ inputs.samples }}
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }}

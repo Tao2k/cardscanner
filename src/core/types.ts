@@ -50,6 +50,8 @@ export interface Printing {
   imageUrl: string;
   /** Kleines Vorschaubild für Listen; fehlt es, wird imageUrl verwendet. */
   thumbUrl?: string;
+  /** Name und Regeltext je Sprache, für die Spracherkennung per OCR. */
+  texts?: Record<Language, string>;
   /** Kartenbilder in anderen Sprachen, nur wo sie sich vom englischen unterscheiden. */
   images?: Record<Language, PrintingImage>;
   attributes?: Record<string, unknown>;
