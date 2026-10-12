@@ -16,11 +16,19 @@ import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
 import { detectLanguage, TEXT_REGION } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
+import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
+import type { Embedder } from '../src/core/embedder';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
 const samples = Number(args[args.indexOf('--samples') + 1]) || 300;
-const ocrSamples = args.includes('--ocr') ? Number(args[args.indexOf('--ocr') + 1]) || 60 : 0;
+const option = (name: string, fallback: number) => {
+  if (!args.includes(name)) return 0;
+  const value = Number(args[args.indexOf(name) + 1]);
+  return Number.isNaN(value) ? fallback : value;
+};
+const ocrSamples = option('--ocr', 60);
+const learnSamples = option('--learn', 200);
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
 let seed = 42;
@@ -106,7 +114,58 @@ async function main() {
   console.log(`Falsch, aber gleiche Karte in anderer Variante: ${sameName}`);
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
+  if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
   if (ocrSamples) await evalLanguage(file, ocrSamples);
+}
+
+/**
+ * Lernen aus eigenen Scans: n verzerrte Bilder gelten als „von dir bestätigt“.
+ * Getestet wird mit neuen Verzerrungen, je zur Hälfte von schon gescannten und von neuen Drucken.
+ */
+async function evalLearning(file: CatalogFile, embeddings: Float32Array, embedder: Embedder, n: number) {
+  const refs = Int32Array.from(file.refs, (r) => r.p);
+  const imageOf = async (row: number) => {
+    const { p, lang } = file.refs[row];
+    const url = imageIn(file.printings[p], lang).imageUrl;
+    return readFile(path.join('.cache/images', createHash('sha1').update(url).digest('hex')));
+  };
+  const rows = [...file.refs.keys()].sort(() => rand() - 0.5);
+  const train = rows.slice(0, n);
+  const trained = new Set(train.map((r) => refs[r]));
+  const samples = [];
+  for (const r of train) samples.push({ vector: await embedder.embed(await distort(await imageOf(r))), printing: refs[r] });
+  const seenRows = train.slice(0, Math.min(150, n));
+  const newRows = rows.slice(n).filter((r) => !trained.has(refs[r])).slice(0, 150);
+  const test = [];
+  for (const r of [...seenRows, ...newRows]) test.push({ vector: await embedder.embed(await distort(await imageOf(r))), printing: refs[r], seen: trained.has(refs[r]) });
+
+  const variants: { name: string; source: SampleSource | null; config: typeof DEFAULT_LEARNING }[] = [
+    { name: 'ohne Lernen', source: null, config: DEFAULT_LEARNING },
+    { name: 'nur Kamera-Verschiebung', source: 'auto', config: DEFAULT_LEARNING },
+    { name: 'nur eigene Fotos', source: 'user', config: { ...DEFAULT_LEARNING, minShiftSamples: Infinity } },
+    { name: 'beides', source: 'user', config: DEFAULT_LEARNING },
+    { name: 'beides, ohne Dämpfung', source: 'user', config: { ...DEFAULT_LEARNING, shrink: 0 } },
+    { name: 'beides, ohne Abzug', source: 'user', config: { ...DEFAULT_LEARNING, samplePenalty: 0 } },
+  ];
+  console.log(`\n=== Lernen aus ${n} eigenen Scans (${trained.size} Drucke), Test: ${seenRows.length} schon gescannt / ${newRows.length} neu`);
+  for (const v of variants) {
+    const index = new AdaptiveIndex(embeddings, refs, file.meta.dim, v.config);
+    if (v.source) index.setSamples(samples.map((s) => ({ ...s, source: v.source! })));
+    const stat = { seen: { n: 0, hit: 0, conf: 0, confHit: 0 }, new: { n: 0, hit: 0, conf: 0, confHit: 0 } };
+    for (const t of test) {
+      const res = index.search(t.vector, 3);
+      const st = t.seen ? stat.seen : stat.new;
+      const hit = res[0]?.index === t.printing;
+      const conf = res[0].score >= DEFAULT_STABILIZER.minScore && res[0].score - (res[1]?.score ?? 0) >= DEFAULT_STABILIZER.confidentMargin;
+      st.n++;
+      if (hit) st.hit++;
+      if (conf) st.conf++;
+      if (conf && hit) st.confHit++;
+    }
+    const fmt = (s: typeof stat.seen) =>
+      `Top-1 ${((100 * s.hit) / s.n).toFixed(1)} %, sicher ${((100 * s.conf) / s.n).toFixed(1)} % (davon richtig ${((100 * s.confHit) / (s.conf || 1)).toFixed(1)} %)`;
+    console.log(`${v.name.padEnd(24)} gescannt: ${fmt(stat.seen)} | neu: ${fmt(stat.new)}`);
+  }
 }
 
 /**
