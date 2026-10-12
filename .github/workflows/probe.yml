@@ -6,28 +6,28 @@ jobs:
     steps:
       - run: |
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36'
-          for u in "https://api.riftcodex.com/cards?page=1&size=2" "https://playriftbound.com/en-us/card-gallery/" "https://cmsassets.rgpub.io/"; do
-            echo "=== $u"
-            curl -sS -m 30 -A "$UA" -o body -w "HTTP %{http_code} size %{size_download} type %{content_type}\n" "$u" || true
-            head -c 300 body; echo
-          done
-          echo "=== gallery script hints"
-          curl -sS -m 30 -A "$UA" https://playriftbound.com/en-us/card-gallery/ -o g.html
-          grep -o '__NEXT_DATA__' g.html | head -1
-          grep -o 'cmsassets.rgpub.io[^"\\ ]*' g.html | head -5
-          grep -o 'https://[^"\\ ]*card[^"\\ ]*\.json[^"\\ ]*' g.html | head -5
+          curl -sS -m 60 -A "$UA" https://playriftbound.com/en-us/card-gallery/ -o g.html
           python3 - <<'P'
           import re,json
           h=open('g.html').read()
-          m=re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',h,re.S)
-          if m:
-              d=json.loads(m.group(1))
-              def walk(o,p='',depth=0):
-                  if depth>7: return
-                  if isinstance(o,dict):
-                      for k,v in o.items(): walk(v,p+'.'+k,depth+1)
-                  elif isinstance(o,list) and o:
-                      print(p, 'list', len(o), (list(o[0].keys())[:25] if isinstance(o[0],dict) else type(o[0]).__name__))
-                      walk(o[0],p+'[0]',depth+1)
-              walk(d)
+          d=json.loads(re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',h,re.S).group(1))
+          print('hreflangs', [x['locale'] for x in d['props']['pageProps']['page']['hreflangs']])
+          lists=[]
+          def walk(o,p):
+              if isinstance(o,dict):
+                  for k,v in o.items(): walk(v,p+'.'+k)
+              elif isinstance(o,list):
+                  if o and isinstance(o[0],dict): lists.append((len(o),p,o))
+                  for i,v in enumerate(o[:3]): walk(v,p+f'[{i}]')
+          walk(d,'')
+          lists.sort(key=lambda x:-x[0])
+          for n,p,o in lists[:6]: print(n,p,list(o[0].keys())[:30])
+          n,p,o=lists[0]
+          s=json.dumps(o[0])
+          print('SAMPLE', s[:3500])
+          print('VARIANT SAMPLES')
+          for c in o:
+              t=json.dumps(c)
+              if 'signature' in t.lower() or 'overnumber' in t.lower() or 'alternate' in t.lower():
+                  print(t[:1500]); break
           P
