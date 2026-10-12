@@ -17,7 +17,8 @@ import { imageIn } from '../src/core/catalog';
 import { boxToVideo, guideRect } from '../src/core/geometry';
 
 const VIEWPORT = { width: 390, height: 844 };
-const VIDEO = { width: 720, height: 1280 };
+// So groß, wie die App die Kamera anfragt; Chromium beschneidet andere Formate
+const VIDEO = { width: 1920, height: 1080 };
 const PORT = 4173;
 const URL_ = `http://localhost:${PORT}/`;
 
