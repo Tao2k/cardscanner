@@ -118,12 +118,25 @@ async function main() {
     const context = await browser.newContext({ viewport: VIEWPORT, permissions: ['camera'] });
     const page = await context.newPage();
     page.on('pageerror', (e) => console.log(`  Seitenfehler: ${e.message}`));
+    page.on('console', (m) => m.type() !== 'debug' && console.log(`  Konsole ${m.type()}: ${m.text().slice(0, 200)}`));
     await page.goto(URL_);
     const start = page.getByRole('button', { name: 'Scannen starten' });
     await start.waitFor({ timeout: 180_000 });
     await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('.overlay button')?.disabled, null, { timeout: 180_000 });
     await start.click();
-    await page.locator('.recent li').first().waitFor({ timeout: 120_000 });
+    // Alle 10 s zeigen, was die App gerade anzeigt, damit ein Hänger nachvollziehbar ist
+    const hud = setInterval(async () => {
+      const text = await page.locator('.hud, .banner').allInnerTexts().catch(() => []);
+      console.log(`  [${c.lang}] ${text.join(' | ').replace(/\s+/g, ' ')}`);
+    }, 10_000);
+    const saved = await page.locator('.recent li').first().waitFor({ timeout: 120_000 }).then(() => true, () => false);
+    clearInterval(hud);
+    if (!saved) {
+      failures++;
+      console.log(`FEHLER ${printing.printingId} [${c.lang}]: nach 120 s nichts gespeichert`);
+      await browser.close();
+      continue;
+    }
     const shown = (await page.locator('.recent li').first().innerText()).replace(/\s+/g, ' ');
     const items = await page.evaluate(
       () =>
