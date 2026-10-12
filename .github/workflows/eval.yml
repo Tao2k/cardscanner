@@ -9,6 +9,9 @@ on:
       ocr:
         description: Testbilder je Sprache für die Spracherkennung (0 = aus)
         default: '60'
+      condition:
+        description: Karten für den Test der Zustandsschätzung (0 = aus)
+        default: '0'
       learn:
         description: Eigene Scans für den Lerntest (0 = aus)
         default: '0'
@@ -34,4 +37,4 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
-      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }}
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }}

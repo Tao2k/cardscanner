@@ -18,6 +18,8 @@ import { detectLanguage, TEXT_REGION } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
+import { estimateCondition, toGray, type Gray } from '../src/core/condition';
+import { grayReference } from './gray';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -29,6 +31,7 @@ const option = (name: string, fallback: number) => {
 };
 const ocrSamples = option('--ocr', 60);
 const learnSamples = option('--learn', 200);
+const conditionSamples = option('--condition', 40);
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
 let seed = 42;
@@ -114,8 +117,124 @@ async function main() {
   console.log(`Falsch, aber gleiche Karte in anderer Variante: ${sameName}`);
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
+  if (conditionSamples) await evalCondition(file, conditionSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
   if (ocrSamples) await evalLanguage(file, ocrSamples);
+}
+
+/**
+ * Zustandsschätzung: Referenzbilder bekommen künstliche weiße Abnutzung an den Kanten, werden leicht
+ * gedreht auf Unterlagen verschiedener Helligkeit gelegt, unscharf und als JPEG gespeichert.
+ * Misst nur, ob das Verfahren funktioniert; echte Abnutzung sieht anders aus als diese Simulation.
+ */
+async function evalCondition(file: CatalogFile, n: number) {
+  const rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === 'en').sort(() => rand() - 0.5).slice(0, n);
+  const levels = [
+    { name: 'sauber', specks: 0 },
+    { name: 'leicht', specks: 8 },
+    { name: 'mittel', specks: 35 },
+    { name: 'stark', specks: 140 },
+  ];
+  const tables = [
+    { name: 'schwarz', v: 15 },
+    { name: 'dunkelgrau', v: 60 },
+    { name: 'mittelgrau', v: 110 },
+    { name: 'weiß', v: 225 },
+  ];
+  // Einmal zeigen, wie die Referenzbilder aussehen (Größe, Transparenz, Rand)
+  {
+    const p = file.printings[file.refs[rows[0]].p];
+    const buf = await readFile(path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex')));
+    const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const px = (x: number, y: number) => Array.from(data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 4));
+    let ring = 0, cnt = 0;
+    for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+      const d = Math.min(x, y, info.width - 1 - x, info.height - 1 - y);
+      if (d < info.width * 0.03 && y > info.height * 0.1 && y < info.height * 0.9) {
+        const k = (y * info.width + x) * 4;
+        ring += 0.299 * data[k] + 0.587 * data[k + 1] + 0.114 * data[k + 2];
+        cnt++;
+      }
+    }
+    console.log(`\nReferenzbild ${p.printingId}: ${info.width}×${info.height}, Ecke RGBA ${px(0, 0)}, Rand Mitte links ${px(2, info.height >> 1)}, Randhelligkeit ${(ring / cnt).toFixed(0)}`);
+  }
+
+  const results = new Map<string, Map<string, number>>();
+  const metrics = new Map<string, number[][]>();
+  for (const r of rows) {
+    const p = file.printings[file.refs[r].p];
+    const buf = await readFile(path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex')));
+    const ref = await grayOf(grayReference(buf));
+    const { data: card, info } = await sharp(buf).resize({ height: 670 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const w = info.width, h = info.height;
+    const radius = (3 / 63) * w;
+    // Abgerundete Ecken freistellen, falls das Bild keine Transparenz hat
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const cx = Math.min(Math.max(x + 0.5, radius), w - radius), cy = Math.min(Math.max(y + 0.5, radius), h - radius);
+      if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > radius) card[(y * w + x) * 4 + 3] = 0;
+    }
+    for (const level of levels) {
+      const worn = Buffer.from(card);
+      for (let i = 0; i < level.specks; i++) {
+        const side = Math.floor(rand() * 4), t = rand(), rad = between(1.5, 4.5);
+        const [sx, sy] = side === 0 ? [t * w, 0] : side === 1 ? [w - 1, t * h] : side === 2 ? [t * w, h - 1] : [0, t * h];
+        for (let y = Math.floor(sy - rad); y <= sy + rad; y++) for (let x = Math.floor(sx - rad); x <= sx + rad; x++) {
+          if (x < 0 || y < 0 || x >= w || y >= h || Math.hypot(x - sx, y - sy) > rad) continue;
+          const k = (y * w + x) * 4;
+          if (worn[k + 3] === 0) continue;
+          const v = Math.round(between(225, 250));
+          worn[k] = worn[k + 1] = worn[k + 2] = v;
+        }
+      }
+      for (const table of tables) {
+        const angle = between(-3, 3);
+        const rotated = await sharp(worn, { raw: { width: w, height: h, channels: 4 } })
+          .rotate(angle, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .png()
+          .toBuffer({ resolveWithObject: true });
+        const W = Math.round(w * 1.3), H = Math.round(h * 1.24);
+        const left = Math.round((W - rotated.info.width) / 2 + between(-10, 10));
+        const top = Math.round((H - rotated.info.height) / 2 + between(-10, 10));
+        const tint = Math.round(between(-8, 8));
+        const photo = await sharp({ create: { width: W, height: H, channels: 3, background: { r: table.v + tint, g: table.v, b: table.v - tint } } })
+          .composite([{ input: rotated.data, left, top }])
+          .modulate({ brightness: between(0.75, 1.15) })
+          .blur(between(0.4, 1.2))
+          .jpeg({ quality: Math.round(between(60, 85)) })
+          .toBuffer();
+        const gray = await grayOf(sharp(photo));
+        // Zielrahmen: dort, wo die Karte ungefähr liegt (die App kennt nur den Rahmen, nicht die Karte)
+        const cx = left + rotated.info.width / 2, cy = top + rotated.info.height / 2;
+        const jitter = h * 0.03;
+        const expected = { x: cx - w / 2 + between(-jitter, jitter), y: cy - h / 2 + between(-jitter, jitter), width: w, height: h };
+        const est = estimateCondition(gray, expected, ref);
+        const key = `${level.name}|${table.name}`;
+        const m = results.get(key) ?? new Map<string, number>();
+        const outcome = est.condition ?? 'keine';
+        m.set(outcome, (m.get(outcome) ?? 0) + 1);
+        results.set(key, m);
+        if (est.condition) metrics.set(key, [...(metrics.get(key) ?? []), [est.edge, est.corner]]);
+        if (!est.condition && level.specks === 0 && table.v === 110) console.log(`  keine Schätzung (${p.printingId}): ${est.reason}`);
+      }
+    }
+  }
+  console.log(`\n=== Zustand: ${rows.length} Karten × ${levels.length} Abnutzungsstufen × ${tables.length} Unterlagen`);
+  for (const table of tables) {
+    for (const level of levels) {
+      const key = `${level.name}|${table.name}`;
+      const m = results.get(key)!;
+      const dist = ['NM', 'LP', 'MP', 'HP', 'keine'].filter((c) => m.has(c)).map((c) => `${c} ${Math.round((100 * m.get(c)!) / rows.length)} %`).join(', ');
+      const ms = metrics.get(key) ?? [];
+      const med = (i: number) => (ms.length ? [...ms.map((x) => x[i])].sort((a, b) => a - b)[ms.length >> 1].toFixed(4) : '-');
+      console.log(`${table.name.padEnd(11)} ${level.name.padEnd(7)} → ${dist}   (Median Kante ${med(0)}, Ecke ${med(1)})`);
+    }
+  }
+}
+
+async function grayOf(img: sharp.Sharp): Promise<Gray> {
+  const { data, info } = await img.removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (info.channels === 1) return { data: Float32Array.from(data), width: info.width, height: info.height };
+  return toGray({ data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: info.channels as 3 });
 }
 
 /**

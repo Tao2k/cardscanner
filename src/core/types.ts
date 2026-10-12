@@ -76,6 +76,8 @@ export interface CatalogMeta {
 export interface ReferenceRow {
   p: number;
   lang: Language;
+  /** Graustufenbild für die Zustandsschätzung, relativ zu data/<game>/ (fehlt bei alten Katalogen). */
+  g?: string;
 }
 
 export interface Catalog {
