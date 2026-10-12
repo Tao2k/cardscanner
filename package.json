@@ -1,0 +1,32 @@
+{
+  "name": "cardscanner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trading cards per Handykamera erkennen und als Sammlung erfassen",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "catalog": "tsx scripts/build-catalog.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "exceljs": "^4.4.0",
+    "idb": "^8.0.3",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^22.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "sharp": "^0.34.5",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.0.0",
+    "vite-plugin-pwa": "^1.0.0",
+    "vitest": "^3.2.0"
+  }
+}
