@@ -1,4 +1,5 @@
 import { collapseToPrintings, l2normalize, topK, type Match } from './matcher';
+import type { SampleStore } from '../storage/store';
 
 /**
  * Lernen aus eigenen Scans, ohne das Modell neu zu trainieren:
@@ -122,5 +123,59 @@ export class AdaptiveIndex {
     let s = 0;
     for (let i = 0; i < this.dim; i++) s += a[i] * b[offset + i];
     return s;
+  }
+}
+
+function newId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** Was mit den eigenen Scans passiert, wenn du in der Sammlung bestätigst, korrigierst oder löschst. */
+export class LearningService {
+  constructor(private readonly store: SampleStore, private readonly now: () => Date = () => new Date()) {}
+
+  /** Speichert den Scan; sichere Treffer helfen sofort bei der Kamera-Verschiebung. */
+  async recordScan(input: { gameId: string; printingId: string; itemId: string; vector: Float32Array; confident: boolean }): Promise<Sample> {
+    const sample: Sample = {
+      sampleId: newId(),
+      gameId: input.gameId,
+      printingId: input.printingId,
+      itemId: input.itemId,
+      vector: input.vector,
+      source: input.confident ? 'auto' : 'pending',
+      createdAt: this.now().toISOString(),
+    };
+    await this.store.put(sample);
+    return sample;
+  }
+
+  forget(sampleId: string): Promise<void> {
+    return this.store.remove(sampleId);
+  }
+
+  /** Scan gehört jetzt zu einem anderen Eintrag (z. B. „Falsch erkannt“ → zum Prüfen). */
+  async reassign(sample: Sample, itemId: string): Promise<void> {
+    await this.store.put({ ...sample, itemId, source: 'pending' });
+  }
+
+  /** Du hast den Druck bestätigt oder korrigiert: alle Scans des Eintrags werden zu Referenzbildern. */
+  async confirmItem(itemId: string, printingId: string): Promise<number> {
+    const samples = await this.store.forItem(itemId);
+    for (const s of samples) await this.store.put({ ...s, printingId, source: 'user' });
+    return samples.length;
+  }
+
+  /** Eintrag gelöscht: unbestätigte Scans verwerfen, bestätigte behalten (die Karte bleibt ja richtig erkannt). */
+  async itemRemoved(itemId: string): Promise<void> {
+    for (const s of await this.store.forItem(itemId)) if (s.source !== 'user') await this.store.remove(s.sampleId);
+  }
+
+  async counts(gameId: string): Promise<{ user: number; auto: number }> {
+    const all = await this.store.list(gameId);
+    return { user: all.filter((s) => s.source === 'user').length, auto: all.filter((s) => s.source === 'auto').length };
+  }
+
+  reset(gameId: string): Promise<void> {
+    return this.store.clear(gameId);
   }
 }

@@ -93,3 +93,5 @@ input[type='search'], .controls input { width: 100%; }
 .segmented button + button { border-left: 1px solid var(--border); }
 .segmented button.active { background: var(--accent); color: var(--accent-text); }
 select.lang { min-height: 36px; padding: 4px 6px; font-size: 0.85rem; }
+.learned { margin-top: 16px; }
+button.link { background: none; border: none; color: var(--accent); padding: 0 0 0 6px; min-height: 0; text-decoration: underline; display: inline; }

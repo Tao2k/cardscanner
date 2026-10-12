@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
 import type { CollectionItem, LanguageInfo, Printing } from '../core/types';
-import { IndexedDbStore } from '../storage/indexeddb';
+import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
+import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
-import { Recognizer } from './recognizer';
+import { Recognizer, type Learned } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
@@ -24,6 +25,8 @@ type Tab = 'scan' | 'collection' | 'review';
 
 export function App() {
   const service = useMemo(() => new CollectionService(new IndexedDbStore()), []);
+  const learning = useMemo(() => new LearningService(new IndexedDbSampleStore()), []);
+  const [learned, setLearned] = useState<Learned | null>(null);
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
   const [catalogs, setCatalogs] = useState<Catalogs | null>(null);
   const [recognizer, setRecognizer] = useState<Recognizer | null>(null);
@@ -40,6 +43,10 @@ export function App() {
     });
   };
   const refresh = () => service.list().then(setItems);
+  /** Nach Bestätigen/Korrigieren: Erkennung liest die eigenen Scans neu ein. */
+  const relearn = async () => {
+    if (recognizer && prefs.gameId) setLearned(await recognizer.reloadSamples(prefs.gameId));
+  };
 
   useEffect(() => {
     refresh();
@@ -61,6 +68,8 @@ export function App() {
         setRecognizer(r);
         await r.ready;
         setStatus('');
+        const gameId = games.some((g) => g.gameId === prefs.gameId) ? prefs.gameId : games[0]?.gameId;
+        if (gameId) setLearned(await r.reloadSamples(gameId));
       } catch (e) {
         setError((e as Error).message);
       }
@@ -81,13 +90,26 @@ export function App() {
             prefs={prefs}
             setPrefs={setPrefs}
             service={service}
+            learning={learning}
             onChange={refresh}
+            onLearn={relearn}
           />
         )}
         {tab === 'collection' && catalogs && (
           <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} onChange={refresh} />
         )}
-        {tab === 'review' && catalogs && <ReviewView items={items} catalogs={catalogs} service={service} onChange={refresh} />}
+        {tab === 'review' && catalogs && (
+          <ReviewView
+            items={items}
+            catalogs={catalogs}
+            service={service}
+            learning={learning}
+            learned={learned}
+            gameId={prefs.gameId}
+            onChange={refresh}
+            onLearn={relearn}
+          />
+        )}
       </main>
       <nav class="tabs">
         <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>Scannen</button>

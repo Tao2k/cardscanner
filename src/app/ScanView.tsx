@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { AddResult, CollectionService } from '../core/collection';
+import type { AddResult, CollectionService, ScanInput } from '../core/collection';
+import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
 import { Stabilizer } from '../core/stabilizer';
 import type { Condition, Printing } from '../core/types';
@@ -19,7 +20,10 @@ interface Props {
   prefs: Prefs;
   setPrefs(patch: Partial<Prefs>): void;
   service: CollectionService;
+  learning: LearningService;
   onChange(): void;
+  /** Eigene Scans haben sich geändert; die Erkennung soll sie neu einlesen. */
+  onLearn(): void;
 }
 
 const thumb = (p: Printing, lang: string) => {
@@ -30,9 +34,13 @@ const thumb = (p: Printing, lang: string) => {
 interface Saved {
   result: AddResult;
   printing: Printing;
+  input: ScanInput;
+  sample?: Sample;
+  /** „Falsch erkannt“ wurde gedrückt, der Scan liegt jetzt unter „Prüfen“. */
+  flagged?: boolean;
 }
 
-export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, onChange }: Props) {
+export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stabilizer = useRef(new Stabilizer());
@@ -90,7 +98,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms } = await recognizer.match(gameId, pixels);
+        const { matches, ms, vector } = await recognizer.match(gameId, pixels);
         if (!active) break;
         const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
@@ -113,7 +121,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             language = guess.lang ?? lastLanguage.current ?? languages[0];
             if (guess.lang) lastLanguage.current = guess.lang;
           }
-          const result = await service.addScan({
+          const input: ScanInput = {
             gameId,
             printingId: printing.printingId,
             language,
@@ -123,10 +131,18 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             confirmed: stable.confident,
             matchScore: stable.score,
             alternatives: stable.alternatives.map((i) => printings[i].printingId),
-          });
+          };
+          const result = await service.addScan(input);
+          // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
+          const sample = vector
+            ? await learning
+                .recordScan({ gameId, printingId: printing.printingId, itemId: result.item.itemId, vector, confident: stable.confident })
+                .catch(() => undefined)
+            : undefined;
           navigator.vibrate?.(stable.confident ? 40 : [40, 60, 40]);
-          setRecent((r) => [{ result, printing }, ...r].slice(0, 5));
+          setRecent((r) => [{ result, printing, input, sample }, ...r].slice(0, 5));
           onChange();
+          if (sample?.source === 'auto') onLearn();
         }
       }
     })();
@@ -137,9 +153,21 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   const undo = async (saved: Saved) => {
     await service.undo(saved.result);
+    if (saved.sample) await learning.forget(saved.sample.sampleId);
     setRecent((r) => r.filter((s) => s !== saved));
     stabilizer.current.reset();
     onChange();
+    if (saved.sample?.source === 'auto') onLearn();
+  };
+
+  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
+  const flag = async (saved: Saved) => {
+    await service.undo(saved.result);
+    const result = await service.addScan({ ...saved.input, confirmed: false });
+    if (saved.sample) await learning.reassign(saved.sample, result.item.itemId);
+    setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input: { ...s.input, confirmed: false }, sample: s.sample && { ...s.sample, itemId: result.item.itemId, source: 'pending' }, flagged: true } : s)));
+    onChange();
+    if (saved.sample?.source === 'auto') onLearn();
   };
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
@@ -223,6 +251,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {!s.result.item.confirmed && <em> · prüfen</em>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
+              {s.result.item.confirmed && !s.flagged && <button onClick={() => flag(s)}>Falsch</button>}
               <button onClick={() => undo(s)}>Rückgängig</button>
             </li>
           ))}

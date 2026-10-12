@@ -1,4 +1,5 @@
 import type { CollectionItem, GameId } from '../core/types';
+import type { Sample } from '../core/learning';
 
 /**
  * Speicher für die Sammlung einer Person.
@@ -14,4 +15,13 @@ export interface CollectionStore {
   remove(itemId: string): Promise<void>;
   /** Ersetzt die komplette Sammlung, z. B. beim Excel-Import. */
   replaceAll(items: CollectionItem[]): Promise<void>;
+}
+
+/** Eigene Scans, aus denen die Erkennung lernt (siehe core/learning.ts). */
+export interface SampleStore {
+  list(gameId?: GameId): Promise<Sample[]>;
+  forItem(itemId: string): Promise<Sample[]>;
+  put(sample: Sample): Promise<void>;
+  remove(sampleId: string): Promise<void>;
+  clear(gameId: GameId): Promise<void>;
 }
