@@ -6,13 +6,16 @@ export interface Prefs {
   /** Drucksprache der gescannten Karten; 'auto' = per Texterkennung bestimmen. */
   language: string;
   finish: Finish;
+  /** Zustand fest vorgeben bzw. Rückfallwert, wenn die Schätzung nicht klappt. */
   condition: Condition;
+  /** Zustand aus dem Foto schätzen. */
+  conditionAuto: boolean;
   location: string;
   lastExportAt: string | null;
 }
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', condition: 'NM', location: '', lastExportAt: null };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', condition: 'NM', conditionAuto: true, location: '', lastExportAt: null };
 
 export function loadPrefs(): Prefs {
   try {

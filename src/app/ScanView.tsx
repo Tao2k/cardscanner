@@ -5,7 +5,9 @@ import { guideRect } from '../core/geometry';
 import { Stabilizer } from '../core/stabilizer';
 import type { Condition, Printing } from '../core/types';
 import type { Catalogs } from './App';
-import { drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
+import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
+import { CONDITION_MARGIN, type ConditionEstimate } from '../core/condition';
+import { estimateFromCanvas } from './condition';
 import { detectLanguage } from '../core/language';
 import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
@@ -40,6 +42,8 @@ interface Saved {
   sample?: Sample;
   /** „Falsch erkannt“ wurde gedrückt, der Scan liegt jetzt unter „Prüfen“. */
   flagged?: boolean;
+  /** Ob der Zustand geschätzt wurde, sonst warum nicht. */
+  conditionNote?: string;
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -54,8 +58,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [guess, setGuess] = useState<{ printing: Printing; score: number; ms: number } | null>(null);
   const [recent, setRecent] = useState<Saved[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const [readingLanguage, setReadingLanguage] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
   /** Zuletzt erkannte Sprache; Fallback, wenn der Text nicht eindeutig ist (Stapel sind meist einsprachig). */
   const lastLanguage = useRef<string | null>(null);
 
@@ -110,25 +115,41 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           const p = prefsRef.current;
           const printing = printings[stable.index];
           const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
+          const autoLanguage = p.language === 'auto' || !languages.includes(p.language);
+          // Beide Ausschnitte aus demselben Kamerabild, danach Texterkennung und Zustand parallel
+          const ocrCtx = autoLanguage ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
+          const shot = p.conditionAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
+          const region = ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
+          setAnalyzing(true);
+          const [languageGuess, conditionGuess] = await Promise.all([
+            autoLanguage && region
+              ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
+              : Promise.resolve(null),
+            shot
+              ? estimateFromCanvas(shot.ctx, shot.guide, catalogs.grayRefs(gameId, printing.printingId)).catch(
+                  (e: Error): ConditionEstimate => ({ condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }),
+                )
+              : Promise.resolve(null),
+          ]);
+          setAnalyzing(false);
+          if (!active) break;
           let language = p.language;
-          if (language === 'auto' || !languages.includes(language)) {
-            const ctx = drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT);
-            setReadingLanguage(true);
-            const region = ctx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
-            const guess = region
-              ? await detectLanguage((script) => readText(region, script), printing.texts ?? {}, languages)
-              : { lang: null };
-            setReadingLanguage(false);
-            if (!active) break;
-            language = guess.lang ?? lastLanguage.current ?? languages[0];
-            if (guess.lang) lastLanguage.current = guess.lang;
+          if (autoLanguage) {
+            language = languageGuess?.lang ?? lastLanguage.current ?? languages[0];
+            if (languageGuess?.lang) lastLanguage.current = languageGuess.lang;
           }
+          const condition = conditionGuess?.condition ?? p.condition;
+          const conditionNote = !p.conditionAuto
+            ? undefined
+            : conditionGuess?.condition
+              ? 'Zustand geschätzt'
+              : `Zustand nicht geschätzt (${conditionGuess?.reason ?? 'unbekannt'}), Standard ${p.condition}`;
           const input: ScanInput = {
             gameId,
             printingId: printing.printingId,
             language,
             finish: p.finish,
-            condition: p.condition,
+            condition,
             location: p.location,
             confirmed: stable.confident,
             matchScore: stable.score,
@@ -142,7 +163,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 .catch(() => undefined)
             : undefined;
           navigator.vibrate?.(stable.confident ? 40 : [40, 60, 40]);
-          setRecent((r) => [{ result, printing, input, sample }, ...r].slice(0, 5));
+          setRecent((r) => [{ result, printing, input, sample, conditionNote }, ...r].slice(0, 5));
           onChange();
           if (sample?.source === 'auto') onLearn();
         }
@@ -163,7 +184,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   };
 
   /** Scan mit geänderten Angaben neu speichern (nur dieses Exemplar, nicht schon vorhandene im selben Eintrag). */
-  const resave = async (saved: Saved, patch: Partial<ScanInput>, flagged = saved.flagged) => {
+  const resave = async (saved: Saved, patch: Partial<ScanInput>, overrides: Partial<Saved> = {}) => {
     await service.undo(saved.result);
     const input = { ...saved.input, ...patch };
     const result = await service.addScan(input);
@@ -173,13 +194,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         ? { ...old, itemId: result.item.itemId, source: patch.confirmed === false ? 'pending' : old.source }
         : old;
     if (old && sample && sample !== old) await learning.reassign(old, sample.itemId!, sample.source);
-    setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input, sample, flagged } : s)));
+    setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input, sample, ...overrides } : s)));
     onChange();
     if (old?.source === 'auto' && sample?.source !== 'auto') onLearn();
   };
 
   /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
-  const flag = (saved: Saved) => resave(saved, { confirmed: false }, true);
+  const flag = (saved: Saved) => resave(saved, { confirmed: false }, { flagged: true });
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
   const ready = !status && recognizer && catalogs;
@@ -190,6 +211,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <video ref={videoRef} playsInline muted />
         <canvas ref={canvasRef} hidden />
         <canvas ref={ocrCanvasRef} hidden />
+        <canvas ref={conditionCanvasRef} hidden />
         {running && guide && (
           <div class="guide" style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
         )}
@@ -203,8 +225,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
         {running && (
           <div class="hud">
-            {readingLanguage ? (
-              <span>Lese Sprache …</span>
+            {analyzing ? (
+              <span>Prüfe Sprache und Zustand …</span>
             ) : guess ? (
               <span>
                 {nameIn(guess.printing, prefs.language === 'auto' ? lastLanguage.current ?? 'en' : prefs.language)} · {Math.round(guess.score * 100)} % · {guess.ms} ms
@@ -241,7 +263,15 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <input type="checkbox" checked={prefs.finish === 'foil'} onChange={(e) => setPrefs({ finish: e.currentTarget.checked ? 'foil' : 'normal' })} />
           Foil
         </label>
-        <select value={prefs.condition} onChange={(e) => setPrefs({ condition: e.currentTarget.value as Condition })}>
+        <select
+          aria-label="Zustand"
+          value={prefs.conditionAuto ? 'auto' : prefs.condition}
+          onChange={(e) => {
+            const v = e.currentTarget.value;
+            setPrefs(v === 'auto' ? { conditionAuto: true } : { conditionAuto: false, condition: v as Condition });
+          }}
+        >
+          <option value="auto">Zustand: Auto</option>
           {CONDITIONS.map((c) => <option value={c}>{c}</option>)}
         </select>
         <input
@@ -271,13 +301,14 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                       role="radio"
                       aria-checked={s.input.condition === c}
                       class={s.input.condition === c ? 'active' : ''}
-                      onClick={() => s.input.condition !== c && resave(s, { condition: c })}
+                      onClick={() => s.input.condition !== c && resave(s, { condition: c }, { conditionNote: undefined })}
                     >
                       {c}
                     </button>
                   ))}
                 </div>
               )}
+              {i === 0 && s.conditionNote && <small class="note">{s.conditionNote}</small>}
             </li>
           ))}
         </ul>

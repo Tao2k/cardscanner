@@ -32,6 +32,8 @@ export interface ConditionEstimate {
   /** Anteil weißer Pixel am Kantenstreifen ohne Ecken und an der schlimmsten Ecke. */
   edge: number;
   corner: number;
+  /** Übereinstimmung des Fotos mit dem Original (Korrelation, 1 = perfekt). */
+  fit: number;
   quad?: Quad;
 }
 
@@ -336,7 +338,7 @@ export function estimateCondition(
   reference: Gray,
   thresholds: ConditionThresholds = DEFAULT_THRESHOLDS,
 ): ConditionEstimate {
-  const none = (reason: string, quad?: Quad): ConditionEstimate => ({ condition: null, reason, edge: 0, corner: 0, quad });
+  const none = (reason: string, quad?: Quad, fit = 0): ConditionEstimate => ({ condition: null, reason, edge: 0, corner: 0, fit, quad });
   const found = findCard(photo, expected);
   if (!found) return none('Kartenkanten nicht gefunden, eine Unterlage mit anderem Farbton als der Kartenrand hilft');
   const ref = resizeGray(reference, CARD_W, CARD_H);
@@ -356,9 +358,9 @@ export function estimateCondition(
   for (let y = 0; y < card.height; y += 2) for (const x of [1, 2, W - 3, W - 2]) bg.push(card.data[y * W + x]);
   const background = median(bg);
 
-  if (best.r < 0.6 || best.a < 0.2) return none('Foto passt nicht genau genug zum Original (Spiegelung oder Hülle?)', quad);
+  if (best.r < 0.6 || best.a < 0.2) return none('Foto passt nicht genau genug zum Original (Spiegelung oder Hülle?)', quad, best.r);
   const white = best.a * 255 + best.b;
-  if (background > best.b + best.a * 150) return none('Unterlage zu hell, bitte eine mittelgraue oder farbige Unterlage nehmen', quad);
+  if (background > best.b + best.a * 150) return none('Unterlage zu hell, bitte eine mittelgraue oder farbige Unterlage nehmen', quad, best.r);
 
   // Weiße Pixel im Kantenstreifen: im Foto fast papierweiß, deutlich heller als im Original
   const threshold = 0.18 * (white - best.b);
@@ -401,7 +403,7 @@ export function estimateCondition(
   }
   const edge = edgeWhite / (edgeTotal || 1);
   const corner = Math.max(...corners.map((c, k) => c / (cornerTotal[k] || 1)));
-  return { condition: classify(edge, corner, thresholds), edge, corner, quad };
+  return { condition: classify(edge, corner, thresholds), edge, corner, fit: best.r, quad };
 }
 
 /** Bereich um den Zielrahmen, der für die Zustandsschätzung aufgenommen wird (Anteil der Rahmenhöhe je Seite). */

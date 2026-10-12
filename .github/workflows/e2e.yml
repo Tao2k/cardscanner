@@ -1,0 +1,32 @@
+name: Scannen mit Kamera-Attrappe testen
+
+on:
+  workflow_dispatch:
+  # Arbeitszweige vor dem Veröffentlichen prüfen
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/images
+            public/models
+          key: catalog-none
+          restore-keys: catalog-
+      - run: npm run catalog -- riftbound
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx tsx scripts/e2e-scan.ts
