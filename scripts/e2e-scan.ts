@@ -16,6 +16,7 @@ import { chromium } from 'playwright';
 import type { CatalogFile } from '../src/core/catalog';
 import { imageIn } from '../src/core/catalog';
 import { boxToVideo, guideRect } from '../src/core/geometry';
+import { finishesOf } from '../src/core/foil';
 
 const VIEWPORT = { width: 390, height: 844 };
 // So groß, wie die App die Kamera anfragt; Chromium beschneidet andere Formate
@@ -26,7 +27,7 @@ const URL_ = `http://localhost:${PORT}/`;
 let seed = 11;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 
-export async function cardFrame(image: Buffer, guide: { x: number; y: number; width: number; height: number }, specks: number, out: string) {
+export async function cardFrame(image: Buffer, guide: { x: number; y: number; width: number; height: number }, specks: number, out: string, foil = 0) {
   const h = Math.round(guide.height * 0.95);
   const { data, info } = await sharp(image).resize({ height: h }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const w = info.width;
@@ -34,6 +35,12 @@ export async function cardFrame(image: Buffer, guide: { x: number; y: number; wi
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const cx = Math.min(Math.max(x + 0.5, r), w - r), cy = Math.min(Math.max(y + 0.5, r), h - r);
     if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) data[(y * w + x) * 4 + 3] = 0;
+  }
+  // Foil: Regenbogenschimmer über die ganze Karte
+  if (foil) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = (y * w + x) * 4;
+    const t = ((x / w) * 2.5 + (y / h) * 1.7) * Math.PI * 2 + (rand() - 0.5) * 1.5;
+    for (let i = 0; i < 3; i++) data[k + i] = Math.max(0, Math.min(255, data[k + i] + foil * 127 * Math.sin(t + i * 2.1)));
   }
   for (let i = 0; i < specks; i++) {
     const side = Math.floor(rand() * 4), t = rand(), rad = 2 + rand() * 3;
@@ -103,17 +110,27 @@ async function main() {
   const guide = boxToVideo(guideScreen, VIDEO.width, VIDEO.height, box.width, box.height);
 
   const cases = [
-    { lang: 'en', specks: 0 },
-    { lang: 'en', specks: 40 },
-    { lang: 'zh-CN', specks: 0 },
+    { lang: 'en', specks: 0, foil: 0, rarity: 'Common' },
+    { lang: 'en', specks: 40, foil: 0, rarity: '' },
+    { lang: 'zh-CN', specks: 0, foil: 0, rarity: '' },
+    { lang: 'en', specks: 0, foil: 0.2, rarity: 'Common' },
   ];
   for (const c of cases) {
-    const row = file.refs.findIndex((r, i) => r.lang === c.lang && file.printings[r.p].variant === 'normal' && file.printings[r.p].type !== 'Rune' && i % 7 === 3);
+    const row = file.refs.findIndex(
+      (r, i) =>
+        r.lang === c.lang &&
+        file.printings[r.p].variant === 'normal' &&
+        file.printings[r.p].type !== 'Rune' &&
+        (!c.rarity || file.printings[r.p].rarity === c.rarity) &&
+        i % 7 === (c.foil ? 5 : 3),
+    );
     const printing = file.printings[file.refs[row].p];
     const url = imageIn(printing, c.lang).imageUrl;
     const image = await readFile(path.join('.cache/images', createHash('sha1').update(url).digest('hex')));
-    const video = path.join(tmp, `card-${c.lang}-${c.specks}.y4m`);
-    await cardFrame(image, guide, c.specks, video);
+    const video = path.join(tmp, `card-${c.lang}-${c.specks}-${c.foil}.y4m`);
+    await cardFrame(image, guide, c.specks, video, c.foil);
+    const finishes = finishesOf(printing);
+    const expectedFinish = finishes.length === 1 ? finishes[0] : c.foil ? 'foil' : 'normal';
 
     const browser = await chromium.launch({
       args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${video}`],
@@ -143,7 +160,7 @@ async function main() {
     const shown = (await page.locator('.recent li').first().innerText()).replace(/\s+/g, ' ');
     const items = await page.evaluate(
       () =>
-        new Promise<{ printingId: string; language: string; condition: string; confirmed: boolean }[]>((resolve, reject) => {
+        new Promise<{ printingId: string; language: string; condition: string; finish: string; confirmed: boolean }[]>((resolve, reject) => {
           const req = indexedDB.open('cardscanner');
           req.onsuccess = () => {
             const all = req.result.transaction('collection').objectStore('collection').getAll();
@@ -158,11 +175,11 @@ async function main() {
 
     const item = items[0];
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && shown.includes(printing.cardName);
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName);
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(
-      `${ok ? 'OK  ' : 'FEHLER'} ${printing.printingId} [${c.lang}, ${c.specks} Abnutzungsflecken] → gespeichert: ${item ? `${item.printingId}, Sprache ${item.language}, Zustand ${item.condition}` : 'nichts'}; ${estimated ? 'Zustand geschätzt' : 'Zustand NICHT geschätzt'}\n     Anzeige: ${shown}`,
+      `${ok ? 'OK  ' : 'FEHLER'} ${printing.printingId} [${c.lang}, ${c.specks} Abnutzungsflecken, Foil ${c.foil}, ${printing.rarity}, erwartet ${expectedFinish}] → gespeichert: ${item ? `${item.printingId}, Sprache ${item.language}, Zustand ${item.condition}, ${item.finish}` : 'nichts'}; ${estimated ? 'Zustand geschätzt' : 'Zustand NICHT geschätzt'}\n     Anzeige: ${shown}`,
     );
   }
   server.kill();

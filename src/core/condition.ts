@@ -237,7 +237,7 @@ export function findCard(g: Gray, expected: Rect): Quad | null {
 // --- Entzerren -------------------------------------------------------------------------------
 
 /** Projektive Abbildung Einheitsquadrat → Viereck (Heckbert). */
-function squareToQuad(q: Quad): number[] {
+export function squareToQuad(q: Quad): number[] {
   const [p0, p1, p2, p3] = q;
   const dx1 = p1.x - p2.x, dx2 = p3.x - p2.x, dx3 = p0.x - p1.x + p2.x - p3.x;
   const dy1 = p1.y - p2.y, dy2 = p3.y - p2.y, dy3 = p0.y - p1.y + p2.y - p3.y;

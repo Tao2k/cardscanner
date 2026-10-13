@@ -16,7 +16,7 @@ import type { CatalogFile, GameEntry } from '../src/core/catalog';
 import type { Pixels } from '../src/core/imageops';
 import type { ReferenceRow } from '../src/core/types';
 import { adapters } from './adapters';
-import { grayReference } from './gray';
+import { compareReference } from './compare-ref';
 
 const IMAGE_CACHE = '.cache/images';
 const MODEL_DIR = 'public/models';
@@ -79,7 +79,7 @@ async function main() {
   }
   await mkdir(IMAGE_CACHE, { recursive: true });
   const outDir = path.join(args.out, adapter.gameId);
-  await mkdir(path.join(outDir, 'gray'), { recursive: true });
+  await mkdir(path.join(outDir, 'ref'), { recursive: true });
 
   console.log(`[${adapter.gameId}] Lade Katalog von ${adapter.source}`);
   const { sets, printings } = await adapter.fetchCatalog({ limit: args.limit });
@@ -109,9 +109,9 @@ async function main() {
     try {
       if (result instanceof Error) throw result;
       vectors.push(await embedder.embed(await decode(result)));
-      const gray = `gray/${createHash('sha1').update(urls[index]).digest('hex').slice(0, 16)}.webp`;
-      await grayReference(result).webp({ quality: 85 }).toFile(path.join(outDir, gray));
-      keptRows.push({ ...row, g: gray });
+      const compare = `ref/${createHash('sha1').update(urls[index]).digest('hex').slice(0, 16)}.webp`;
+      await compareReference(result).webp({ quality: 85 }).toFile(path.join(outDir, compare));
+      keptRows.push({ ...row, g: compare });
     } catch (e) {
       failed.push(`${printings[row.p].printingId} [${row.lang}] (${(e as Error).message})`);
     }

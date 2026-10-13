@@ -5,17 +5,19 @@ export interface Prefs {
   gameId: string;
   /** Drucksprache der gescannten Karten; 'auto' = per Texterkennung bestimmen. */
   language: string;
+  /** Ausführung fest vorgeben bzw. Rückfallwert, wenn die Erkennung nicht klappt. */
   finish: Finish;
+  /** Foil aus Katalog und Foto bestimmen. */
+  finishAuto: boolean;
   /** Zustand fest vorgeben bzw. Rückfallwert, wenn die Schätzung nicht klappt. */
   condition: Condition;
   /** Zustand aus dem Foto schätzen. */
   conditionAuto: boolean;
-  location: string;
   lastExportAt: string | null;
 }
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', condition: 'NM', conditionAuto: true, location: '', lastExportAt: null };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, lastExportAt: null };
 
 export function loadPrefs(): Prefs {
   try {

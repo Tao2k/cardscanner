@@ -110,7 +110,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
         </label>
       </div>
       {message && <p class="banner">{message}</p>}
-      <input type="search" placeholder="Suchen (Name, Set, Nummer, Lagerort)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+      <input type="search" placeholder="Suchen (Name, Set, Nummer)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
       <ul class="items">
         {rows.slice(0, 300).map(({ item, printing }) => (
           <li key={item.itemId}>

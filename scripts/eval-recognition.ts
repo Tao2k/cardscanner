@@ -19,7 +19,9 @@ import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
 import { estimateCondition, toGray, type Gray } from '../src/core/condition';
-import { grayReference } from './gray';
+import { compareReference } from './compare-ref';
+import { estimateFoil, FOIL_SHARE, finishesOf } from '../src/core/foil';
+import type { Pixels } from '../src/core/imageops';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -32,6 +34,7 @@ const option = (name: string, fallback: number) => {
 const ocrSamples = option('--ocr', 60);
 const learnSamples = option('--learn', 200);
 const conditionSamples = option('--condition', 40);
+const foilSamples = option('--foil', 60);
 const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
@@ -119,6 +122,7 @@ async function main() {
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
   if (conditionSamples) await evalCondition(file, conditionSamples);
+  if (foilSamples) await evalFoil(file, foilSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
   if (ocrSamples || cardName) await evalLanguage(file, ocrSamples, embeddings, embedder);
 }
@@ -165,7 +169,7 @@ async function evalCondition(file: CatalogFile, n: number) {
   for (const r of rows) {
     const p = file.printings[file.refs[r].p];
     const buf = await readFile(path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex')));
-    const ref = await grayOf(grayReference(buf));
+    const ref = await grayOf(compareReference(buf));
     const { data: card, info } = await sharp(buf).resize({ height: 670 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const w = info.width, h = info.height;
     const radius = (3 / 63) * w;
@@ -229,6 +233,99 @@ async function evalCondition(file: CatalogFile, n: number) {
       const med = (i: number) => (ms.length ? [...ms.map((x) => x[i])].sort((a, b) => a - b)[ms.length >> 1].toFixed(4) : '-');
       console.log(`${table.name.padEnd(11)} ${level.name.padEnd(7)} → ${dist}   (Median Kante ${med(0)}, Ecke ${med(1)})`);
     }
+  }
+}
+
+/**
+ * Foil-Erkennung: Referenzbilder mit künstlichem Regenbogenschimmer verschiedener Stärke, ohne Schimmer
+ * und ohne Schimmer, aber mit weißer Spiegelung (Hülle), als Handyfoto auf grauer Unterlage.
+ * Misst Fehlalarme bei normalen Karten; wie stark echter Foil-Schimmer im Foto ist, zeigt erst ein echter Scan.
+ */
+async function evalFoil(file: CatalogFile, n: number) {
+  const byRarity = new Map<string, number>();
+  for (const p of file.printings) {
+    const key = `${p.rarity ?? '?'} / ${p.variant} → ${finishesOf(p).join('+')}`;
+    byRarity.set(key, (byRarity.get(key) ?? 0) + 1);
+  }
+  console.log(`\n=== Ausführungen laut Katalog (Seltenheit / Variante → mögliche Ausführungen)`);
+  for (const [k, v] of [...byRarity].sort((a, b) => b[1] - a[1])) console.log(`  ${k}: ${v}`);
+
+  const rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === 'en').sort(() => rand() - 0.5).slice(0, n);
+  const cases = [
+    { name: 'normal', foil: 0, glare: false },
+    { name: 'normal + Spiegelung', foil: 0, glare: true },
+    { name: 'Foil schwach (8 %)', foil: 0.08, glare: false },
+    { name: 'Foil mittel (15 %)', foil: 0.15, glare: false },
+    { name: 'Foil stark (25 %)', foil: 0.25, glare: false },
+  ];
+  const scores = new Map<string, number[]>();
+  let skipped = 0;
+  for (const r of rows) {
+    const p = file.printings[file.refs[r].p];
+    const buf = await readFile(path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex')));
+    const refImg = await compareReference(buf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const ref: Pixels = { data: refImg.data, width: refImg.info.width, height: refImg.info.height, channels: 3 };
+    const refGray = toGray(ref);
+    const { data: card, info } = await sharp(buf).resize({ height: 670 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const w = info.width, h = info.height;
+    const radius = (3 / 63) * w;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const cx = Math.min(Math.max(x + 0.5, radius), w - radius), cy = Math.min(Math.max(y + 0.5, radius), h - radius);
+      if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > radius) card[(y * w + x) * 4 + 3] = 0;
+    }
+    for (const c of cases) {
+      const img = Buffer.from(card);
+      const phase = rand() * 6, fx = between(1.5, 4), fy = between(1, 3);
+      const gx = between(0.2, 0.8) * w, gy = between(0.2, 0.8) * h, gr = between(0.15, 0.35) * w;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const k = (y * w + x) * 4;
+        if (!img[k + 3]) continue;
+        if (c.foil) {
+          const t = ((x / w) * fx + (y / h) * fy) * Math.PI * 2 + phase + (rand() - 0.5) * 1.5;
+          for (let i = 0; i < 3; i++) img[k + i] = Math.max(0, Math.min(255, img[k + i] + c.foil * 127 * Math.sin(t + i * 2.1)));
+        }
+        if (c.glare) {
+          const a = 0.55 * Math.max(0, 1 - Math.hypot(x - gx, y - gy) / gr);
+          for (let i = 0; i < 3; i++) img[k + i] = img[k + i] * (1 - a) + 250 * a;
+        }
+      }
+      const rotated = await sharp(img, { raw: { width: w, height: h, channels: 4 } })
+        .rotate(between(-3, 3), { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+      const W = Math.round(w * 1.3), H = Math.round(h * 1.24);
+      const left = Math.round((W - rotated.info.width) / 2 + between(-10, 10));
+      const top = Math.round((H - rotated.info.height) / 2 + between(-10, 10));
+      const tint = between(-0.08, 0.08);
+      const photoImg = await sharp(
+        await sharp({ create: { width: W, height: H, channels: 3, background: { r: 110, g: 112, b: 115 } } })
+          .composite([{ input: rotated.data, left, top }])
+          .linear([1 + tint, 1, 1 - tint], [0, 0, 0])
+          .modulate({ brightness: between(0.75, 1.15), saturation: between(0.9, 1.35), hue: Math.round(between(-6, 6)) })
+          .blur(between(0.4, 1.2))
+          .jpeg({ quality: Math.round(between(60, 85)) })
+          .toBuffer(),
+      ).raw().toBuffer({ resolveWithObject: true });
+      const photo: Pixels = { data: photoImg.data, width: photoImg.info.width, height: photoImg.info.height, channels: photoImg.info.channels as 3 };
+      const cx = left + rotated.info.width / 2, cy = top + rotated.info.height / 2;
+      const jitter = h * 0.03;
+      const expected = { x: cx - w / 2 + between(-jitter, jitter), y: cy - h / 2 + between(-jitter, jitter), width: w, height: h };
+      const cond = estimateCondition(toGray(photo), expected, refGray);
+      if (!cond.quad || cond.fit < 0.6) {
+        skipped++;
+        continue;
+      }
+      const est = estimateFoil(photo, cond.quad, ref);
+      scores.set(c.name, [...(scores.get(c.name) ?? []), est.score]);
+    }
+  }
+  console.log(`\n=== Foil: ${rows.length} Karten × ${cases.length} Fälle, Schwelle ${Math.round(FOIL_SHARE * 100)} % Schimmer (${skipped} ohne Aussage)`);
+  for (const c of cases) {
+    const s = [...(scores.get(c.name) ?? [])].sort((a, b) => a - b);
+    if (!s.length) continue;
+    const q = (f: number) => `${Math.round(s[Math.min(s.length - 1, Math.floor(f * s.length))] * 100)} %`;
+    const foil = s.filter((x) => x >= FOIL_SHARE).length;
+    console.log(`${c.name.padEnd(22)} → als Foil erkannt ${Math.round((100 * foil) / s.length)} %   (Schimmer 10/50/90 %-Quantil: ${q(0.1)}, ${q(0.5)}, ${q(0.9)})`);
   }
 }
 

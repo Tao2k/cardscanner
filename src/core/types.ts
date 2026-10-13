@@ -46,6 +46,11 @@ export interface Printing {
   variant: Variant;
   rarity?: string;
   type?: string;
+  /**
+   * Ausführungen, in denen es den Druck gibt. Nur 'foil' heißt: immer Foil (z. B. Riftbound Rare und Epic).
+   * Fehlt die Angabe, ist beides möglich.
+   */
+  finishes?: Finish[];
   /** Englisches Kartenbild. */
   imageUrl: string;
   /** Kleines Vorschaubild für Listen; fehlt es, wird imageUrl verwendet. */
@@ -76,7 +81,7 @@ export interface CatalogMeta {
 export interface ReferenceRow {
   p: number;
   lang: Language;
-  /** Graustufenbild für die Zustandsschätzung, relativ zu data/<game>/ (fehlt bei alten Katalogen). */
+  /** Kleines Vergleichsbild (farbig, früher Graustufen) für Zustand und Foil, relativ zu data/<game>/ (fehlt bei alten Katalogen). */
   g?: string;
 }
 

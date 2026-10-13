@@ -19,6 +19,7 @@ describe('Riftbound-Adapter (offizielle Galerie)', () => {
       setCode: 'UNL',
       collectorNumber: '131',
       variant: 'normal',
+      finishes: ['normal', 'foil'],
       rarity: 'Uncommon',
       type: 'Spell',
       attributes: { energy: 2, domains: ['Chaos'], artist: 'Kudos Productions' },
@@ -32,6 +33,8 @@ describe('Riftbound-Adapter (offizielle Galerie)', () => {
     expect(normalizeCard(cards[1], max('UNL'))).toMatchObject({ variant: 'signature', collectorNumber: '229*' });
     expect(normalizeCard(cards[2], max('OGN'))?.variant).toBe('overnumbered');
     expect(normalizeCard(cards[3], max('OGN'))).toMatchObject({ variant: 'alt_art', collectorNumber: '066a' });
+    // Showcase-Drucke gibt es nur als Foil
+    expect(normalizeCard(cards[1], max('UNL'))?.finishes).toEqual(['foil']);
   });
 
   it('überspringt Karten ohne Bild', () => {

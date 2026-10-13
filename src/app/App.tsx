@@ -19,8 +19,8 @@ export interface Catalogs {
   ordered: Map<string, Printing[]>;
   languages: Map<string, LanguageInfo[]>;
   lookup(gameId: string, printingId: string): Printing | undefined;
-  /** Graustufen-Originale eines Drucks für die Zustandsschätzung (URLs, leer bei alten Katalogen). */
-  grayRefs(gameId: string, printingId: string): string[];
+  /** Vergleichsbilder eines Drucks für Zustand und Foil (URLs, leer bei alten Katalogen). */
+  compareRefs(gameId: string, printingId: string): string[];
 }
 
 type Tab = 'scan' | 'collection' | 'review';
@@ -58,7 +58,7 @@ export function App() {
         const byGame = new Map<string, Map<string, Printing>>();
         const ordered = new Map<string, Printing[]>();
         const languages = new Map<string, LanguageInfo[]>();
-        const gray = new Map<string, Map<string, string[]>>();
+        const compare = new Map<string, Map<string, string[]>>();
         for (const g of games) {
           const file: CatalogFile = await fetch(`${BASE}data/${g.gameId}/catalog.json`).then((r) => r.json());
           byGame.set(g.gameId, new Map(file.printings.map((p) => [p.printingId, p])));
@@ -70,7 +70,7 @@ export function App() {
             const id = file.printings[ref.p].printingId;
             byPrinting.set(id, [...(byPrinting.get(id) ?? []), `${BASE}data/${g.gameId}/${ref.g}`]);
           }
-          gray.set(g.gameId, byPrinting);
+          compare.set(g.gameId, byPrinting);
         }
         setCatalogs({
           games,
@@ -78,7 +78,7 @@ export function App() {
           ordered,
           languages,
           lookup: (gameId, id) => byGame.get(gameId)?.get(id),
-          grayRefs: (gameId, id) => gray.get(gameId)?.get(id) ?? [],
+          compareRefs: (gameId, id) => compare.get(gameId)?.get(id) ?? [],
         });
         if (!games.some((g) => g.gameId === prefs.gameId) && games[0]) setPrefs({ gameId: games[0].gameId });
         const r = new Recognizer(BASE, games.map((g) => g.gameId), setStatus);

@@ -1,4 +1,4 @@
-import type { CardSet, Printing, Variant } from '../../src/core/types';
+import type { CardSet, Finish, Printing, Variant } from '../../src/core/types';
 import type { GameAdapter } from './types';
 
 /**
@@ -92,6 +92,15 @@ export function variantOf(card: GalleryCard, setMax?: number): Variant {
   return 'normal';
 }
 
+/**
+ * Riftbound: Rare, Epic und alle Showcase-Drucke (Alternate Art, Overnumbered, Signature) gibt es nur
+ * als Foil; Common und Uncommon normal und als Foil (Foil-Slot im Booster).
+ */
+export function riftboundFinishes(card: GalleryCard, variant: Variant): Finish[] {
+  const rarity = card.rarity?.value?.label?.toLowerCase() ?? '';
+  return variant !== 'normal' || ['rare', 'epic', 'showcase'].includes(rarity) ? ['foil'] : ['normal', 'foil'];
+}
+
 /** Die Bilder liegen auf Riots Sanity-CDN, das Größe und Format per URL-Parameter liefert. */
 export function sizedImage(url: string, width: number, format?: 'webp' | 'png'): string {
   const u = new URL(url);
@@ -121,12 +130,14 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
   const imageUrl = card.cardImage?.url;
   if (!card.id || !card.name || !imageUrl) return null;
   const number = (card.publicCode ?? '').split(/[-/]/)[1];
+  const variant = variantOf(card, setMax);
   return {
     printingId: card.id,
     cardName: card.name,
     setCode: card.set?.value?.id ?? '',
     collectorNumber: number || (card.collectorNumber === undefined ? '' : String(card.collectorNumber)),
-    variant: variantOf(card, setMax),
+    variant,
+    finishes: riftboundFinishes(card, variant),
     texts: { en: plainText(card) },
     rarity: card.rarity?.value?.label,
     type: card.cardType?.type?.map((t) => t.label).join(' / '),

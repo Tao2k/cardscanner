@@ -3,11 +3,12 @@ import type { AddResult, CollectionService, ScanInput } from '../core/collection
 import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
 import { Stabilizer } from '../core/stabilizer';
-import type { Condition, Printing } from '../core/types';
+import type { Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
-import { CONDITION_MARGIN, type ConditionEstimate } from '../core/condition';
-import { estimateFromCanvas } from './condition';
+import { CONDITION_MARGIN } from '../core/condition';
+import { finishesOf } from '../core/foil';
+import { analyzeCanvas, type CardAnalysis } from './analyze';
 import { detectLanguage, IMAGE_LANGUAGE_MARGIN, languageFromImage } from '../core/language';
 import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
@@ -31,6 +32,10 @@ interface Props {
 const thumb = (p: Printing) => p.thumbUrl ?? p.imageUrl;
 
 const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
+const FINISHES: { value: Finish; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'foil', label: 'Foil' },
+];
 
 interface Saved {
   result: AddResult;
@@ -43,6 +48,8 @@ interface Saved {
   conditionNote?: string;
   /** Gesetzt, wenn die Sprache nicht erkannt, sondern angenommen wurde. */
   languageNote?: string;
+  /** Woher die Angabe Foil/Normal kommt. */
+  finishNote?: string;
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -126,16 +133,16 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           const imageLanguage = languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN);
           // Beide Ausschnitte aus demselben Kamerabild, danach Texterkennung und Zustand parallel
           const ocrCtx = autoLanguage ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
-          const shot = p.conditionAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
+          const shot = p.conditionAuto || p.finishAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
           const region = ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
           setAnalyzing(true);
-          const [languageGuess, conditionGuess] = await Promise.all([
+          const [languageGuess, analysis] = await Promise.all([
             autoLanguage && region
               ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
               : Promise.resolve(null),
             shot
-              ? estimateFromCanvas(shot.ctx, shot.guide, catalogs.grayRefs(gameId, printing.printingId)).catch(
-                  (e: Error): ConditionEstimate => ({ condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }),
+              ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId)).catch(
+                  (e: Error): CardAnalysis => ({ condition: { condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }, foil: null }),
                 )
               : Promise.resolve(null),
           ]);
@@ -150,19 +157,36 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             if (!detected) languageNote = `Sprache nicht sicher erkannt, angenommen: ${labelOf(gameId, language)}`;
             if (detected) lastLanguage.current = detected;
           }
+          const conditionGuess = p.conditionAuto ? analysis?.condition : undefined;
           const condition = conditionGuess?.condition ?? p.condition;
           const conditionNote = !p.conditionAuto
             ? undefined
             : conditionGuess?.condition
               ? 'Zustand geschätzt'
               : `Zustand nicht geschätzt (${conditionGuess?.reason ?? 'unbekannt'}), Standard ${p.condition}`;
+          // Foil: gibt es den Druck nur in einer Ausführung, steht sie fest; sonst entscheidet das Foto
+          let finish = p.finish;
+          let finishNote: string | undefined;
+          if (p.finishAuto) {
+            const finishes = finishesOf(printing);
+            const foil = analysis?.foil;
+            if (finishes.length === 1) {
+              finish = finishes[0];
+              finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
+            } else if (foil && foil.foil !== null) {
+              finish = foil.foil ? 'foil' : 'normal';
+              finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %)`;
+            } else {
+              finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
+            }
+          }
           const input: ScanInput = {
             gameId,
             printingId: printing.printingId,
             language,
-            finish: p.finish,
+            finish,
             condition,
-            location: p.location,
+            location: '',
             confirmed: stable.confident,
             matchScore: stable.score,
             alternatives: stable.alternatives.map((i) => printings[i].printingId),
@@ -175,7 +199,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 .catch(() => undefined)
             : undefined;
           navigator.vibrate?.(stable.confident ? 40 : [40, 60, 40]);
-          setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote }, ...r].slice(0, 5));
+          setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote }, ...r].slice(0, 5));
           onChange();
           if (sample?.source === 'auto') onLearn();
         }
@@ -238,7 +262,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         {running && (
           <div class="hud">
             {analyzing ? (
-              <span>Prüfe Sprache und Zustand …</span>
+              <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : guess ? (
               <span>
                 {guess.printing.cardName} · {Math.round(guess.score * 100)} % · {guess.ms} ms
@@ -271,10 +295,17 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             ))}
           </div>
         )}
-        <label class="toggle">
-          <input type="checkbox" checked={prefs.finish === 'foil'} onChange={(e) => setPrefs({ finish: e.currentTarget.checked ? 'foil' : 'normal' })} />
-          Foil
-        </label>
+        <select
+          aria-label="Foil"
+          value={prefs.finishAuto ? 'auto' : prefs.finish}
+          onChange={(e) => {
+            const v = e.currentTarget.value;
+            setPrefs(v === 'auto' ? { finishAuto: true } : { finishAuto: false, finish: v as Finish });
+          }}
+        >
+          <option value="auto">Foil: Auto</option>
+          {FINISHES.map((f) => <option value={f.value}>{f.label}</option>)}
+        </select>
         <select
           aria-label="Zustand"
           value={prefs.conditionAuto ? 'auto' : prefs.condition}
@@ -286,11 +317,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <option value="auto">Zustand: Auto</option>
           {CONDITIONS.map((c) => <option value={c}>{c}</option>)}
         </select>
-        <input
-          placeholder="Lagerort (z. B. Binder 1)"
-          value={prefs.location}
-          onChange={(e) => setPrefs({ location: e.currentTarget.value })}
-        />
       </div>
 
       {recent.length > 0 && (
@@ -300,7 +326,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <img src={thumb(s.printing)} alt="" loading="lazy" />
               <span>
                 {printingLabel(s.printing)}
-                <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}</small>
+                <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}{s.result.item.finish === 'foil' ? ' · Foil' : ''}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
@@ -338,7 +364,22 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                   ))}
                 </div>
               )}
+              {i === 0 && (
+                <div class="segmented condition" role="radiogroup" aria-label="Foil dieser Karte">
+                  {FINISHES.map((f) => (
+                    <button
+                      role="radio"
+                      aria-checked={s.input.finish === f.value}
+                      class={s.input.finish === f.value ? 'active' : ''}
+                      onClick={() => s.input.finish !== f.value && resave(s, { finish: f.value }, { finishNote: undefined })}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {i === 0 && s.languageNote && <small class="note warn">{s.languageNote}</small>}
+              {i === 0 && s.finishNote && <small class="note">{s.finishNote}</small>}
               {i === 0 && s.conditionNote && <small class="note">{s.conditionNote}</small>}
             </li>
           ))}
