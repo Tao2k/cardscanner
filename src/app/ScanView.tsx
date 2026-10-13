@@ -46,6 +46,8 @@ interface Saved {
   sample?: Sample;
   /** „Falsch erkannt“ wurde gedrückt, der Scan liegt jetzt unter „Prüfen“. */
   flagged?: boolean;
+  /** Mit „Richtig“ bestätigt. */
+  verified?: boolean;
   /** Ob der Zustand geschätzt wurde, sonst warum nicht. */
   conditionNote?: string;
   /** Gesetzt, wenn die Sprache nicht erkannt, sondern angenommen wurde. */
@@ -316,6 +318,16 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     return resave(saved, { confirmed: false }, { flagged: true });
   };
 
+  /** Richtig erkannt: Der Scan wird zum eigenen Referenzbild und zählt als bestätigter Treffer. */
+  const verify = async (saved: Saved) => {
+    if (saved.auto) setStats(updateStats((s) => ({ right: s.right + 1 })));
+    setRecent((r) => r.map((s) => (s === saved ? { ...s, verified: true } : s)));
+    if (saved.sample) {
+      await learning.confirmItem(saved.result.item.itemId, saved.printing.printingId);
+      onLearn();
+    }
+  };
+
   /** Antwort auf die Nachfrage: gewählte Karte speichern, oder (null) neu scannen. */
   const answer = async (printing: Printing | null) => {
     const q = questionRef.current;
@@ -473,7 +485,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {s.auto === false && <small> · von dir gewählt</small>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
-              {s.result.item.confirmed && !s.flagged && <button onClick={() => flag(s)}>Falsch</button>}
+              {s.auto && s.result.item.confirmed && !s.flagged && !s.verified && (
+                <>
+                  <button onClick={() => verify(s)}>Richtig</button>
+                  <button onClick={() => flag(s)}>Falsch</button>
+                </>
+              )}
+              {s.verified && <small> · ✓ bestätigt</small>}
               <button onClick={() => undo(s)}>Rückgängig</button>
               {i === 0 && (catalogs?.languages.get(s.input.gameId)?.length ?? 0) > 1 && (
                 <div class="segmented condition" role="radiogroup" aria-label="Sprache dieser Karte">

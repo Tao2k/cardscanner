@@ -184,12 +184,20 @@ async function main() {
           req.onerror = () => reject(req.error);
         }),
     );
+    // Automatisch gespeichert: „Richtig“ bestätigen
+    let verified = true;
+    const rightButton = page.locator('.recent li').first().getByRole('button', { name: 'Richtig' });
+    if (await rightButton.count()) {
+      await rightButton.click();
+      verified = await page.locator('.recent li').first().getByText('✓ bestätigt').waitFor({ timeout: 5000 }).then(() => true, () => false);
+      console.log(`  [${c.lang}] „Richtig“ gedrückt: ${verified ? 'bestätigt' : 'NICHT bestätigt'}`);
+    }
     await page.screenshot({ path: path.join(tmp, `scan-${c.lang}-${c.specks}.png`) });
     await browser.close();
 
     const item = items[0];
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName);
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified;
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(

@@ -7,6 +7,8 @@ export interface ScanStats {
   auto: number;
   /** Davon mit „Falsch“ gemeldet. */
   wrong: number;
+  /** Davon mit „Richtig“ bestätigt. */
+  right: number;
   /** Nachgefragt, weil der Treffer knapp war. */
   asked: number;
 }
@@ -15,9 +17,9 @@ const KEY = 'cardscanner.stats';
 
 export function loadStats(): ScanStats {
   try {
-    return { auto: 0, wrong: 0, asked: 0, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
+    return { auto: 0, wrong: 0, right: 0, asked: 0, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
   } catch {
-    return { auto: 0, wrong: 0, asked: 0 };
+    return { auto: 0, wrong: 0, right: 0, asked: 0 };
   }
 }
 
@@ -36,7 +38,7 @@ export function updateStats(patch: (s: ScanStats) => Partial<ScanStats>): ScanSt
 export function accuracyText(s: ScanStats): string | null {
   if (s.auto < 1) return null;
   const pct = Math.floor((100 * (s.auto - s.wrong)) / s.auto);
-  return `${pct} % richtig (${s.wrong} von ${s.auto} automatisch erkannten als falsch gemeldet)`;
+  return `${pct} % richtig (von ${s.auto} automatisch erkannten ${s.right} bestätigt, ${s.wrong} als falsch gemeldet)`;
 }
 
 /**
