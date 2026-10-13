@@ -23,6 +23,7 @@ import { estimateCondition, toGray, type Gray } from '../src/core/condition';
 import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
+import { buildTextIndex, decide, matchText, DEFAULT_TEXT_DECISION, type TextMatch } from '../src/core/textmatch';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -36,6 +37,7 @@ const ocrSamples = option('--ocr', 60);
 const learnSamples = option('--learn', 200);
 const conditionSamples = option('--condition', 40);
 const foilSamples = option('--foil', 60);
+const textSamples = option('--text', 200);
 const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
@@ -199,6 +201,7 @@ async function main() {
   if (conditionSamples) await evalCondition(file, conditionSamples);
   if (foilSamples) await evalFoil(file, foilSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
+  if (textSamples) await evalText(file, textSamples, embeddings, embedder);
   if (ocrSamples || cardName) await evalLanguage(file, ocrSamples, embeddings, embedder);
 }
 
@@ -555,6 +558,142 @@ async function evalLanguage(file: CatalogFile, perLang: number, embeddings: Floa
   }
   await workers.latin.terminate();
   await workers.han.terminate();
+}
+
+/** Ganzes Kartenbild in voller Auflösung (für OCR), wie es Riot veröffentlicht. */
+async function fullImage(p: CatalogFile['printings'][number], lang: string): Promise<Buffer | null> {
+  const full = new URL(imageIn(p, lang).imageUrl);
+  full.searchParams.delete('w');
+  full.searchParams.delete('fm');
+  const res = await fetch(full.toString()).catch(() => null);
+  return res?.ok ? Buffer.from(await res.arrayBuffer()) : null;
+}
+
+async function textRegion(card: Buffer): Promise<Buffer> {
+  const meta = await sharp(card).metadata();
+  return sharp(card)
+    .extract({
+      left: Math.round(meta.width! * TEXT_REGION.left),
+      top: Math.round(meta.height! * TEXT_REGION.top),
+      width: Math.round(meta.width! * (TEXT_REGION.right - TEXT_REGION.left)),
+      height: Math.round(meta.height! * (TEXT_REGION.bottom - TEXT_REGION.top)),
+    })
+    .png()
+    .toBuffer();
+}
+
+/**
+ * Karte am Text erkennen: Bild (3 Frames gemittelt, wie in der App) und OCR des Textfelds zusammen.
+ * Vergleicht „nur Bild“ (bisher) mit „Bild + Text“ und sucht die Schwellen für den Text.
+ */
+async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, embedder: Embedder) {
+  const { createWorker } = await import('tesseract.js');
+  const workers = { latin: await createWorker(OCR_MODELS.latin, 1), han: await createWorker(OCR_MODELS.han, 1) };
+  const index = buildTextIndex(file.printings);
+  const hasHan = file.meta.languages.some((l) => l.code.startsWith('zh'));
+  const variants = index.groups.filter((g) => g.members.length > 1).length;
+  console.log(`\n=== Erkennung mit Text: ${n} Testbilder, ${index.groups.length} verschiedene Kartentexte (${variants} davon mit mehreren Drucken)`);
+  const rows = [...file.refs.keys()].sort(() => rand() - 0.5);
+  const K = DEFAULT_STABILIZER.candidates;
+  type Outcome = { auto: number; autoRight: number; asked: number; askedInList: number };
+  const blank = (): Outcome => ({ auto: 0, autoRight: 0, asked: 0, askedInList: 0 });
+  const imageOnly = blank(), combined = blank();
+  const via = { image: { n: 0, right: 0 }, text: { n: 0, right: 0 }, textOutsideImage: { n: 0, right: 0 }, conflict: { n: 0, imageWasRight: 0, textWasRight: 0 } };
+  const sweep: { t1: number; t2: number; right: boolean }[] = [];
+  let numberRead = 0, numberRight = 0, done = 0, ms = 0, hanReads = 0;
+  const failures: string[] = [];
+  for (const r of rows) {
+    if (done >= n) break;
+    const { p: truth, lang } = file.refs[r];
+    const p = file.printings[truth];
+    const original = await fullImage(p, lang);
+    if (!original) continue;
+    done++;
+    const card = await (await distortTo(original, 1100)).png().toBuffer();
+    const base = await sharp(card).resize({ height: 320 }).jpeg({ quality: 90 }).toBuffer();
+    const frames: Match[][] = [];
+    for (let f = 0; f < 3; f++) {
+      const q = await embedder.embed(await rawOf(f === 0 ? sharp(base) : await nextFrame(base)));
+      frames.push(collapseToPrintings(topK(q, embeddings, file.meta.dim, 24), (row) => file.refs[row].p, 8));
+    }
+    const avg = averageMatches(frames);
+    const confident = isConfident(avg, DEFAULT_STABILIZER);
+    const count = (o: Outcome, d: { action: 'save'; index: number } | { action: 'ask'; candidates: number[] }) => {
+      if (d.action === 'save') {
+        o.auto++;
+        if (d.index === truth) o.autoRight++;
+      } else {
+        o.asked++;
+        if (d.candidates.includes(truth)) o.askedInList++;
+      }
+    };
+    count(imageOnly, confident ? { action: 'save', index: avg[0].index } : { action: 'ask', candidates: avg.slice(0, K).map((m) => m.index) });
+
+    // Text: erst Latin; Han nur, wenn das nicht eindeutig ist (wie in der App)
+    const region = await textRegion(card);
+    const start = Date.now();
+    const latin = (await workers.latin.recognize(region)).data.text;
+    let text: TextMatch = matchText(index, { latin });
+    let han = '';
+    if (hasHan && !(text.ranked[0]?.score >= DEFAULT_TEXT_DECISION.minScore)) {
+      han = (await workers.han.recognize(region)).data.text;
+      hanReads++;
+      text = matchText(index, { latin, han });
+    }
+    ms += Date.now() - start;
+    const [a, b] = text.ranked;
+    if (a) sweep.push({ t1: a.score, t2: b?.score ?? 0, right: index.groups[a.group].members.includes(truth) });
+    if (text.collector) {
+      numberRead++;
+      if (text.collector === index.collectorNumbers[truth]) numberRight++;
+    }
+    const d = decide(index, avg, confident, text, K);
+    count(combined, d);
+    if (d.action === 'save') {
+      const right = d.index === truth;
+      via[d.via].n++;
+      if (right) via[d.via].right++;
+      if (d.via === 'text' && !avg.some((m) => m.index === d.index)) {
+        via.textOutsideImage.n++;
+        if (right) via.textOutsideImage.right++;
+      }
+      if (!right && failures.length < 12) {
+        const got = file.printings[d.index];
+        failures.push(`[${lang}] ${p.printingId} „${p.cardName}“ (${p.variant}) → ${got.printingId} „${got.cardName}“ (${got.variant}) per ${d.via}, Text ${a?.score.toFixed(2)}/${b?.score.toFixed(2) ?? '-'}, Bild ${avg[0].score.toFixed(3)}-${avg[1]?.score.toFixed(3)}\n      OCR: ${(latin + ' ' + han).replace(/\s+/g, ' ').slice(0, 160)}`);
+      }
+    } else if (d.reason === 'conflict') {
+      via.conflict.n++;
+      if (avg[0].index === truth) via.conflict.imageWasRight++;
+      if (a && index.groups[a.group].members.includes(truth)) via.conflict.textWasRight++;
+    }
+  }
+  await workers.latin.terminate();
+  await workers.han.terminate();
+
+  const pct = (k: number, d: number) => (d ? `${((100 * k) / d).toFixed(1)} %` : '-');
+  const wilson = (k: number, m: number) => {
+    if (!m) return 0;
+    const z = 1.96, q = k / m;
+    return (q + (z * z) / (2 * m) - z * Math.sqrt((q * (1 - q)) / m + (z * z) / (4 * m * m))) / (1 + (z * z) / m);
+  };
+  const line = (name: string, o: Outcome) =>
+    console.log(`  ${name}: ohne Nachfrage gespeichert ${pct(o.auto, done)}, davon richtig ${pct(o.autoRight, o.auto)} (≥ ${(100 * wilson(o.autoRight, o.auto)).toFixed(1)} %) · nachgefragt ${pct(o.asked, done)}, richtige Karte unter den Vorschlägen ${pct(o.askedInList, o.asked)}`);
+  console.log(`OCR im Schnitt ${Math.round(ms / Math.max(1, done))} ms, chinesisch nachgelesen bei ${hanReads}`);
+  line('nur Bild   ', imageOnly);
+  line('Bild + Text', combined);
+  console.log(`  davon per Bild ${via.image.right}/${via.image.n} richtig, per Text ${via.text.right}/${via.text.n} richtig (Karte nicht unter den Bildtreffern: ${via.textOutsideImage.right}/${via.textOutsideImage.n})`);
+  console.log(`  Widerspruch Bild sicher ↔ Text eindeutig, daher nachgefragt: ${via.conflict.n} (Bild hatte recht: ${via.conflict.imageWasRight}, Text hatte recht: ${via.conflict.textWasRight})`);
+  console.log(`  Sammlernummer gelesen: ${numberRead}, davon richtig ${numberRight}`);
+  if (failures.length) console.log(`  Fehler:\n    ${failures.join('\n    ')}`);
+  console.log(`\n  Textschwellen (beste Gruppe richtig, untere 95-%-Schranke) · Anteil eindeutig:`);
+  for (const minScore of [0.15, 0.2, 0.25, 0.3, 0.35, 0.45]) {
+    const cells = [0.05, 0.1, 0.15, 0.2, 0.3].map((minMargin) => {
+      const sel = sweep.filter((x) => x.t1 >= minScore && x.t1 - x.t2 >= minMargin);
+      const k = sel.filter((x) => x.right).length;
+      return `Abstand ${minMargin}: ${k}/${sel.length} (≥ ${(100 * wilson(k, sel.length)).toFixed(0)} %) ${pct(sel.length, done)}`;
+    });
+    console.log(`    ab ${minScore}: ${cells.join(' | ')}`);
+  }
 }
 
 main().catch((e) => {

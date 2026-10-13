@@ -21,6 +21,9 @@ on:
       foil:
         description: Karten für den Test der Foil-Erkennung (0 = aus)
         default: '0'
+      text:
+        description: Testbilder für die Erkennung mit Text (0 = aus)
+        default: '0'
 
 permissions:
   contents: read
@@ -43,6 +46,6 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
-      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }} --foil ${{ inputs.foil }} ${CARD:+--card "$CARD"}
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }} --foil ${{ inputs.foil }} --text ${{ inputs.text }} ${CARD:+--card "$CARD"}
         env:
           CARD: ${{ inputs.card }}
