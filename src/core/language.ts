@@ -29,7 +29,9 @@ export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
  * Passt der lateinisch gelesene Text kaum zum englischen Kartentext (latinMatch unter dieser Schwelle) und
  * stehen keine sprachtypischen Wörter darin, ist der Druck nicht lateinisch, also chinesisch. Greift, wenn
  * die chinesische Texterkennung nichts liefert (auf dem Handy z. B. zu langsam). Kalibriert mit
- * `npm run eval -- --text`; lernt aus deinen Sprachkorrekturen (learnThreshold).
+ * `npm run eval -- --text 300` (Oktober 2026): Chinesische Drucke lagen alle bei 0, englische zu 4 % darunter
+ * (meist Karten mit fast keinem Text). Ohne chinesische Texterkennung wurden so 100 % der chinesischen Drucke
+ * erkannt, 1,3 % der englischen fälschlich als chinesisch. Lernt aus deinen Sprachkorrekturen (learnThreshold).
  */
 export const NO_LATIN_BELOW = 0.08;
 
