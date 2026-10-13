@@ -54,12 +54,13 @@ export interface TextDecisionConfig {
 }
 
 /**
- * Kalibriert mit `npm run eval -- --text`: siehe Kommentar dort. Gewählt so, dass am Text erkannte
- * Karten in der Messung zu mindestens 95 % (untere Schranke) stimmen.
+ * Kalibriert mit `npm run eval -- --text 600` (Oktober 2026, verzerrte Kartenbilder): Mit diesen Schwellen
+ * war die beste Textgruppe in 199 von 202 Fällen richtig (untere 95-%-Schranke 96 %). Ohne Nachfrage
+ * gespeichert wurden 86 % statt 62 % (nur Bild), davon 99,6 % richtig; am Text 78/79, per Sammlernummer 69/69.
  */
 export const DEFAULT_TEXT_DECISION: TextDecisionConfig = { minScore: 0.35, minMargin: 0.15, vetoMargin: 0.3, variantMargin: 0.06 };
 
-/** Sicherheit einer am Text erkannten Karte (aus der Messung, für die Anzeige). */
+/** Sicherheit einer am Text oder an der Sammlernummer erkannten Karte (Messung: 147/148 richtig). */
 export const TEXT_CONFIDENCE = 0.97;
 
 /** Bewertungen sind gedämpft: Karten mit sehr wenig Text erreichen keine hohen Werte (zu leicht zufällig zu treffen). */
