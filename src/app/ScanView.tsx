@@ -10,7 +10,8 @@ import { finishesOf, learnFoilShare } from '../core/foil';
 import { addFoilFeedback, loadFoilFeedback } from './foilFeedback';
 import { analyzeCanvas, type CardAnalysis } from './analyze';
 import { detectLanguage, IMAGE_LANGUAGE_MARGIN, languageFromImage } from '../core/language';
-import { cropTextRegion, readText, warmUpOcr } from './ocr';
+import { cropTextRegion, readText, warmUpOcr, type Script } from './ocr';
+import { buildTextIndex, decide, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
@@ -65,6 +66,8 @@ interface Saved {
   auto?: boolean;
   /** Geschätzte Sicherheit des Treffers (nur bei automatisch gespeicherten). */
   confidence?: number;
+  /** Am Kartentext erkannt (das Bild allein war zu unsicher). */
+  byText?: boolean;
 }
 
 /** Was im Moment des Treffers aufgenommen wurde; ausgewertet wird, sobald die Karte feststeht. */
@@ -74,6 +77,8 @@ interface Captured {
   vector: Float32Array | null;
   imageLanguage: string | null;
   region: HTMLCanvasElement | null;
+  /** Gelesener Text je Schrift, einmal gelesen für Erkennung und Sprache. */
+  ocr: Map<Script, Promise<string>>;
   shot: { ctx: CanvasRenderingContext2D; guide: { x: number; y: number; width: number; height: number } } | null;
 }
 
@@ -81,6 +86,19 @@ interface Captured {
 interface Question {
   captured: Captured;
   candidates: Printing[];
+  /** unsure = zu knapp; conflict = Bild und Text sagen verschiedene Karten; variant = Karte klar, Variante nicht. */
+  reason: 'unsure' | 'conflict' | 'variant';
+}
+
+/** Text einmal lesen, danach aus dem Zwischenspeicher. */
+function readOnce(captured: Captured, script: Script): Promise<string> {
+  if (!captured.region) return Promise.resolve('');
+  let text = captured.ocr.get(script);
+  if (!text) {
+    text = readText(captured.region, script);
+    captured.ocr.set(script, text);
+  }
+  return text;
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -96,6 +114,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [recent, setRecent] = useState<Saved[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [analyzing, setAnalyzing] = useState(false);
+  const [reading, setReading] = useState(false);
+  const textIndexes = useRef(new Map<string, TextIndex>());
   const [question, setQuestion] = useState<Question | null>(null);
   const questionRef = useRef<Question | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,7 +169,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
    * Wertet Sprache, Zustand und Foil aus und speichert die Karte.
    * how: 'auto' = sicher erkannt, 'chosen' = nach Nachfrage von dir gewählt (wird zum Referenzbild).
    */
-  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'chosen') => {
+  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen') => {
     if (!catalogs) return;
     const { gameId, stable, vector, region, shot } = captured;
     const p = prefsRef.current;
@@ -161,7 +181,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     setAnalyzing(true);
     const [languageGuess, analysis] = await Promise.all([
       autoLanguage && region
-        ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
+        ? detectLanguage((script) => readOnce(captured, script), printing.texts ?? {}, languages)
         : Promise.resolve(null),
       shot
         ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId), foilShareRef.current).catch(
@@ -227,11 +247,40 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       await learning.confirmItem(result.item.itemId, printing.printingId);
       sample.source = 'user';
     }
-    if (how === 'auto') recordAuto();
+    if (how !== 'chosen') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto', confidence: how === 'auto' ? stable.confidence : undefined, foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
+  };
+
+  const textIndexFor = (gameId: string): TextIndex => {
+    let index = textIndexes.current.get(gameId);
+    if (!index) {
+      index = buildTextIndex(catalogs?.ordered.get(gameId) ?? []);
+      textIndexes.current.set(gameId, index);
+    }
+    return index;
+  };
+
+  /**
+   * Bild und Kartentext zusammen: Der Text macht knappe Bildtreffer eindeutig und fängt sichere
+   * Bildtreffer ab, wenn er klar eine andere Karte zeigt. Chinesisch wird nur nachgelesen, wenn das
+   * Bild unsicher ist und der lateinische Text nichts ergibt (das Modell ist langsam).
+   */
+  const identify = async (captured: Captured): Promise<Decision> => {
+    const { gameId, stable } = captured;
+    const index = textIndexFor(gameId);
+    let text: TextMatch | null = null;
+    if (captured.region) {
+      setReading(true);
+      const latin = await readOnce(captured, 'latin');
+      text = matchText(index, { latin });
+      const hasHan = catalogs?.languages.get(gameId)?.some((l) => l.code.startsWith('zh'));
+      if (!stable.confident && hasHan && !textWinner(text)) text = matchText(index, { latin, han: await readOnce(captured, 'han') });
+      setReading(false);
+    }
+    return decide(index, stable.ranked, stable.confident, text, DEFAULT_STABILIZER.candidates);
   };
 
   // Erkennungsschleife: ein Frame nach dem anderen, so schnell wie das Modell rechnet
@@ -239,7 +288,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (!running || !recognizer || !catalogs) return;
     let active = true;
     stabilizer.current.reset();
-    if (prefsRef.current.language === 'auto') warmUpOcr();
+    warmUpOcr(prefsRef.current.language === 'auto' ? ['latin', 'han'] : ['latin']);
     (async () => {
       await recognizer.ready;
       while (active) {
@@ -253,7 +302,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms, vector, imageLanguages } = await recognizer.match(gameId, pixels);
+        const { matches, ms, vector, imageLanguages } = await recognizer.match(gameId, pixels, 8);
         if (!active) break;
         const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
@@ -265,13 +314,11 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         setCollecting(stable ? 0 : stabilizer.current.collected);
         if (stable) {
           const p = prefsRef.current;
-          const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
-          const autoLanguage = p.language === 'auto' || !languages.includes(p.language);
           // Gibt es eigene Bilder je Sprache (z. B. chinesische Drucke), hilft das Bild, wenn der Text nicht eindeutig ist
           const frames = imageEvidence.current.printing === stable.index ? imageEvidence.current.frames : [];
           const averaged = (frames[0] ?? []).map((x, i) => ({ lang: x.lang, score: frames.reduce((sum, f) => sum + (f[i]?.score ?? 0), 0) / frames.length }));
           // Beide Ausschnitte aus demselben Kamerabild; ausgewertet wird erst, wenn die Karte feststeht
-          const ocrCtx = autoLanguage ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
+          const ocrCtx = drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT);
           const shot = p.conditionAuto || p.finishAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
           const captured: Captured = {
             gameId,
@@ -279,15 +326,21 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             vector,
             imageLanguage: languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN),
             region: ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null,
+            ocr: new Map(),
             shot,
           };
-          if (stable.confident) {
-            await saveScan(captured, printings[stable.index], 'auto');
+          const decision = await identify(captured);
+          if (!active) break;
+          if (decision.action === 'save') {
+            await saveScan(captured, printings[decision.index], decision.via === 'text' ? 'text' : 'auto');
           } else {
             // Knapp: nicht raten, sondern nachfragen. Die Erkennung pausiert, bis du gewählt hast.
             recordAsked();
             navigator.vibrate?.([40, 60, 40]);
-            const ask: Question = { captured, candidates: [stable.index, ...stable.alternatives].map((i) => printings[i]) };
+            const index = textIndexFor(gameId);
+            const sameCard = decision.candidates.every((i) => index.groupOf[i] === index.groupOf[decision.candidates[0]]);
+            const reason = decision.reason === 'conflict' ? 'conflict' : sameCard ? 'variant' : 'unsure';
+            const ask: Question = { captured, candidates: decision.candidates.map((i) => printings[i]), reason };
             questionRef.current = ask;
             setQuestion(ask);
           }
@@ -414,7 +467,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
         {running && (
           <div class="hud">
-            {analyzing ? (
+            {reading ? (
+              <span>Lese Kartentext …</span>
+            ) : analyzing ? (
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
               <span>Welche Karte ist es? Bitte unten antippen.</span>
@@ -435,8 +490,14 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       {question && (
         <div class="ask">
           <p>
-            <strong>Nur zu etwa {Math.round(question.captured.stable.confidence * 100)} % sicher, welche Karte das ist.</strong> Gespeichert wird erst ab 95 %. Tippe
-            auf die richtige, daraus lernt die Erkennung.
+            <strong>
+              {question.reason === 'conflict'
+                ? 'Bild und Kartentext passen nicht zur selben Karte.'
+                : question.reason === 'variant'
+                  ? 'Karte am Text erkannt, aber nicht welche Variante.'
+                  : `Nur zu etwa ${Math.round(question.captured.stable.confidence * 100)} % sicher, welche Karte das ist.`}
+            </strong>{' '}
+            Gespeichert wird erst ab 95 %. Tippe auf die richtige, daraus lernt die Erkennung.
           </p>
           <div class="candidates">
             {question.candidates.map((p) => (
@@ -521,7 +582,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {printingLabel(s.printing)}
                 <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}{s.result.item.finish === 'foil' ? ' · Foil' : ''}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
-                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher</small>}
+                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher{s.byText ? ' (am Text erkannt)' : ''}</small>}
                 {s.auto === false && <small> · von dir gewählt</small>}
                 <small> ×{s.result.item.quantity}</small>
               </span>

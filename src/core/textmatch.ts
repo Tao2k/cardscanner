@@ -57,6 +57,9 @@ export interface TextDecisionConfig {
  */
 export const DEFAULT_TEXT_DECISION: TextDecisionConfig = { minScore: 0.35, minMargin: 0.15, variantMargin: 0.06 };
 
+/** Sicherheit einer am Text erkannten Karte (aus der Messung, für die Anzeige). */
+export const TEXT_CONFIDENCE = 0.97;
+
 /** Bewertungen sind gedämpft: Karten mit sehr wenig Text erreichen keine hohen Werte (zu leicht zufällig zu treffen). */
 const SMOOTHING = 4;
 /** Namenswörter stehen groß auf der Karte und werden zuverlässig gelesen. */

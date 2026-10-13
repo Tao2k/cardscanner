@@ -36,6 +36,8 @@ export interface StableResult {
   alternatives: number[];
   /** Anzahl ausgewerteter Frames. */
   frames: number;
+  /** Gemittelte Bildtreffer, beste zuerst (für den Abgleich mit dem Kartentext). */
+  ranked: Match[];
 }
 
 /**
@@ -129,6 +131,7 @@ export class Stabilizer {
       confidence: confidenceOf(avg[0].score - (avg[1]?.score ?? 0)),
       alternatives: shown.slice(1).map((m) => m.index),
       frames: this.frames.length,
+      ranked: avg.slice(0, 8),
     };
     this.handled = new Set(confident ? [avg[0].index] : shown.map((m) => m.index));
     this.frames = [];
