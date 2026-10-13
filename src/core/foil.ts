@@ -25,9 +25,9 @@ const H = 88;
 /** Die äußeren 3 mm (abgerundete Ecken, Übergang zum Tisch) bleiben außen vor. */
 const INSET = 3;
 /** Farbabweichung (Anteil des Helligkeitsumfangs), ab der ein Pixel als schimmernd zählt. */
-export const FOIL_PIXEL = 0.1;
+export const FOIL_PIXEL = 0.045;
 /** Anteil schimmernder Pixel, ab dem die Karte als Foil gilt. */
-export const FOIL_SHARE = 0.12;
+export const FOIL_SHARE = 0.15;
 
 type RGB = Float32Array;
 
@@ -81,10 +81,14 @@ function warpRgb(img: Pixels, quad: Quad): RGB {
   return out;
 }
 
-/** Merkmale eines Originalpixels für die Farbumrechnung: Kanäle, ihre Quadrate (Gammakurve), Konstante. */
+/**
+ * Merkmale eines Originalpixels für die Farbumrechnung: Kanäle, ihre Quadrate (Gammakurve),
+ * Mischterme (Sättigung, Farbstich je Farbton), Konstante.
+ */
+const N = 10;
 function features(ref: RGB, i: number, f: Float64Array) {
   const r = ref[i * 3] / 255, g = ref[i * 3 + 1] / 255, b = ref[i * 3 + 2] / 255;
-  f[0] = r; f[1] = g; f[2] = b; f[3] = r * r; f[4] = g * g; f[5] = b * b; f[6] = 1;
+  f[0] = r; f[1] = g; f[2] = b; f[3] = r * r; f[4] = g * g; f[5] = b * b; f[6] = r * g; f[7] = g * b; f[8] = r * b; f[9] = 1;
 }
 
 /** Löst A·x = y (Gauß mit Pivotsuche); A ist n × n, zeilenweise. */
@@ -109,7 +113,6 @@ function solve(A: Float64Array, y: Float64Array, n: number): Float64Array {
 
 /** Farbabweichung des Fotos vom umgerechneten Original, je Pixel des Innenbereichs. */
 export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
-  const N = 7;
   const inner: number[] = [];
   for (let y = INSET; y < H - INSET; y++) for (let x = INSET; x < W - INSET; x++) inner.push(y * W + x);
 
@@ -131,26 +134,35 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
     for (let ch = 0; ch < 3; ch++) {
       let s = 0;
       for (let k = 0; k < N; k++) s += coef[ch][k] * f[k];
-      out[ch] = s;
+      // Die Kamera schneidet zu helle oder zu dunkle Farben ab
+      out[ch] = Math.max(0, Math.min(255, s));
     }
   };
   // Helligkeitsumfang des Fotos: Weiß minus Schwarz des Originals, umgerechnet
-  const span = (c: Float64Array) => c[0] + c[1] + c[2] + c[3] + c[4] + c[5];
+  const span = (c: Float64Array) => c.reduce((s, x, k) => (k < N - 1 ? s + x : s), 0);
   const range = Math.max(20, coef.reduce((s, c) => s + span(c), 0) / 3);
 
-  // Je Pixel die kleinste Abweichung gegenüber dem Original an dieser Stelle und den 8 Nachbarn,
-  // damit Kanten im Motiv bei leichtem Versatz nicht als Schimmer zählen
+  // Je Pixel die kleinste Farbabweichung gegenüber einer Mischung aus dem Original an dieser Stelle und
+  // einem der 8 Nachbarn: An Kanten im Motiv mischen sich zwei Farben, je nach Versatz unterschiedlich stark
   const out = new Float32Array(inner.length);
-  const p = [0, 0, 0];
+  const p0 = [0, 0, 0], pk = [0, 0, 0];
+  const chroma = (v: number[]) => {
+    const m = (v[0] + v[1] + v[2]) / 3;
+    return [v[0] - m, v[1] - m, v[2] - m];
+  };
   inner.forEach((i, n) => {
     const x = i % W, y = (i - x) / W;
-    let best = Infinity;
+    predict(i, p0);
+    const a = chroma([photo[i * 3] - p0[0], photo[i * 3 + 1] - p0[1], photo[i * 3 + 2] - p0[2]]);
+    let best = Math.hypot(a[0], a[1], a[2]);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      predict((y + dy) * W + (x + dx), p);
-      const e0 = photo[i * 3] - p[0], e1 = photo[i * 3 + 1] - p[1], e2 = photo[i * 3 + 2] - p[2];
-      const m = (e0 + e1 + e2) / 3;
-      const chroma = Math.hypot(e0 - m, e1 - m, e2 - m);
-      if (chroma < best) best = chroma;
+      if (!dx && !dy) continue;
+      predict((y + dy) * W + (x + dx), pk);
+      const d = chroma([pk[0] - p0[0], pk[1] - p0[1], pk[2] - p0[2]]);
+      const dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+      const t = dd ? Math.max(0, Math.min(1, (a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / dd)) : 0;
+      const e = Math.hypot(a[0] - t * d[0], a[1] - t * d[1], a[2] - t * d[2]);
+      if (e < best) best = e;
     }
     out[n] = best / range;
   });

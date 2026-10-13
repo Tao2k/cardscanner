@@ -80,7 +80,7 @@ describe('Foil-Erkennung', () => {
   });
 
   it('erkennt Regenbogenschimmer als Foil', () => {
-    const res = shoot(0.25);
+    const res = shoot(0.1);
     expect(res.foil).toBe(true);
     expect(res.score).toBeGreaterThan(0.3);
   });

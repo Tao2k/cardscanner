@@ -113,7 +113,7 @@ async function main() {
     { lang: 'en', specks: 0, foil: 0, rarity: 'Common' },
     { lang: 'en', specks: 40, foil: 0, rarity: '' },
     { lang: 'zh-CN', specks: 0, foil: 0, rarity: '' },
-    { lang: 'en', specks: 0, foil: 0.2, rarity: 'Common' },
+    { lang: 'en', specks: 0, foil: 0.1, rarity: 'Common' },
   ];
   for (const c of cases) {
     const row = file.refs.findIndex(
