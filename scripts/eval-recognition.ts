@@ -23,7 +23,7 @@ import { estimateCondition, toGray, type Gray } from '../src/core/condition';
 import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
-import { buildTextIndex, decide, matchText, DEFAULT_TEXT_DECISION, type TextMatch } from '../src/core/textmatch';
+import { buildTextIndex, decide, matchText, textWinner, type TextMatch } from '../src/core/textmatch';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -598,7 +598,8 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
   type Outcome = { auto: number; autoRight: number; asked: number; askedInList: number };
   const blank = (): Outcome => ({ auto: 0, autoRight: 0, asked: 0, askedInList: 0 });
   const imageOnly = blank(), combined = blank();
-  const via = { image: { n: 0, right: 0 }, text: { n: 0, right: 0 }, textOutsideImage: { n: 0, right: 0 }, conflict: { n: 0, imageWasRight: 0, textWasRight: 0 } };
+  const asks = { unsure: 0, variant: 0, conflict: 0 };
+  const via = { image: { n: 0, right: 0 }, text: { n: 0, right: 0 }, number: { n: 0, right: 0 }, textOutsideImage: { n: 0, right: 0 }, conflict: { n: 0, imageWasRight: 0, textWasRight: 0 } };
   const sweep: { t1: number; t2: number; right: boolean }[] = [];
   let numberRead = 0, numberRight = 0, done = 0, ms = 0, hanReads = 0;
   const failures: string[] = [];
@@ -635,7 +636,7 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
     const latin = (await workers.latin.recognize(region)).data.text;
     let text: TextMatch = matchText(index, { latin });
     let han = '';
-    if (hasHan && !(text.ranked[0]?.score >= DEFAULT_TEXT_DECISION.minScore)) {
+    if (hasHan && !confident && !textWinner(text)) {
       han = (await workers.han.recognize(region)).data.text;
       hanReads++;
       text = matchText(index, { latin, han });
@@ -661,7 +662,9 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
         const got = file.printings[d.index];
         failures.push(`[${lang}] ${p.printingId} „${p.cardName}“ (${p.variant}) → ${got.printingId} „${got.cardName}“ (${got.variant}) per ${d.via}, Text ${a?.score.toFixed(2)}/${b?.score.toFixed(2) ?? '-'}, Bild ${avg[0].score.toFixed(3)}-${avg[1]?.score.toFixed(3)}\n      OCR: ${(latin + ' ' + han).replace(/\s+/g, ' ').slice(0, 160)}`);
       }
-    } else if (d.reason === 'conflict') {
+    }
+    if (d.action === 'ask') asks[d.reason]++;
+    if (d.action === 'ask' && d.reason === 'conflict') {
       via.conflict.n++;
       if (avg[0].index === truth) via.conflict.imageWasRight++;
       if (a && index.groups[a.group].members.includes(truth)) via.conflict.textWasRight++;
@@ -681,8 +684,9 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
   console.log(`OCR im Schnitt ${Math.round(ms / Math.max(1, done))} ms, chinesisch nachgelesen bei ${hanReads}`);
   line('nur Bild   ', imageOnly);
   line('Bild + Text', combined);
-  console.log(`  davon per Bild ${via.image.right}/${via.image.n} richtig, per Text ${via.text.right}/${via.text.n} richtig (Karte nicht unter den Bildtreffern: ${via.textOutsideImage.right}/${via.textOutsideImage.n})`);
+  console.log(`  davon per Bild ${via.image.right}/${via.image.n} richtig, per Text ${via.text.right}/${via.text.n} richtig, per Sammlernummer ${via.number.right}/${via.number.n} richtig (Karte nicht unter den Bildtreffern: ${via.textOutsideImage.right}/${via.textOutsideImage.n})`);
   console.log(`  Widerspruch Bild sicher ↔ Text eindeutig, daher nachgefragt: ${via.conflict.n} (Bild hatte recht: ${via.conflict.imageWasRight}, Text hatte recht: ${via.conflict.textWasRight})`);
+  console.log(`  Nachgefragt, weil: Bild knapp und Text unklar ${asks.unsure}, Variante unklar ${asks.variant}, Widerspruch ${asks.conflict}`);
   console.log(`  Sammlernummer gelesen: ${numberRead}, davon richtig ${numberRight}`);
   if (failures.length) console.log(`  Fehler:\n    ${failures.join('\n    ')}`);
   console.log(`\n  Textschwellen (beste Gruppe richtig, untere 95-%-Schranke) · Anteil eindeutig:`);

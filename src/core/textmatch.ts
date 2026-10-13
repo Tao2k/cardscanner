@@ -47,6 +47,8 @@ export interface TextDecisionConfig {
   minScore: number;
   /** Mindestabstand zur zweitbesten Gruppe. */
   minMargin: number;
+  /** Abstand, ab dem der Text einem sicheren Bildtreffer widersprechen darf (dann wird nachgefragt). */
+  vetoMargin: number;
   /** Bildabstand innerhalb einer Gruppe, ab dem das Bild die Variante bestimmt. */
   variantMargin: number;
 }
@@ -55,7 +57,7 @@ export interface TextDecisionConfig {
  * Kalibriert mit `npm run eval -- --text`: siehe Kommentar dort. Gewählt so, dass am Text erkannte
  * Karten in der Messung zu mindestens 95 % (untere Schranke) stimmen.
  */
-export const DEFAULT_TEXT_DECISION: TextDecisionConfig = { minScore: 0.35, minMargin: 0.15, variantMargin: 0.06 };
+export const DEFAULT_TEXT_DECISION: TextDecisionConfig = { minScore: 0.35, minMargin: 0.15, vetoMargin: 0.3, variantMargin: 0.06 };
 
 /** Sicherheit einer am Text erkannten Karte (aus der Messung, für die Anzeige). */
 export const TEXT_CONFIDENCE = 0.97;
@@ -176,15 +178,16 @@ export function textWinner(m: TextMatch, cfg: TextDecisionConfig = DEFAULT_TEXT_
 }
 
 export type Decision =
-  | { action: 'save'; index: number; via: 'image' | 'text' }
-  | { action: 'ask'; candidates: number[]; reason: 'unsure' | 'conflict' };
+  | { action: 'save'; index: number; via: 'image' | 'text' | 'number' }
+  | { action: 'ask'; candidates: number[]; reason: 'unsure' | 'conflict' | 'variant' };
 
 /**
  * Bild und Text zusammen:
- * - Text eindeutig und Bild sicher, aber andere Karte: nachfragen (einer von beiden irrt).
+ * - Text sehr eindeutig und Bild sicher, aber andere Karte: nachfragen (einer von beiden irrt).
  * - Text eindeutig: Karte steht fest. Variante per Sammlernummer, sonst per Bild (wenn deutlich), sonst nachfragen
  *   mit nur den Varianten dieser Karte.
- * - Text unklar: wie bisher nur das Bild.
+ * - Text unklar, Bild unsicher: Trägt genau einer der Bildtreffer die gelesene Sammlernummer, ist es dieser.
+ * - Sonst wie bisher nur das Bild.
  * @param image   gemittelte Bildtreffer, beste zuerst
  * @param imageConfident ob das Bild allein sicher genug ist
  */
@@ -197,26 +200,30 @@ export function decide(
   cfg: TextDecisionConfig = DEFAULT_TEXT_DECISION,
 ): Decision {
   const imageTop = image[0]?.index ?? -1;
-  const fallbackAsk = (): Decision => ({ action: 'ask', candidates: image.slice(0, candidates).map((m) => m.index), reason: 'unsure' });
   const winner = text ? textWinner(text, cfg) : null;
-  if (!winner) return imageConfident ? { action: 'save', index: imageTop, via: 'image' } : fallbackAsk();
+  const byNumber = (list: number[]) => (text?.collector ? list.filter((m) => index.collectorNumbers[m] === text.collector) : []);
+  if (!winner) {
+    if (imageConfident) return { action: 'save', index: imageTop, via: 'image' };
+    const numbered = byNumber(image.map((m) => m.index));
+    if (numbered.length === 1) return { action: 'save', index: numbered[0], via: 'number' };
+    return { action: 'ask', candidates: image.slice(0, candidates).map((m) => m.index), reason: 'unsure' };
+  }
   const members = index.groups[winner.group].members;
   if (imageConfident) {
-    if (members.includes(imageTop)) return { action: 'save', index: imageTop, via: 'image' };
+    const second = text!.ranked[1]?.score ?? 0;
+    if (members.includes(imageTop) || winner.score - second < cfg.vetoMargin) return { action: 'save', index: imageTop, via: 'image' };
     // Widerspruch: Textkarte zuerst, dann was das Bild sah
     const list = [...members.slice(0, candidates - 1), imageTop];
     return { action: 'ask', candidates: [...new Set(list)], reason: 'conflict' };
   }
   if (members.length === 1) return { action: 'save', index: members[0], via: 'text' };
   // Varianten: Sammlernummer, wenn sie genau eine trifft
-  if (text?.collector) {
-    const byNumber = members.filter((m) => index.collectorNumbers[m] === text.collector);
-    if (byNumber.length === 1) return { action: 'save', index: byNumber[0], via: 'text' };
-  }
+  const numbered = byNumber(members);
+  if (numbered.length === 1) return { action: 'save', index: numbered[0], via: 'text' };
   // Sonst das Bild, aber nur unter den Varianten dieser Karte
   const floor = image.length ? image[image.length - 1].score : 0;
   const scoreOf = (m: number) => image.find((x) => x.index === m)?.score ?? floor;
   const ranked = [...members].sort((a, b) => scoreOf(b) - scoreOf(a));
   if (scoreOf(ranked[0]) - scoreOf(ranked[1]) >= cfg.variantMargin) return { action: 'save', index: ranked[0], via: 'text' };
-  return { action: 'ask', candidates: ranked.slice(0, Math.max(candidates, 2)), reason: 'unsure' };
+  return { action: 'ask', candidates: ranked.slice(0, Math.max(candidates, 2)), reason: 'variant' };
 }

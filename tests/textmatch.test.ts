@@ -50,8 +50,14 @@ describe('Erkennung am Text', () => {
 
   it('fragt bei Varianten ohne klares Bild nur nach den Varianten', () => {
     const image = [{ index: 0, score: 0.8 }, { index: 1, score: 0.79 }];
-    expect(decide(index, image, false, jinx, 4)).toEqual({ action: 'ask', candidates: [0, 1], reason: 'unsure' });
+    expect(decide(index, image, false, jinx, 4)).toEqual({ action: 'ask', candidates: [0, 1], reason: 'variant' });
     expect(decide(index, image, false, { ...jinx, collector: '1a' }, 4)).toEqual({ action: 'save', index: 1, via: 'text' });
+  });
+
+  it('nimmt bei unklarem Text die Bildkarte mit der gelesenen Sammlernummer', () => {
+    const image = [{ index: 2, score: 0.8 }, { index: 4, score: 0.79 }];
+    expect(decide(index, image, false, { ranked: [], collector: '102' }, 4)).toEqual({ action: 'save', index: 4, via: 'number' });
+    expect(decide(index, image, false, { ranked: [], collector: '999' }, 4)).toMatchObject({ action: 'ask', reason: 'unsure' });
   });
 
   it('fragt nach, wenn sicheres Bild und eindeutiger Text verschiedene Karten sagen', () => {

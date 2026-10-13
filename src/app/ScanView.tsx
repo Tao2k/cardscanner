@@ -332,15 +332,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           const decision = await identify(captured);
           if (!active) break;
           if (decision.action === 'save') {
-            await saveScan(captured, printings[decision.index], decision.via === 'text' ? 'text' : 'auto');
+            await saveScan(captured, printings[decision.index], decision.via === 'image' ? 'auto' : 'text');
           } else {
             // Knapp: nicht raten, sondern nachfragen. Die Erkennung pausiert, bis du gewählt hast.
             recordAsked();
             navigator.vibrate?.([40, 60, 40]);
-            const index = textIndexFor(gameId);
-            const sameCard = decision.candidates.every((i) => index.groupOf[i] === index.groupOf[decision.candidates[0]]);
-            const reason = decision.reason === 'conflict' ? 'conflict' : sameCard ? 'variant' : 'unsure';
-            const ask: Question = { captured, candidates: decision.candidates.map((i) => printings[i]), reason };
+            const ask: Question = { captured, candidates: decision.candidates.map((i) => printings[i]), reason: decision.reason };
             questionRef.current = ask;
             setQuestion(ask);
           }
@@ -582,7 +579,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {printingLabel(s.printing)}
                 <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}{s.result.item.finish === 'foil' ? ' · Foil' : ''}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
-                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher{s.byText ? ' (am Text erkannt)' : ''}</small>}
+                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher{s.byText ? ' (Text gelesen)' : ''}</small>}
                 {s.auto === false && <small> · von dir gewählt</small>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
