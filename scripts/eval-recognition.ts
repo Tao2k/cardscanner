@@ -109,8 +109,13 @@ async function main() {
   const MARGINS = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08];
   const FRAME_COUNTS = [1, 3];
   const decisions = new Map<string, { auto: number; autoRight: number; asked: number; askedInList: number }>();
+  // (Abstand, richtig?) je Testbild, für die Kalibrierung Abstand → Wahrscheinlichkeit richtig
+  const calibration = new Map<number, { margin: number; right: boolean }[]>();
   const decide = (key: string, frames: Match[][], truth: number) => {
     const avg = averageMatches(frames);
+    const list = calibration.get(frames.length) ?? [];
+    list.push({ margin: avg[0].score - (avg[1]?.score ?? 0), right: avg[0].index === truth });
+    calibration.set(frames.length, list);
     for (const margin of MARGINS) {
       const k = `${key}|${margin}`;
       const d = decisions.get(k) ?? { auto: 0, autoRight: 0, asked: 0, askedInList: 0 };
@@ -170,6 +175,24 @@ async function main() {
       const d = decisions.get(`${n}|${margin}`)!;
       console.log(
         `${n} Frame(s), Abstand ${margin.toFixed(2)}: automatisch gespeichert ${pct(d.auto)}, davon richtig ${pct(d.autoRight, d.auto || 1)} · nachgefragt ${pct(d.asked)}, richtige Karte unter den Vorschlägen ${pct(d.askedInList, d.asked || 1)}`,
+      );
+    }
+  }
+  // Kalibrierung: Anteil richtiger Treffer je Abstandsbereich, mit unterer 95-%-Schranke (Wilson)
+  const wilson = (k: number, n: number) => {
+    if (!n) return 0;
+    const z = 1.96, p = k / n;
+    return (p + (z * z) / (2 * n) - z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / (1 + (z * z) / n);
+  };
+  const EDGES = [0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.05, 0.06, 0.08, 1];
+  for (const [n, list] of calibration) {
+    console.log(`\n=== Kalibrierung (${n} Frame(s)): Abstand → richtig (untere 95-%-Schranke) · ab diesem Abstand insgesamt`);
+    for (let b = 0; b + 1 < EDGES.length; b++) {
+      const inBin = list.filter((x) => x.margin >= EDGES[b] && x.margin < EDGES[b + 1]);
+      const above = list.filter((x) => x.margin >= EDGES[b]);
+      const k = inBin.filter((x) => x.right).length, ka = above.filter((x) => x.right).length;
+      console.log(
+        `  ${EDGES[b].toFixed(3)}–${EDGES[b + 1] < 1 ? EDGES[b + 1].toFixed(3) : '…'}: ${k}/${inBin.length} richtig (${inBin.length ? ((100 * k) / inBin.length).toFixed(1) : '-'} %, ≥ ${(100 * wilson(k, inBin.length)).toFixed(1)} %) · ab hier ${ka}/${above.length} (≥ ${(100 * wilson(ka, above.length)).toFixed(1)} %)`,
       );
     }
   }
