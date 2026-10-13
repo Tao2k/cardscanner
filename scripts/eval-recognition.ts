@@ -14,7 +14,7 @@ import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
 import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
-import { detectLanguage, isHanLanguage, languageFromImage, TEXT_REGION } from '../src/core/language';
+import { detectLanguage, languageFromImage, TEXT_REGION } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
@@ -357,13 +357,8 @@ async function evalLanguage(file: CatalogFile, perLang: number, embeddings: Floa
       };
       const ocr = await detectLanguage(reader, p.texts ?? {}, languages);
       ms += Date.now() - start;
-      // Wie in der App: Bild sagt Chinesisch → fertig; Bild sagt Latin → OCR nur unter Latin-Sprachen
-      const combined =
-        imageLang && isHanLanguage(imageLang)
-          ? imageLang
-          : imageLang
-            ? (await detectLanguage(reader, p.texts ?? {}, languages.filter((l) => !isHanLanguage(l)))).lang
-            : ocr.lang;
+      // Wie in der App: erst der gelesene Text, nur wenn der unklar ist, das Bild
+      const combined = ocr.lang ?? imageLang;
       count(outcome.ocr, ocr.lang);
       count(outcome.image, imageLang);
       count(outcome.combined, combined);

@@ -36,8 +36,12 @@ export function languageFromImage(scores: { lang: string; score: number }[], min
   return ranked[0][1] - ranked[1][1] >= minMargin ? ranked[0][0] : null;
 }
 
-/** Mindestabstand der Bildähnlichkeit zwischen zwei Sprachfassungen (gemessen mit eval --ocr). */
-export const IMAGE_LANGUAGE_MARGIN = 0.03;
+/**
+ * Mindestabstand der Bildähnlichkeit zwischen zwei Sprachfassungen. Gemessen (eval --ocr): die Bilder
+ * unterscheiden sich oft nur im Text, englische Fotos liegen in 10 % der Fälle bis 0,03 näher am
+ * chinesischen Bild. Deshalb nur als Notlösung, wenn der gelesene Text nicht eindeutig ist.
+ */
+export const IMAGE_LANGUAGE_MARGIN = 0.04;
 
 /**
  * Chinesisch auch ohne passenden Vergleichstext: Viele verschiedene Han-Zeichen, die gegenüber
