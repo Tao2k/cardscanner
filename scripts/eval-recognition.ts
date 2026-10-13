@@ -13,7 +13,8 @@ import { createEmbedder } from '../src/core/embedder';
 import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
 import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
-import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
+import { averageMatches, DEFAULT_STABILIZER, isConfident } from '../src/core/stabilizer';
+import type { Match } from '../src/core/matcher';
 import { detectLanguage, languageFromImage, TEXT_REGION } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
@@ -73,8 +74,25 @@ async function distortTo(buf: Buffer, outHeight: number): Promise<sharp.Sharp> {
 }
 
 async function distort(buf: Buffer): Promise<{ data: Uint8ClampedArray; width: number; height: number; channels: 3 }> {
-  const { data, info } = await (await distortTo(buf, 320)).raw().toBuffer({ resolveWithObject: true });
+  return rawOf(await distortTo(buf, 320));
+}
+
+async function rawOf(img: sharp.Sharp): Promise<{ data: Uint8ClampedArray; width: number; height: number; channels: 3 }> {
+  const { data, info } = await img.removeAlpha().raw().toBuffer({ resolveWithObject: true });
   return { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 };
+}
+
+/** Weitere Kamera-Frames derselben Aufnahme: Hand wackelt etwas, Belichtung schwankt, neues Rauschen. */
+async function nextFrame(frame: Buffer): Promise<sharp.Sharp> {
+  const meta = await sharp(frame).metadata();
+  const img = await sharp(frame)
+    .rotate(between(-1.5, 1.5), { background: { r: 120, g: 120, b: 120 } })
+    .modulate({ brightness: between(0.92, 1.08) })
+    .blur(between(0.3, 0.9))
+    .jpeg({ quality: Math.round(between(55, 85)) })
+    .toBuffer();
+  const m = await sharp(img).metadata();
+  return sharp(img).extract({ left: Math.floor((m.width! - meta.width!) / 2), top: Math.floor((m.height! - meta.height!) / 2), width: meta.width!, height: meta.height! });
 }
 
 async function main() {
@@ -87,6 +105,25 @@ async function main() {
   const rowIdx = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, samples);
   const indices = rowIdx;
   let top1 = 0, top3 = 0, confident = 0, confidentCorrect = 0, sameName = 0;
+  // Entscheidung wie in der App: gemittelt über mehrere Frames, sicher → speichern, sonst nachfragen
+  const MARGINS = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08];
+  const FRAME_COUNTS = [1, 3];
+  const decisions = new Map<string, { auto: number; autoRight: number; asked: number; askedInList: number }>();
+  const decide = (key: string, frames: Match[][], truth: number) => {
+    const avg = averageMatches(frames);
+    for (const margin of MARGINS) {
+      const k = `${key}|${margin}`;
+      const d = decisions.get(k) ?? { auto: 0, autoRight: 0, asked: 0, askedInList: 0 };
+      if (isConfident(avg, { minScore: DEFAULT_STABILIZER.minScore, confidentMargin: margin })) {
+        d.auto++;
+        if (avg[0].index === truth) d.autoRight++;
+      } else {
+        d.asked++;
+        if (avg.slice(0, DEFAULT_STABILIZER.candidates).some((m) => m.index === truth)) d.askedInList++;
+      }
+      decisions.set(k, d);
+    }
+  };
   const perLang = new Map<string, { n: number; hit: number }>();
   const misses: string[] = [];
   for (const r of rowIdx) {
@@ -94,8 +131,14 @@ async function main() {
     const p = file.printings[i];
     const url = imageIn(p, lang).imageUrl;
     const cached = path.join('.cache/images', createHash('sha1').update(url).digest('hex'));
-    const query = await embedder.embed(await distort(await readFile(cached)));
-    const res = collapseToPrintings(topK(query, embeddings, file.meta.dim, 9), (row) => file.refs[row].p, 3);
+    const base = await (await distortTo(await readFile(cached), 320)).jpeg({ quality: 90 }).toBuffer();
+    const frames: Match[][] = [];
+    for (let f = 0; f < Math.max(...FRAME_COUNTS); f++) {
+      const q = await embedder.embed(await rawOf(f === 0 ? sharp(base) : await nextFrame(base)));
+      frames.push(collapseToPrintings(topK(q, embeddings, file.meta.dim, 24), (row) => file.refs[row].p, 8));
+    }
+    for (const n of FRAME_COUNTS) decide(`${n}`, frames.slice(0, n), i);
+    const res = frames[0].slice(0, 3);
     const hit = res[0].index === i;
     const stat = perLang.get(lang) ?? { n: 0, hit: 0 };
     stat.n++;
@@ -121,6 +164,15 @@ async function main() {
   console.log(`Falsch, aber gleiche Karte in anderer Variante: ${sameName}`);
   console.log(`Als sicher eingestuft: ${pct(confident)}, davon richtig: ${pct(confidentCorrect, confident || 1)}`);
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
+  console.log(`\n=== Speichern oder nachfragen (Abstand Platz 1 zu 2, aktuell ${DEFAULT_STABILIZER.confidentMargin}; Nachfrage zeigt ${DEFAULT_STABILIZER.candidates} Kandidaten)`);
+  for (const n of FRAME_COUNTS) {
+    for (const margin of MARGINS) {
+      const d = decisions.get(`${n}|${margin}`)!;
+      console.log(
+        `${n} Frame(s), Abstand ${margin.toFixed(2)}: automatisch gespeichert ${pct(d.auto)}, davon richtig ${pct(d.autoRight, d.auto || 1)} · nachgefragt ${pct(d.asked)}, richtige Karte unter den Vorschlägen ${pct(d.askedInList, d.asked || 1)}`,
+      );
+    }
+  }
   if (conditionSamples) await evalCondition(file, conditionSamples);
   if (foilSamples) await evalFoil(file, foilSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);

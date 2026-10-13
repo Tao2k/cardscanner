@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { collapseToPrintings, l2normalize, topK } from '../src/core/matcher';
-import { Stabilizer } from '../src/core/stabilizer';
+import { averageMatches, Stabilizer } from '../src/core/stabilizer';
 import { boxToVideo, CARD_ASPECT, guideRect } from '../src/core/geometry';
 import { letterboxToSquare, toPortrait } from '../src/core/imageops';
 import { parseEmbeddings } from '../src/core/catalog';
@@ -40,40 +40,63 @@ describe('stabilizer', () => {
     { index, score },
     { index: index + 100, score: second },
   ];
+  const cfg = (requiredFrames: number, maxFrames = 5) => ({ requiredFrames, maxFrames, minScore: 0.5, confidentMargin: 0.05, candidates: 4 });
 
-  it('meldet erst nach mehreren stabilen Frames und nur einmal pro Karte', () => {
-    const s = new Stabilizer({ requiredFrames: 3, minScore: 0.5, confidentMargin: 0.05 });
+  it('meldet erst nach mehreren Frames und nur einmal pro Karte', () => {
+    const s = new Stabilizer(cfg(3));
     expect(s.push(m(1, 0.9))).toBeNull();
     expect(s.push(m(1, 0.9))).toBeNull();
     const hit = s.push(m(1, 0.9));
-    expect(hit).toMatchObject({ index: 1, confident: true, alternatives: [101] });
+    expect(hit).toMatchObject({ index: 1, confident: true, alternatives: [101], frames: 3 });
     expect(s.push(m(1, 0.9))).toBeNull();
     expect(s.push(m(1, 0.9))).toBeNull();
   });
 
   it('meldet dieselbe Karte erneut, nachdem sie das Bild verlassen hat', () => {
-    const s = new Stabilizer({ requiredFrames: 1, minScore: 0.5, confidentMargin: 0.05 });
+    const s = new Stabilizer(cfg(1));
     expect(s.push(m(1, 0.9))).not.toBeNull();
     expect(s.push(m(1, 0.9))).toBeNull();
     expect(s.push([])).toBeNull();
     expect(s.push(m(1, 0.9))).not.toBeNull();
   });
 
-  it('markiert knappe Treffer als unsicher', () => {
-    const s = new Stabilizer({ requiredFrames: 1, minScore: 0.5, confidentMargin: 0.05 });
-    expect(s.push(m(7, 0.8, 0.78))?.confident).toBe(false);
+  it('sammelt bei knappen Treffern weiter und fragt erst nach maxFrames nach', () => {
+    const s = new Stabilizer(cfg(1, 4));
+    for (let i = 0; i < 3; i++) expect(s.push(m(7, 0.8, 0.78))).toBeNull();
+    const ask = s.push(m(7, 0.8, 0.78));
+    expect(ask).toMatchObject({ index: 7, confident: false, alternatives: [107], frames: 4 });
+    // Solange einer der gezeigten Kandidaten vorne liegt, ist es dieselbe Karte
+    expect(s.push(m(107, 0.8, 0.78))).toBeNull();
+  });
+
+  it('wird durch mehr Frames sicher, wenn der Favorit klar vorne bleibt', () => {
+    const s = new Stabilizer(cfg(2, 10));
+    // Ein Frame knapp, dann klar: im Mittel sicher
+    expect(s.push(m(3, 0.8, 0.79))).toBeNull();
+    expect(s.push(m(3, 0.9, 0.7))?.confident).toBe(true);
   });
 
   it('ignoriert Frames unter der Mindestähnlichkeit', () => {
-    const s = new Stabilizer({ requiredFrames: 1, minScore: 0.5, confidentMargin: 0.05 });
+    const s = new Stabilizer(cfg(1));
     expect(s.push(m(1, 0.4))).toBeNull();
   });
 
   it('springt bei Kartenwechsel neu an', () => {
-    const s = new Stabilizer({ requiredFrames: 2, minScore: 0.5, confidentMargin: 0.05 });
+    const s = new Stabilizer(cfg(2));
     s.push(m(1, 0.9));
     expect(s.push(m(2, 0.9))).toBeNull();
     expect(s.push(m(2, 0.9))?.index).toBe(2);
+  });
+
+  it('mittelt Treffer über Frames, fehlende zählen mit dem schlechtesten Wert', () => {
+    const avg = averageMatches([
+      [{ index: 1, score: 0.9 }, { index: 2, score: 0.7 }],
+      [{ index: 2, score: 0.85 }, { index: 3, score: 0.6 }],
+    ]);
+    expect(avg.map((x) => x.index)).toEqual([2, 1, 3]);
+    expect(avg[0].score).toBeCloseTo(0.775);
+    expect(avg[1].score).toBeCloseTo(0.75);
+    expect(avg[2].score).toBeCloseTo(0.65);
   });
 });
 
