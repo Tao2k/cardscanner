@@ -258,7 +258,7 @@ async function evalFoil(file: CatalogFile, n: number) {
     { name: 'Foil mittel (15 %)', foil: 0.15, glare: false },
     { name: 'Foil stark (25 %)', foil: 0.25, glare: false },
   ];
-  const PIXEL_THRESHOLDS = [0.02, FOIL_PIXEL, 0.045];
+  const PIXEL_THRESHOLDS = [0.03, FOIL_PIXEL, 0.04];
   // Fall → je Pixelschwelle die Anteile schimmernder Pixel
   const scores = new Map<string, number[][]>();
   const skipped = new Map<string, number>();

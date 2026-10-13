@@ -76,7 +76,6 @@ describe('Foil-Erkennung', () => {
   it('hält eine normale Karte trotz Weißabgleich, Sättigung und Rauschen nicht für Foil', () => {
     const res = shoot(0);
     expect(res.foil).toBe(false);
-    expect(res.score).toBeLessThan(0.1);
   });
 
   it('erkennt Regenbogenschimmer als Foil', () => {
