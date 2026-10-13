@@ -24,6 +24,32 @@ export interface DetectOptions {
 export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
 
 /**
+ * Sprache aus dem Kartenbild: Gibt es für den Druck eigene Bilder je Sprache (Riot hat z. B. für
+ * chinesische Drucke eigene Scans), gewinnt die Sprache, deren Bild dem Foto klar am ähnlichsten ist.
+ * Liefert null, wenn es nur ein Bild gibt oder der Abstand zu klein ist.
+ */
+export function languageFromImage(scores: { lang: string; score: number }[], minMargin = IMAGE_LANGUAGE_MARGIN): string | null {
+  const best = new Map<string, number>();
+  for (const s of scores) best.set(s.lang, Math.max(best.get(s.lang) ?? -Infinity, s.score));
+  if (best.size < 2) return null;
+  const ranked = [...best].sort((a, b) => b[1] - a[1]);
+  return ranked[0][1] - ranked[1][1] >= minMargin ? ranked[0][0] : null;
+}
+
+/** Mindestabstand der Bildähnlichkeit zwischen zwei Sprachfassungen (gemessen mit eval --ocr). */
+export const IMAGE_LANGUAGE_MARGIN = 0.03;
+
+/**
+ * Chinesisch auch ohne passenden Vergleichstext: Viele verschiedene Han-Zeichen, die gegenüber
+ * lateinischen Buchstaben überwiegen, entstehen kaum durch OCR-Fehler auf englischem Text.
+ */
+export function looksHan(ocrText: string, minDistinct = 8): boolean {
+  const han = hanChars(ocrText).size;
+  const latinLetters = (ocrText.match(/\p{Script=Latin}/gu) ?? []).length;
+  return han >= minDistinct && han * 2 > latinLetters;
+}
+
+/**
  * Bereich der Karte mit Name und Regeltext (Anteile von Breite/Höhe). Nur dieser Teil wird gelesen;
  * auf dem Artwork liefert die OCR nur Rauschen.
  */
@@ -113,11 +139,18 @@ export async function detectLanguage(
   if (latin.length) {
     scores = scoreLatin(await read('latin'), texts, latin);
     const lang = latin.length === 1 && !han ? latin[0] : pickLatin(scores, latin, options.minWords);
-    if (lang) return { lang, scores };
+    // Chinesischer Text ergibt mit dem Latin-Modell Zeichensalat, der zufällig kurze englische Wörter
+    // treffen kann. Knappe Latin-Ergebnisse daher nur annehmen, wenn es keine Han-Sprache gibt.
+    if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores };
   }
   if (han) {
-    scores[han] = scoreHan(await read('han'), texts[han]);
-    if (scores[han] >= options.minHan) return { lang: han, scores };
+    const text = await read('han');
+    scores[han] = scoreHan(text, texts[han]);
+    if (scores[han] >= options.minHan || looksHan(text)) return { lang: han, scores };
+  }
+  if (latin.length) {
+    const lang = pickLatin(scores, latin, options.minWords);
+    if (lang) return { lang, scores };
   }
   return { lang: null, scores };
 }

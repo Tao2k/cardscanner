@@ -20,11 +20,11 @@ export type WorkerResponse =
   | { type: 'ready'; model: string }
   | { type: 'progress'; message: string }
   | { type: 'error'; message: string }
-  | { type: 'result'; id: number; matches: Match[]; ms: number; vector: Float32Array }
+  | { type: 'result'; id: number; matches: Match[]; ms: number; vector: Float32Array; imageLanguages: { lang: string; score: number }[] }
   | { type: 'learned'; id: number; userSamples: number; shiftSamples: number };
 
 let embedder: Embedder | null = null;
-const indexes = new Map<string, { index: AdaptiveIndex; printingIndex: Map<string, number> }>();
+const indexes = new Map<string, { index: AdaptiveIndex; printingIndex: Map<string, number>; refLangs: string[] }>();
 const samples = new IndexedDbSampleStore();
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => postMessage(msg, transfer);
@@ -49,6 +49,7 @@ onmessage = async (event: MessageEvent<WorkerRequest>) => {
         indexes.set(gameId, {
           index: new AdaptiveIndex(catalog.embeddings, Int32Array.from(catalog.refs, (r) => r.p), catalog.meta.dim),
           printingIndex: new Map(catalog.printings.map((p, i) => [p.printingId, i])),
+          refLangs: catalog.refs.map((r) => r.lang),
         });
         await loadSamples(gameId).catch(() => undefined);
       }
@@ -64,7 +65,11 @@ onmessage = async (event: MessageEvent<WorkerRequest>) => {
       // Kopie, damit der Vektor nicht an einem größeren Puffer des Modells hängt
       const vector = Float32Array.from(await embedder.embed(msg.pixels));
       const matches = entry.index.search(vector, msg.k);
-      post({ type: 'result', id: msg.id, matches, ms: Math.round(performance.now() - start), vector }, [vector.buffer as ArrayBuffer]);
+      // Wie ähnlich ist das Foto den Bildern der einzelnen Sprachfassungen des besten Treffers?
+      const imageLanguages = matches[0]
+        ? entry.index.rowScores(vector, matches[0].index).map((r) => ({ lang: entry.refLangs[r.row], score: r.score }))
+        : [];
+      post({ type: 'result', id: msg.id, matches, ms: Math.round(performance.now() - start), vector, imageLanguages }, [vector.buffer as ArrayBuffer]);
     } else if (msg.type === 'samples') {
       post({ type: 'learned', id: msg.id, ...(await loadSamples(msg.gameId)) });
     }

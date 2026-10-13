@@ -43,8 +43,20 @@ describe('Spracherkennung', () => {
   });
 
   it('lässt sich von erfundenen Han-Zeichen nicht täuschen', async () => {
-    const r = reader('~~ ##', '山水火木金土日月星云风雨');
+    // Englischer Text, den das chinesische Modell mit ein paar erfundenen Zeichen liest
+    const r = reader('~~ ##', 'Deal 3 damage to an enemy unit 山水火 Draw a card 木金土日月');
     expect((await detectLanguage(r.read, texts, LANGS)).lang).toBeNull();
+  });
+
+  it('erkennt Chinesisch auch ohne chinesischen Vergleichstext', async () => {
+    const r = reader('Il1 ~ ## the', '当你打出此牌时抽一张牌并造成三点伤害');
+    expect((await detectLanguage(r.read, { en: 'Deal 3 damage.' }, LANGS)).lang).toBe('zh-CN');
+  });
+
+  it('lässt sich vom Zeichensalat des Latin-Modells auf chinesischem Text nicht täuschen', async () => {
+    // Zwei zufällige englische Treffer reichen nicht, wenn das chinesische Modell klar Chinesisch liest
+    const r = reader('the IIl you ~~ 1i', '当你打出此牌时抽一张牌');
+    expect((await detectLanguage(r.read, texts, LANGS)).lang).toBe('zh-CN');
   });
 
   it('nutzt allgemeine Kartenwörter, wenn der Kartentext fehlt', async () => {

@@ -106,6 +106,15 @@ export class AdaptiveIndex {
     this.samplePrintings = own.map((s) => s.printing);
   }
 
+  /**
+   * Ähnlichkeit des Fotos zu jedem Referenzbild eines Drucks (Zeile → Wert). Hat ein Druck eigene
+   * Bilder je Sprache (z. B. chinesisch), verrät das, welche Fassung vor der Kamera liegt.
+   */
+  rowScores(query: Float32Array, printing: number): { row: number; score: number }[] {
+    const q = adapt(query, this.shift);
+    return (this.rowsByPrinting.get(printing) ?? []).map((row) => ({ row, score: this.dot(q, this.embeddings, row * this.dim) }));
+  }
+
   search(query: Float32Array, k: number): Match[] {
     const q = adapt(query, this.shift);
     const fromCatalog = collapseToPrintings(topK(q, this.embeddings, this.dim, k * 3), (row) => this.refs[row], k);

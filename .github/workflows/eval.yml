@@ -12,6 +12,9 @@ on:
       condition:
         description: Karten für den Test der Zustandsschätzung (0 = aus)
         default: '0'
+      card:
+        description: Kartenname für eine gezielte Sprachprüfung (leer = aus)
+        default: ''
       learn:
         description: Eigene Scans für den Lerntest (0 = aus)
         default: '0'
@@ -37,4 +40,6 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
-      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }}
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }} ${CARD:+--card "$CARD"}
+        env:
+          CARD: ${{ inputs.card }}

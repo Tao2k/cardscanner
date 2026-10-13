@@ -14,7 +14,7 @@ import { parseEmbeddings, type CatalogFile } from '../src/core/catalog';
 import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { DEFAULT_STABILIZER } from '../src/core/stabilizer';
-import { detectLanguage, TEXT_REGION } from '../src/core/language';
+import { detectLanguage, isHanLanguage, languageFromImage, TEXT_REGION } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
@@ -32,6 +32,7 @@ const option = (name: string, fallback: number) => {
 const ocrSamples = option('--ocr', 60);
 const learnSamples = option('--learn', 200);
 const conditionSamples = option('--condition', 40);
+const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
 let seed = 42;
@@ -119,7 +120,7 @@ async function main() {
   if (misses.length) console.log(`Beispiele für Fehler:\n  ${misses.join('\n  ')}`);
   if (conditionSamples) await evalCondition(file, conditionSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
-  if (ocrSamples) await evalLanguage(file, ocrSamples);
+  if (ocrSamples || cardName) await evalLanguage(file, ocrSamples, embeddings, embedder);
 }
 
 /**
@@ -291,13 +292,31 @@ async function evalLearning(file: CatalogFile, embeddings: Float32Array, embedde
  * Spracherkennung per OCR auf verzerrten Kartenbildern in voller Auflösung.
  * Französische Kartenbilder veröffentlicht Riot nicht, daher nur Englisch und Chinesisch.
  */
-async function evalLanguage(file: CatalogFile, perLang: number) {
+async function evalLanguage(file: CatalogFile, perLang: number, embeddings: Float32Array, embedder: Embedder) {
   const { createWorker } = await import('tesseract.js');
   const workers = { latin: await createWorker(OCR_MODELS.latin, 1), han: await createWorker(OCR_MODELS.han, 1) };
   const languages = file.meta.languages.map((l) => l.code);
+  const index = new AdaptiveIndex(embeddings, Int32Array.from(file.refs, (r) => r.p), file.meta.dim);
+
+  // Einzelne Karten gezielt prüfen (z. B. --card "Sprite Fountain")
+  if (cardName) {
+    for (const [i, p] of file.printings.entries()) {
+      if (!p.cardName.toLowerCase().includes(cardName.toLowerCase())) continue;
+      const rows = file.refs.flatMap((r, k) => (r.p === i ? [`${r.lang}#${k}`] : []));
+      console.log(`\nKarte ${p.printingId} „${p.cardName}“ (${p.variant}, ${p.type}): Namen ${JSON.stringify(p.names ?? {})}, Referenzbilder ${rows.join(', ')}`);
+      for (const [l, t] of Object.entries(p.texts ?? {})) console.log(`  Text ${l}: ${t.slice(0, 120)}`);
+    }
+  }
+
   for (const lang of ['en', 'zh-CN']) {
-    const rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === lang).sort(() => rand() - 0.5).slice(0, perLang);
-    const outcome = new Map<string, number>();
+    let rows = [...file.refs.keys()].filter((r) => file.refs[r].lang === lang).sort(() => rand() - 0.5).slice(0, perLang);
+    if (cardName) {
+      const named = [...file.refs.keys()].filter((r) => file.refs[r].lang === lang && file.printings[file.refs[r].p].cardName.toLowerCase().includes(cardName.toLowerCase()));
+      rows = [...named, ...rows];
+    }
+    const outcome = { ocr: new Map<string, number>(), image: new Map<string, number>(), combined: new Map<string, number>() };
+    const count = (m: Map<string, number>, k: string | null) => m.set(k ?? 'unklar', (m.get(k ?? 'unklar') ?? 0) + 1);
+    const margins: number[] = [];
     let ms = 0;
     let shown = 0;
     for (const r of rows) {
@@ -307,7 +326,8 @@ async function evalLanguage(file: CatalogFile, perLang: number) {
       full.searchParams.delete('fm');
       const res = await fetch(full.toString());
       if (!res.ok) continue;
-      const card = await (await distortTo(Buffer.from(await res.arrayBuffer()), 1100)).png().toBuffer();
+      const original = Buffer.from(await res.arrayBuffer());
+      const card = await (await distortTo(original, 1100)).png().toBuffer();
       const meta = await sharp(card).metadata();
       const region = await sharp(card)
         .extract({
@@ -318,24 +338,47 @@ async function evalLanguage(file: CatalogFile, perLang: number) {
         })
         .png()
         .toBuffer();
+      // Sprache am Bild: wie in der App über das Embedding des Kamerabilds
+      const small = await sharp(card).resize({ height: 320 }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const vector = await embedder.embed({ data: new Uint8ClampedArray(small.data), width: small.info.width, height: small.info.height, channels: 3 });
+      const scored = index.rowScores(vector, file.refs[r].p).map((x) => ({ lang: file.refs[x.row].lang, score: x.score }));
+      const imageLang = languageFromImage(scored);
+      if (scored.length > 1) {
+        const own = Math.max(...scored.filter((x) => x.lang === lang).map((x) => x.score));
+        const other = Math.max(...scored.filter((x) => x.lang !== lang).map((x) => x.score));
+        margins.push(own - other);
+      }
       const start = Date.now();
       const read: string[] = [];
-      const guess = await detectLanguage(
-        async (script) => {
-          const text = (await workers[script].recognize(region)).data.text;
-          read.push(`${script}: ${text.replace(/\s+/g, ' ').slice(0, 140)}`);
-          return text;
-        },
-        p.texts ?? {},
-        languages,
-      );
+      const reader = async (script: 'latin' | 'han') => {
+        const text = (await workers[script].recognize(region)).data.text;
+        read.push(`${script}: ${text.replace(/\s+/g, ' ').slice(0, 140)}`);
+        return text;
+      };
+      const ocr = await detectLanguage(reader, p.texts ?? {}, languages);
       ms += Date.now() - start;
-      const key = guess.lang ?? 'unklar';
-      outcome.set(key, (outcome.get(key) ?? 0) + 1);
-      if (key !== lang && shown++ < 3) console.log(`  [${lang}→${key}] ${p.printingId} ${JSON.stringify(guess.scores)}\n    ${read.join('\n    ')}`);
+      // Wie in der App: Bild sagt Chinesisch → fertig; Bild sagt Latin → OCR nur unter Latin-Sprachen
+      const combined =
+        imageLang && isHanLanguage(imageLang)
+          ? imageLang
+          : imageLang
+            ? (await detectLanguage(reader, p.texts ?? {}, languages.filter((l) => !isHanLanguage(l)))).lang
+            : ocr.lang;
+      count(outcome.ocr, ocr.lang);
+      count(outcome.image, imageLang);
+      count(outcome.combined, combined);
+      const named = cardName && p.cardName.toLowerCase().includes(cardName.toLowerCase());
+      if (named || (combined !== lang && shown++ < 3)) {
+        console.log(`  [${lang}] ${p.printingId} ${p.cardName}: Bild ${imageLang ?? 'unklar'} ${JSON.stringify(scored.map((x) => [x.lang, +x.score.toFixed(3)]))}, OCR ${ocr.lang ?? 'unklar'} ${JSON.stringify(ocr.scores)}, zusammen ${combined ?? 'unklar'}\n    ${read.join('\n    ')}`);
+      }
     }
-    const parts = [...outcome].map(([g, n]) => `${g} ${((100 * n) / rows.length).toFixed(0)} %`).join(', ');
-    console.log(`Sprache ${lang}: ${rows.length} Bilder → ${parts}  (OCR im Schnitt ${Math.round(ms / rows.length)} ms)`);
+    const fmt = (m: Map<string, number>) => [...m].map(([g, n]) => `${g} ${((100 * n) / rows.length).toFixed(0)} %`).join(', ');
+    margins.sort((a, b) => a - b);
+    const q = (f: number) => (margins.length ? margins[Math.floor(f * (margins.length - 1))].toFixed(3) : '-');
+    console.log(`Sprache ${lang}: ${rows.length} Bilder (OCR im Schnitt ${Math.round(ms / rows.length)} ms)`);
+    console.log(`  nur OCR:   ${fmt(outcome.ocr)}`);
+    console.log(`  nur Bild:  ${fmt(outcome.image)}   (Vorsprung eigene Fassung: min ${q(0)}, 10 % ${q(0.1)}, Median ${q(0.5)}; ${margins.length} mit mehreren Bildern)`);
+    console.log(`  zusammen:  ${fmt(outcome.combined)}`);
   }
   await workers.latin.terminate();
   await workers.han.terminate();

@@ -8,7 +8,7 @@ import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
 import { CONDITION_MARGIN, type ConditionEstimate } from '../core/condition';
 import { estimateFromCanvas } from './condition';
-import { detectLanguage } from '../core/language';
+import { detectLanguage, IMAGE_LANGUAGE_MARGIN, isHanLanguage, languageFromImage } from '../core/language';
 import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
@@ -63,6 +63,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
   /** Zuletzt erkannte Sprache; Fallback, wenn der Text nicht eindeutig ist (Stapel sind meist einsprachig). */
   const lastLanguage = useRef<string | null>(null);
+  const imageEvidence = useRef<{ printing: number; frames: { lang: string; score: number }[][] }>({ printing: -1, frames: [] });
 
   // Kamera starten/stoppen
   useEffect(() => {
@@ -105,10 +106,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms, vector } = await recognizer.match(gameId, pixels);
+        const { matches, ms, vector, imageLanguages } = await recognizer.match(gameId, pixels);
         if (!active) break;
         const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
+        // Bildähnlichkeit je Sprachfassung über die Frames desselben Treffers mitteln
+        if (!top || imageEvidence.current.printing !== top.index) imageEvidence.current = { printing: top?.index ?? -1, frames: [] };
+        imageEvidence.current.frames = [...imageEvidence.current.frames, imageLanguages].slice(-10);
         setGuess(top ? { printing: printings[top.index], score: top.score, ms } : null);
         const stable = stabilizer.current.push(matches);
         if (stable) {
@@ -116,14 +120,20 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           const printing = printings[stable.index];
           const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
           const autoLanguage = p.language === 'auto' || !languages.includes(p.language);
+          // Eigene Bilder je Sprache (z. B. chinesische Drucke) verraten die Sprache schon am Bild
+          const frames = imageEvidence.current.printing === stable.index ? imageEvidence.current.frames : [];
+          const averaged = (frames[0] ?? []).map((x, i) => ({ lang: x.lang, score: frames.reduce((sum, f) => sum + (f[i]?.score ?? 0), 0) / frames.length }));
+          const imageLanguage = languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN);
+          const ocrLanguages = imageLanguage && !isHanLanguage(imageLanguage) ? languages.filter((l) => !isHanLanguage(l)) : languages;
+          const needOcr = autoLanguage && !(imageLanguage && isHanLanguage(imageLanguage));
           // Beide Ausschnitte aus demselben Kamerabild, danach Texterkennung und Zustand parallel
-          const ocrCtx = autoLanguage ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
+          const ocrCtx = needOcr ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
           const shot = p.conditionAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
           const region = ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
           setAnalyzing(true);
           const [languageGuess, conditionGuess] = await Promise.all([
-            autoLanguage && region
-              ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
+            needOcr && region
+              ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, ocrLanguages)
               : Promise.resolve(null),
             shot
               ? estimateFromCanvas(shot.ctx, shot.guide, catalogs.grayRefs(gameId, printing.printingId)).catch(
@@ -135,8 +145,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           if (!active) break;
           let language = p.language;
           if (autoLanguage) {
-            language = languageGuess?.lang ?? lastLanguage.current ?? languages[0];
-            if (languageGuess?.lang) lastLanguage.current = languageGuess.lang;
+            const detected = (imageLanguage && isHanLanguage(imageLanguage) ? imageLanguage : null) ?? languageGuess?.lang ?? null;
+            const fallback = lastLanguage.current && ocrLanguages.includes(lastLanguage.current) ? lastLanguage.current : ocrLanguages[0];
+            language = detected ?? fallback;
+            if (detected) lastLanguage.current = detected;
           }
           const condition = conditionGuess?.condition ?? p.condition;
           const conditionNote = !p.conditionAuto
