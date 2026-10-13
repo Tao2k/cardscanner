@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddResult, CollectionService, ScanInput } from '../core/collection';
 import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
-import { Stabilizer } from '../core/stabilizer';
 import type { Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
@@ -14,6 +13,9 @@ import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
+import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
+import { accuracyText, loadStats, updateStats } from './stats';
+import { nameIn } from '../core/catalog';
 
 interface Props {
   catalogs: Catalogs | null;
@@ -50,6 +52,24 @@ interface Saved {
   languageNote?: string;
   /** Woher die Angabe Foil/Normal kommt. */
   finishNote?: string;
+  /** Ohne Nachfrage gespeichert (zählt für die Genauigkeit). */
+  auto?: boolean;
+}
+
+/** Was im Moment des Treffers aufgenommen wurde; ausgewertet wird, sobald die Karte feststeht. */
+interface Captured {
+  gameId: string;
+  stable: StableResult;
+  vector: Float32Array | null;
+  imageLanguage: string | null;
+  region: HTMLCanvasElement | null;
+  shot: { ctx: CanvasRenderingContext2D; guide: { x: number; y: number; width: number; height: number } } | null;
+}
+
+/** Knapper Treffer: Kandidaten zum Antippen. */
+interface Question {
+  captured: Captured;
+  candidates: Printing[];
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -65,6 +85,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [recent, setRecent] = useState<Saved[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [analyzing, setAnalyzing] = useState(false);
+  const [question, setQuestion] = useState<Question | null>(null);
+  const questionRef = useRef<Question | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [collecting, setCollecting] = useState(0);
+  const [stats, setStats] = useState(loadStats);
+  const recordAuto = () => setStats(updateStats((s) => ({ auto: s.auto + 1 })));
+  const recordAsked = () => setStats(updateStats((s) => ({ asked: s.asked + 1 })));
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
   const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
   /** Zuletzt erkannte Sprache; Fallback, wenn der Text nicht eindeutig ist (Stapel sind meist einsprachig). */
@@ -98,6 +125,93 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     };
   }, [running]);
 
+  /**
+   * Wertet Sprache, Zustand und Foil aus und speichert die Karte.
+   * how: 'auto' = sicher erkannt, 'chosen' = nach Nachfrage von dir gewählt (wird zum Referenzbild).
+   */
+  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'chosen') => {
+    if (!catalogs) return;
+    const { gameId, stable, vector, region, shot } = captured;
+    const p = prefsRef.current;
+    const printings = catalogs.ordered.get(gameId) ?? [];
+    const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
+    const autoLanguage = p.language === 'auto' || !languages.includes(p.language);
+    // Das Bild-Indiz zur Sprache gilt nur für den Druck, für den es gesammelt wurde
+    const imageLanguage = printings[stable.index] === printing ? captured.imageLanguage : null;
+    setAnalyzing(true);
+    const [languageGuess, analysis] = await Promise.all([
+      autoLanguage && region
+        ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
+        : Promise.resolve(null),
+      shot
+        ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId)).catch(
+            (e: Error): CardAnalysis => ({ condition: { condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }, foil: null }),
+          )
+        : Promise.resolve(null),
+    ]);
+    setAnalyzing(false);
+    let language = p.language;
+    let languageNote: string | undefined;
+    if (autoLanguage) {
+      // Reihenfolge: gelesener Text, dann Bild, dann die zuletzt erkannte Sprache (Stapel sind meist einsprachig)
+      const detected = languageGuess?.lang ?? imageLanguage;
+      language = detected ?? lastLanguage.current ?? languages[0];
+      if (!detected) languageNote = `Sprache nicht sicher erkannt, angenommen: ${labelOf(gameId, language)}`;
+      if (detected) lastLanguage.current = detected;
+    }
+    const conditionGuess = p.conditionAuto ? analysis?.condition : undefined;
+    const condition = conditionGuess?.condition ?? p.condition;
+    const conditionNote = !p.conditionAuto
+      ? undefined
+      : conditionGuess?.condition
+        ? 'Zustand geschätzt'
+        : `Zustand nicht geschätzt (${conditionGuess?.reason ?? 'unbekannt'}), Standard ${p.condition}`;
+    // Foil: gibt es den Druck nur in einer Ausführung, steht sie fest; sonst entscheidet das Foto
+    let finish = p.finish;
+    let finishNote: string | undefined;
+    if (p.finishAuto) {
+      const finishes = finishesOf(printing);
+      const foil = analysis?.foil;
+      if (finishes.length === 1) {
+        finish = finishes[0];
+        finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
+      } else if (foil && foil.foil !== null) {
+        finish = foil.foil ? 'foil' : 'normal';
+        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %)`;
+      } else {
+        finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
+      }
+    }
+    const input: ScanInput = {
+      gameId,
+      printingId: printing.printingId,
+      language,
+      finish,
+      condition,
+      location: '',
+      confirmed: true,
+      matchScore: stable.score,
+      alternatives: [stable.index, ...stable.alternatives].map((i) => printings[i].printingId).filter((id) => id !== printing.printingId),
+    };
+    const result = await service.addScan(input);
+    // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
+    const sample = vector
+      ? await learning
+          .recordScan({ gameId, printingId: printing.printingId, itemId: result.item.itemId, vector, confident: true })
+          .catch(() => undefined)
+      : undefined;
+    // Von dir gewählt: Der Scan wird sofort zum eigenen Referenzbild
+    if (how === 'chosen' && sample) {
+      await learning.confirmItem(result.item.itemId, printing.printingId);
+      sample.source = 'user';
+    }
+    if (how === 'auto') recordAuto();
+    navigator.vibrate?.(40);
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto' }, ...r].slice(0, 5));
+    onChange();
+    if (sample) onLearn();
+  };
+
   // Erkennungsschleife: ein Frame nach dem anderen, so schnell wie das Modell rechnet
   useEffect(() => {
     if (!running || !recognizer || !catalogs) return;
@@ -107,6 +221,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     (async () => {
       await recognizer.ready;
       while (active) {
+        if (questionRef.current) {
+          await new Promise((r) => setTimeout(r, 150));
+          continue;
+        }
         const { gameId } = prefsRef.current;
         const pixels = videoRef.current && canvasRef.current ? grabCard(videoRef.current, canvasRef.current) : null;
         if (!pixels || !gameId) {
@@ -122,86 +240,36 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         imageEvidence.current.frames = [...imageEvidence.current.frames, imageLanguages].slice(-10);
         setGuess(top ? { printing: printings[top.index], score: top.score, ms } : null);
         const stable = stabilizer.current.push(matches);
+        setCollecting(stable ? 0 : stabilizer.current.collected);
         if (stable) {
           const p = prefsRef.current;
-          const printing = printings[stable.index];
           const languages = catalogs.languages.get(gameId)?.map((l) => l.code) ?? ['en'];
           const autoLanguage = p.language === 'auto' || !languages.includes(p.language);
           // Gibt es eigene Bilder je Sprache (z. B. chinesische Drucke), hilft das Bild, wenn der Text nicht eindeutig ist
           const frames = imageEvidence.current.printing === stable.index ? imageEvidence.current.frames : [];
           const averaged = (frames[0] ?? []).map((x, i) => ({ lang: x.lang, score: frames.reduce((sum, f) => sum + (f[i]?.score ?? 0), 0) / frames.length }));
-          const imageLanguage = languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN);
-          // Beide Ausschnitte aus demselben Kamerabild, danach Texterkennung und Zustand parallel
+          // Beide Ausschnitte aus demselben Kamerabild; ausgewertet wird erst, wenn die Karte feststeht
           const ocrCtx = autoLanguage ? drawCard(videoRef.current!, ocrCanvasRef.current!, OCR_CROP_HEIGHT) : null;
           const shot = p.conditionAuto || p.finishAuto ? drawAroundCard(videoRef.current!, conditionCanvasRef.current!, CONDITION_CROP_HEIGHT, CONDITION_MARGIN) : null;
-          const region = ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null;
-          setAnalyzing(true);
-          const [languageGuess, analysis] = await Promise.all([
-            autoLanguage && region
-              ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
-              : Promise.resolve(null),
-            shot
-              ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId)).catch(
-                  (e: Error): CardAnalysis => ({ condition: { condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }, foil: null }),
-                )
-              : Promise.resolve(null),
-          ]);
-          setAnalyzing(false);
-          if (!active) break;
-          let language = p.language;
-          let languageNote: string | undefined;
-          if (autoLanguage) {
-            // Reihenfolge: gelesener Text, dann Bild, dann die zuletzt erkannte Sprache (Stapel sind meist einsprachig)
-            const detected = languageGuess?.lang ?? imageLanguage;
-            language = detected ?? lastLanguage.current ?? languages[0];
-            if (!detected) languageNote = `Sprache nicht sicher erkannt, angenommen: ${labelOf(gameId, language)}`;
-            if (detected) lastLanguage.current = detected;
-          }
-          const conditionGuess = p.conditionAuto ? analysis?.condition : undefined;
-          const condition = conditionGuess?.condition ?? p.condition;
-          const conditionNote = !p.conditionAuto
-            ? undefined
-            : conditionGuess?.condition
-              ? 'Zustand geschätzt'
-              : `Zustand nicht geschätzt (${conditionGuess?.reason ?? 'unbekannt'}), Standard ${p.condition}`;
-          // Foil: gibt es den Druck nur in einer Ausführung, steht sie fest; sonst entscheidet das Foto
-          let finish = p.finish;
-          let finishNote: string | undefined;
-          if (p.finishAuto) {
-            const finishes = finishesOf(printing);
-            const foil = analysis?.foil;
-            if (finishes.length === 1) {
-              finish = finishes[0];
-              finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
-            } else if (foil && foil.foil !== null) {
-              finish = foil.foil ? 'foil' : 'normal';
-              finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %)`;
-            } else {
-              finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
-            }
-          }
-          const input: ScanInput = {
+          const captured: Captured = {
             gameId,
-            printingId: printing.printingId,
-            language,
-            finish,
-            condition,
-            location: '',
-            confirmed: stable.confident,
-            matchScore: stable.score,
-            alternatives: stable.alternatives.map((i) => printings[i].printingId),
+            stable,
+            vector,
+            imageLanguage: languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN),
+            region: ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null,
+            shot,
           };
-          const result = await service.addScan(input);
-          // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
-          const sample = vector
-            ? await learning
-                .recordScan({ gameId, printingId: printing.printingId, itemId: result.item.itemId, vector, confident: stable.confident })
-                .catch(() => undefined)
-            : undefined;
-          navigator.vibrate?.(stable.confident ? 40 : [40, 60, 40]);
-          setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote }, ...r].slice(0, 5));
-          onChange();
-          if (sample?.source === 'auto') onLearn();
+          if (stable.confident) {
+            await saveScan(captured, printings[stable.index], 'auto');
+          } else {
+            // Knapp: nicht raten, sondern nachfragen. Die Erkennung pausiert, bis du gewählt hast.
+            recordAsked();
+            navigator.vibrate?.([40, 60, 40]);
+            const ask: Question = { captured, candidates: [stable.index, ...stable.alternatives].map((i) => printings[i]) };
+            questionRef.current = ask;
+            setQuestion(ask);
+          }
+          if (!active) break;
         }
       }
     })();
@@ -236,7 +304,33 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   };
 
   /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
-  const flag = (saved: Saved) => resave(saved, { confirmed: false }, { flagged: true });
+  const flag = (saved: Saved) => {
+    if (saved.auto) setStats(updateStats((s) => ({ wrong: s.wrong + 1 })));
+    return resave(saved, { confirmed: false }, { flagged: true });
+  };
+
+  /** Antwort auf die Nachfrage: gewählte Karte speichern, oder (null) neu scannen. */
+  const answer = async (printing: Printing | null) => {
+    const q = questionRef.current;
+    if (!q) return;
+    setQuestion(null);
+    setSearchQuery('');
+    if (printing) await saveScan(q.captured, printing, 'chosen');
+    else stabilizer.current.reset();
+    // Erst jetzt weiterscannen, damit nicht zwei Auswertungen gleichzeitig laufen
+    questionRef.current = null;
+  };
+
+  const sq = searchQuery.trim().toLowerCase();
+  const searchResults =
+    question && sq.length >= 2
+      ? (catalogs?.ordered.get(question.captured.gameId) ?? [])
+          .filter((p) =>
+            `${p.cardName} ${nameIn(p, 'fr')} ${nameIn(p, 'zh-CN')} ${p.setCode} ${p.collectorNumber} ${p.setCode}-${p.collectorNumber}`.toLowerCase().includes(sq),
+          )
+          .slice(0, 12)
+      : [];
+  const accuracy = accuracyText(stats);
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
   const ready = !status && recognizer && catalogs;
@@ -263,6 +357,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <div class="hud">
             {analyzing ? (
               <span>Prüfe Sprache, Zustand und Foil …</span>
+            ) : question ? (
+              <span>Welche Karte ist es? Bitte unten antippen.</span>
+            ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (
+              <span>Noch unsicher, Karte ruhig halten …</span>
             ) : guess ? (
               <span>
                 {guess.printing.cardName} · {Math.round(guess.score * 100)} % · {guess.ms} ms
@@ -274,6 +372,34 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           </div>
         )}
       </div>
+
+      {question && (
+        <div class="ask">
+          <p>
+            <strong>Nicht sicher, welche Karte das ist.</strong> Tippe auf die richtige, daraus lernt die Erkennung.
+          </p>
+          <div class="candidates">
+            {question.candidates.map((p) => (
+              <button key={p.printingId} class="candidate" onClick={() => answer(p)}>
+                <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
+                <small>{printingLabel(p)}</small>
+              </button>
+            ))}
+          </div>
+          <input type="search" placeholder="Keine davon? Name oder Nummer suchen" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
+          {searchResults.length > 0 && (
+            <div class="candidates">
+              {searchResults.map((p) => (
+                <button key={p.printingId} class="candidate" onClick={() => answer(p)}>
+                  <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
+                  <small>{printingLabel(p)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => answer(null)}>Nicht speichern, neu scannen</button>
+        </div>
+      )}
 
       <div class="controls">
         {catalogs && catalogs.games.length > 1 && (
@@ -318,6 +444,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           {CONDITIONS.map((c) => <option value={c}>{c}</option>)}
         </select>
       </div>
+
+      {accuracy && (
+        <p class="muted stats">
+          Genauigkeit bisher: {accuracy}. Nachgefragt: {stats.asked}×.
+        </p>
+      )}
 
       {recent.length > 0 && (
         <ul class="recent">

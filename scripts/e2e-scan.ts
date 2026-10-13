@@ -149,7 +149,21 @@ async function main() {
       const text = await page.locator('.hud, .banner').allInnerTexts().catch(() => []);
       console.log(`  [${c.lang}] ${text.join(' | ').replace(/\s+/g, ' ')}`);
     }, 10_000);
-    const saved = await page.locator('.recent li').first().waitFor({ timeout: 120_000 }).then(() => true, () => false);
+    // Bei knappen Treffern fragt die App nach: dann wie ein Mensch die richtige Karte antippen
+    const outcome = await Promise.race([
+      page.locator('.recent li').first().waitFor({ timeout: 120_000 }).then(() => 'saved' as const),
+      page.locator('.ask').waitFor({ timeout: 120_000 }).then(() => 'asked' as const),
+    ]).catch(() => 'timeout' as const);
+    let asked = false;
+    if (outcome === 'asked') {
+      asked = true;
+      const shownCandidates = await page.locator('.ask .candidate small').allInnerTexts();
+      console.log(`  [${c.lang}] nachgefragt: ${shownCandidates.join(' | ')}`);
+      const right = page.locator('.ask .candidate', { hasText: `${printing.setCode} ${printing.collectorNumber}` }).first();
+      if (await right.count()) await right.click();
+      else await page.getByRole('button', { name: 'Nicht speichern, neu scannen' }).click();
+    }
+    const saved = await page.locator('.recent li').first().waitFor({ timeout: outcome === 'timeout' ? 1 : 120_000 }).then(() => true, () => false);
     clearInterval(hud);
     if (!saved) {
       failures++;
@@ -179,7 +193,7 @@ async function main() {
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(
-      `${ok ? 'OK  ' : 'FEHLER'} ${printing.printingId} [${c.lang}, ${c.specks} Abnutzungsflecken, Foil ${c.foil}, ${printing.rarity}, erwartet ${expectedFinish}] → gespeichert: ${item ? `${item.printingId}, Sprache ${item.language}, Zustand ${item.condition}, ${item.finish}` : 'nichts'}; ${estimated ? 'Zustand geschätzt' : 'Zustand NICHT geschätzt'}\n     Anzeige: ${shown}`,
+      `${ok ? 'OK  ' : 'FEHLER'} ${printing.printingId} [${c.lang}, ${c.specks} Abnutzungsflecken, Foil ${c.foil}, ${printing.rarity}, erwartet ${expectedFinish}${asked ? ', nach Nachfrage' : ''}] → gespeichert: ${item ? `${item.printingId}, Sprache ${item.language}, Zustand ${item.condition}, ${item.finish}` : 'nichts'}; ${estimated ? 'Zustand geschätzt' : 'Zustand NICHT geschätzt'}\n     Anzeige: ${shown}`,
     );
   }
   server.kill();
