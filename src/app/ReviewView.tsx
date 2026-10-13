@@ -5,7 +5,7 @@ import type { CollectionItem, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import type { Learned } from './recognizer';
 import { printingLabel } from './format';
-import { imageIn, nameIn } from '../core/catalog';
+import { nameIn } from '../core/catalog';
 
 interface Props {
   items: CollectionItem[];
@@ -56,8 +56,8 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
 
   const candidateButton = (item: CollectionItem, p: Printing, first = false) => (
     <button key={p.printingId} class={first ? 'candidate first' : 'candidate'} onClick={() => choose(item, p.printingId)}>
-      <img src={imageIn(p, item.language).imageUrl} alt={p.cardName} loading="lazy" />
-      <small>{printingLabel(p, item.language)}</small>
+      <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
+      <small>{printingLabel(p)}</small>
     </button>
   );
 

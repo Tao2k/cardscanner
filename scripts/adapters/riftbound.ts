@@ -15,7 +15,7 @@ const GALLERY_URL = (locale: string) => `https://playriftbound.com/${locale}/car
 export const LOCALES = [
   { code: 'en', label: 'EN', locale: 'en-us' },
   { code: 'fr', label: 'FR', locale: 'fr-fr' },
-  { code: 'zh-CN', label: '中文', locale: 'zh-cn' },
+  { code: 'zh-CN', label: 'ZH', locale: 'zh-cn' },
 ] as const;
 const USER_AGENT = 'Mozilla/5.0 (compatible; CardScanner/0.1; +https://github.com/Tao2k/cardscanner)';
 

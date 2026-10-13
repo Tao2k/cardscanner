@@ -45,8 +45,9 @@ describe('Excel', () => {
     const sheet = wb.getWorksheet('Sammlung')!;
     const header = (sheet.getRow(1).values as string[]).slice(1);
     const row = (name: string) => sheet.getRow(2).getCell(header.indexOf(name) + 1).value;
-    expect(row('Name')).toBe('Unité exemple');
-    expect(row('Name (EN)')).toBe('Example Unit');
+    // Name immer englisch, die Drucksprache steht nur in „Sprache“
+    expect(row('Name')).toBe('Example Unit');
+    expect(header).not.toContain('Name (EN)');
     expect(row('Sprache')).toBe('fr');
     expect(wb.getWorksheet('Katalog riftbound')!.rowCount).toBe(2);
   });

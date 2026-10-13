@@ -1,5 +1,4 @@
-import { nameIn } from '../core/catalog';
-import type { Language, Printing } from '../core/types';
+import type { Printing } from '../core/types';
 
 const VARIANT_LABEL: Record<string, string> = {
   normal: '',
@@ -9,9 +8,10 @@ const VARIANT_LABEL: Record<string, string> = {
   promo: 'Promo',
 };
 
-export function printingLabel(p: Printing, lang: Language = 'en'): string {
+/** Anzeige immer mit englischem Namen; die Drucksprache steht nur als Merkmal am Eintrag. */
+export function printingLabel(p: Printing): string {
   const variant = VARIANT_LABEL[p.variant];
-  return `${nameIn(p, lang)} (${p.setCode} ${p.collectorNumber}${variant ? `, ${variant}` : ''})`;
+  return `${p.cardName} (${p.setCode} ${p.collectorNumber}${variant ? `, ${variant}` : ''})`;
 }
 
 export function downloadBlob(data: BlobPart, filename: string, type: string) {

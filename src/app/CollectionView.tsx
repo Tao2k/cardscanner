@@ -4,7 +4,7 @@ import { exportWorkbook, importWorkbook } from '../core/excel';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingLabel } from './format';
-import { imageIn, nameIn } from '../core/catalog';
+import { nameIn } from '../core/catalog';
 import type { Prefs } from './prefs';
 
 interface Props {
@@ -114,9 +114,9 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       <ul class="items">
         {rows.slice(0, 300).map(({ item, printing }) => (
           <li key={item.itemId}>
-            {printing && <img src={imageIn(printing, item.language).thumbUrl ?? imageIn(printing, item.language).imageUrl} alt="" loading="lazy" />}
+            {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
             <div class="info">
-              <strong>{printing ? printingLabel(printing, item.language) : item.printingId}</strong>
+              <strong>{printing ? printingLabel(printing) : item.printingId}</strong>
               <small>
                 {item.finish === 'foil' ? 'Foil · ' : ''}
                 {item.condition}

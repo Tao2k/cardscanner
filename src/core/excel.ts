@@ -1,5 +1,4 @@
 import type { Workbook } from 'exceljs';
-import { nameIn } from './catalog';
 import type { CollectionItem, Condition, Finish, Printing } from './types';
 
 /** Lädt exceljs erst bei Bedarf (das Paket ist groß und wird nur für Export/Import gebraucht). */
@@ -17,7 +16,6 @@ export const COLLECTION_COLUMNS = [
   { header: 'Set', key: 'setCode', width: 8 },
   { header: 'Nummer', key: 'collectorNumber', width: 9 },
   { header: 'Name', key: 'cardName', width: 36 },
-  { header: 'Name (EN)', key: 'cardNameEn', width: 36 },
   { header: 'Sprache', key: 'language', width: 9 },
   { header: 'Variante', key: 'variant', width: 13 },
   { header: 'Seltenheit', key: 'rarity', width: 12 },
@@ -63,8 +61,7 @@ export async function exportWorkbook(
       ...item,
       setCode: p?.setCode ?? '',
       collectorNumber: p?.collectorNumber ?? '',
-      cardName: p ? nameIn(p, item.language) : '(unbekannter Druck)',
-      cardNameEn: p?.cardName ?? '',
+      cardName: p ? p.cardName : '(unbekannter Druck)',
       variant: p?.variant ?? '',
       rarity: p?.rarity ?? '',
       confirmed: item.confirmed ? 'ja' : 'nein',

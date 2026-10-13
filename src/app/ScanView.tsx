@@ -13,7 +13,6 @@ import { cropTextRegion, readText, warmUpOcr } from './ocr';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
-import { imageIn, nameIn } from '../core/catalog';
 
 interface Props {
   catalogs: Catalogs | null;
@@ -28,10 +27,8 @@ interface Props {
   onLearn(): void;
 }
 
-const thumb = (p: Printing, lang: string) => {
-  const img = imageIn(p, lang);
-  return img.thumbUrl ?? img.imageUrl;
-};
+/** Immer das englische Kartenbild, auch bei chinesischen Drucken. */
+const thumb = (p: Printing) => p.thumbUrl ?? p.imageUrl;
 
 const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 
@@ -244,7 +241,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <span>Prüfe Sprache und Zustand …</span>
             ) : guess ? (
               <span>
-                {nameIn(guess.printing, prefs.language === 'auto' ? lastLanguage.current ?? 'en' : prefs.language)} · {Math.round(guess.score * 100)} % · {guess.ms} ms
+                {guess.printing.cardName} · {Math.round(guess.score * 100)} % · {guess.ms} ms
               </span>
             ) : (
               <span>Karte in den Rahmen halten</span>
@@ -300,9 +297,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <ul class="recent">
           {recent.map((s, i) => (
             <li key={s.result.item.itemId + s.result.item.quantity}>
-              <img src={thumb(s.printing, s.result.item.language)} alt="" loading="lazy" />
+              <img src={thumb(s.printing)} alt="" loading="lazy" />
               <span>
-                {printingLabel(s.printing, s.result.item.language)}
+                {printingLabel(s.printing)}
                 <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
                 <small> ×{s.result.item.quantity}</small>

@@ -157,7 +157,8 @@ async function main() {
     await browser.close();
 
     const item = items[0];
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition;
+    // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && shown.includes(printing.cardName);
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(
