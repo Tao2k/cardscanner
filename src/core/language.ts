@@ -12,6 +12,8 @@ export interface LanguageGuess {
   /** null = nicht eindeutig; dann entscheidet der Aufrufer (z. B. zuletzt erkannte Sprache). */
   lang: string | null;
   scores: Record<string, number>;
+  /** Woran die Sprache erkannt wurde. */
+  reason?: 'words' | 'han' | 'no-latin' | 'only';
 }
 
 export interface DetectOptions {
@@ -22,6 +24,14 @@ export interface DetectOptions {
 }
 
 export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
+
+/**
+ * Passt der lateinisch gelesene Text kaum zum englischen Kartentext (latinMatch unter dieser Schwelle) und
+ * stehen keine sprachtypischen Wörter darin, ist der Druck nicht lateinisch, also chinesisch. Greift, wenn
+ * die chinesische Texterkennung nichts liefert (auf dem Handy z. B. zu langsam). Kalibriert mit
+ * `npm run eval -- --text`; lernt aus deinen Sprachkorrekturen (learnThreshold).
+ */
+export const NO_LATIN_BELOW = 0.08;
 
 /**
  * Sprache aus dem Kartenbild: Gibt es für den Druck eigene Bilder je Sprache (Riot hat z. B. für
@@ -135,26 +145,35 @@ export async function detectLanguage(
   texts: Record<string, string>,
   languages: string[],
   options: DetectOptions = DEFAULT_DETECT,
+  /** Wie gut der lateinisch gelesene Text zum englischen Text der Karte passt (siehe textmatch.latinMatch). */
+  latin?: { match: (text: string) => number; noLatinBelow: number },
 ): Promise<LanguageGuess> {
-  const latin = languages.filter((l) => !isHanLanguage(l));
+  const latinLangs = languages.filter((l) => !isHanLanguage(l));
   const han = languages.find(isHanLanguage);
   let scores: Record<string, number> = {};
+  let latinText = '';
 
-  if (latin.length) {
-    scores = scoreLatin(await read('latin'), texts, latin);
-    const lang = latin.length === 1 && !han ? latin[0] : pickLatin(scores, latin, options.minWords);
+  if (latinLangs.length) {
+    latinText = await read('latin');
+    scores = scoreLatin(latinText, texts, latinLangs);
+    const only = latinLangs.length === 1 && !han;
+    const lang = only ? latinLangs[0] : pickLatin(scores, latinLangs, options.minWords);
     // Chinesischer Text ergibt mit dem Latin-Modell Zeichensalat, der zufällig kurze englische Wörter
     // treffen kann. Knappe Latin-Ergebnisse daher nur annehmen, wenn es keine Han-Sprache gibt.
-    if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores };
+    if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores, reason: only ? 'only' : 'words' };
   }
   if (han) {
     const text = await read('han');
     scores[han] = scoreHan(text, texts[han]);
-    if (scores[han] >= options.minHan || looksHan(text)) return { lang: han, scores };
+    if (scores[han] >= options.minHan || looksHan(text)) return { lang: han, scores, reason: 'han' };
   }
-  if (latin.length) {
-    const lang = pickLatin(scores, latin, options.minWords);
-    if (lang) return { lang, scores };
+  if (latinLangs.length) {
+    const lang = pickLatin(scores, latinLangs, options.minWords);
+    if (lang) return { lang, scores, reason: 'words' };
+  }
+  // Kein englischer Text zu sehen, obwohl die Karte feststeht: chinesischer Druck
+  if (han && latin && latinLangs.every((l) => (scores[l] ?? 0) < options.minWords) && latin.match(latinText) < latin.noLatinBelow) {
+    return { lang: han, scores, reason: 'no-latin' };
   }
   return { lang: null, scores };
 }

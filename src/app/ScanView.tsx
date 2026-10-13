@@ -5,18 +5,19 @@ import { guideRect } from '../core/geometry';
 import type { Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
-import { CONDITION_MARGIN } from '../core/condition';
+import { CONDITION_MARGIN, learnConditionScale, scaleThresholds } from '../core/condition';
 import { finishesOf, learnFoilShare } from '../core/foil';
-import { addFoilFeedback, loadFoilFeedback } from './foilFeedback';
+import { conditionFeedback, foilFeedback, languageFeedback } from './feedback';
+import { learnThreshold } from '../core/thresholds';
 import { analyzeCanvas, type CardAnalysis } from './analyze';
-import { detectLanguage, IMAGE_LANGUAGE_MARGIN, languageFromImage } from '../core/language';
+import { detectLanguage, IMAGE_LANGUAGE_MARGIN, isHanLanguage, languageFromImage, NO_LATIN_BELOW, type LanguageGuess } from '../core/language';
 import { cropTextRegion, readText, warmUpOcr, type Script } from './ocr';
-import { buildTextIndex, decide, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
+import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
-import { accuracyText, loadStats, strictness, updateStats } from './stats';
+import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
 import { nameIn } from '../core/catalog';
 
 interface Props {
@@ -50,8 +51,8 @@ interface Saved {
   flagged?: boolean;
   /** Mit „Richtig“ bestätigt. */
   verified?: boolean;
-  /** Deine Bewertung (zählt einmal in der Genauigkeit). */
-  judged?: 'right' | 'wrong';
+  /** Deine Bewertung (zählt einmal in der Genauigkeit): richtig oder was falsch war. */
+  judged?: Judgement;
   /** Schimmer-Wert, wenn Foil am Foto bestimmt wurde (dann lernt die Erkennung aus Korrekturen). */
   foilScore?: number;
   /** Eindeutig je Scan, für die Foil-Rückmeldung. */
@@ -68,7 +69,13 @@ interface Saved {
   confidence?: number;
   /** Am Kartentext erkannt (das Bild allein war zu unsicher). */
   byText?: boolean;
+  /** Wie gut der lateinisch gelesene Text zum englischen Kartentext passte (für das Lernen der Sprache). */
+  latinScore?: number;
+  /** Gemessene Abnutzung, wenn der Zustand geschätzt wurde (für das Lernen des Zustands). */
+  wear?: { edge: number; corner: number };
 }
+
+type FixKind = 'card' | 'variant' | 'language' | 'finish' | 'condition';
 
 /** Was im Moment des Treffers aufgenommen wurde; ausgewertet wird, sobald die Karte feststeht. */
 interface Captured {
@@ -79,6 +86,8 @@ interface Captured {
   region: HTMLCanvasElement | null;
   /** Gelesener Text je Schrift, einmal gelesen für Erkennung und Sprache. */
   ocr: Map<Script, Promise<string>>;
+  /** Schriften, deren Texterkennung zu lange gebraucht hat. */
+  timedOut: Set<Script>;
   shot: { ctx: CanvasRenderingContext2D; guide: { x: number; y: number; width: number; height: number } } | null;
 }
 
@@ -90,15 +99,29 @@ interface Question {
   reason: 'unsure' | 'conflict' | 'variant';
 }
 
-/** Text einmal lesen, danach aus dem Zwischenspeicher. */
-function readOnce(captured: Captured, script: Script): Promise<string> {
+/** Text einmal lesen, danach aus dem Zwischenspeicher. onStart meldet, dass jetzt wirklich gelesen wird. */
+function readOnce(captured: Captured, script: Script, onStart?: (script: Script | null) => void): Promise<string> {
   if (!captured.region) return Promise.resolve('');
   let text = captured.ocr.get(script);
   if (!text) {
-    text = readText(captured.region, script);
+    onStart?.(script);
+    text = readText(captured.region, script).then((r) => {
+      if (r.timedOut) captured.timedOut.add(script);
+      onStart?.(null);
+      return r.text;
+    });
     captured.ocr.set(script, text);
   }
   return text;
+}
+
+/** Kurzer Hinweis, woran die Sprache erkannt wurde (oder warum nicht). */
+function languageReason(guess: LanguageGuess | null, label: string): string | undefined {
+  if (!guess) return undefined;
+  if (guess.reason === 'words') return `Sprache ${label}: Text gelesen`;
+  if (guess.reason === 'han') return `Sprache ${label}: chinesische Schrift gelesen`;
+  if (guess.reason === 'no-latin') return `Sprache ${label}: kein englischer Text gefunden`;
+  return undefined;
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -114,7 +137,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [recent, setRecent] = useState<Saved[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [analyzing, setAnalyzing] = useState(false);
-  const [reading, setReading] = useState(false);
+  const [reading, setReading] = useState<Script | null>(null);
+  const [fixing, setFixing] = useState<{ key: string; kind: FixKind | null } | null>(null);
+  const [fixQuery, setFixQuery] = useState('');
   const textIndexes = useRef(new Map<string, TextIndex>());
   const [question, setQuestion] = useState<Question | null>(null);
   const questionRef = useRef<Question | null>(null);
@@ -122,9 +147,14 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [collecting, setCollecting] = useState(0);
   const [stats, setStats] = useState(loadStats);
   // Foil-Schwelle, gelernt aus deinen Foil-Bestätigungen und -Korrekturen
-  const [foilShare, setFoilShare] = useState(() => learnFoilShare(loadFoilFeedback()));
+  const [foilShare, setFoilShare] = useState(() => learnFoilShare(foilFeedback.load()));
   const foilShareRef = useRef(foilShare);
   foilShareRef.current = foilShare;
+  // Sprache: ab wie wenig passendem englischem Text ein Druck als chinesisch gilt, gelernt aus deinen Korrekturen
+  const learnNoLatin = (f = languageFeedback.load()) => learnThreshold(f, NO_LATIN_BELOW, 0.01, 0.5);
+  const noLatinRef = useRef(learnNoLatin());
+  // Zustand: wie streng geschätzt wird, gelernt aus deinen Zustandsangaben
+  const conditionScaleRef = useRef(learnConditionScale(conditionFeedback.load()));
   const recordAuto = () => setStats(updateStats((s) => ({ auto: s.auto + 1 })));
   // Meldest du viele Fehler, verlangt der Scanner mehr Abstand, bevor er ohne Nachfrage speichert
   const extraMargin = strictness(stats);
@@ -179,28 +209,43 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     // Das Bild-Indiz zur Sprache gilt nur für den Druck, für den es gesammelt wurde
     const imageLanguage = printings[stable.index] === printing ? captured.imageLanguage : null;
     setAnalyzing(true);
+    const index = textIndexFor(gameId);
+    const printingIndex = printings.indexOf(printing);
+    const matchLatin = (text: string) => (printingIndex >= 0 ? latinMatch(index, printingIndex, text) : 1);
     const [languageGuess, analysis] = await Promise.all([
       autoLanguage && region
-        ? detectLanguage((script) => readOnce(captured, script), printing.texts ?? {}, languages)
+        ? detectLanguage((script) => readOnce(captured, script, setReading), printing.texts ?? {}, languages, undefined, {
+            match: matchLatin,
+            noLatinBelow: noLatinRef.current,
+          })
         : Promise.resolve(null),
       shot
-        ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId), foilShareRef.current).catch(
+        ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId), foilShareRef.current, scaleThresholds(conditionScaleRef.current)).catch(
             (e: Error): CardAnalysis => ({ condition: { condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }, foil: null }),
           )
         : Promise.resolve(null),
     ]);
     setAnalyzing(false);
+    // Für das Lernen der Sprache: Passte der lateinisch gelesene Text zum englischen Kartentext?
+    const latinText = captured.ocr.has('latin') ? await readOnce(captured, 'latin') : null;
+    const latinScore = latinText !== null && languages.some(isHanLanguage) ? matchLatin(latinText) : undefined;
     let language = p.language;
     let languageNote: string | undefined;
     if (autoLanguage) {
       // Reihenfolge: gelesener Text, dann Bild, dann die zuletzt erkannte Sprache (Stapel sind meist einsprachig)
       const detected = languageGuess?.lang ?? imageLanguage;
       language = detected ?? lastLanguage.current ?? languages[0];
-      if (!detected) languageNote = `Sprache nicht sicher erkannt, angenommen: ${labelOf(gameId, language)}`;
+      if (!detected) {
+        const slow = captured.timedOut.has('han') ? ' (chinesische Texterkennung zu langsam)' : '';
+        languageNote = `Sprache nicht sicher erkannt${slow}, angenommen: ${labelOf(gameId, language)}. Falsch? Unten tippen.`;
+      } else {
+        languageNote = languageGuess?.lang ? languageReason(languageGuess, labelOf(gameId, language)) : `Sprache ${labelOf(gameId, language)}: am Kartenbild erkannt`;
+      }
       if (detected) lastLanguage.current = detected;
     }
     const conditionGuess = p.conditionAuto ? analysis?.condition : undefined;
     const condition = conditionGuess?.condition ?? p.condition;
+    const wear = conditionGuess?.condition ? { edge: conditionGuess.edge, corner: conditionGuess.corner } : undefined;
     const conditionNote = !p.conditionAuto
       ? undefined
       : conditionGuess?.condition
@@ -249,7 +294,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     }
     if (how !== 'chosen') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', latinScore, wear, foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
   };
@@ -273,12 +318,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     const index = textIndexFor(gameId);
     let text: TextMatch | null = null;
     if (captured.region) {
-      setReading(true);
-      const latin = await readOnce(captured, 'latin');
+      const latin = await readOnce(captured, 'latin', setReading);
       text = matchText(index, { latin });
       const hasHan = catalogs?.languages.get(gameId)?.some((l) => l.code.startsWith('zh'));
-      if (!stable.confident && hasHan && !textWinner(text)) text = matchText(index, { latin, han: await readOnce(captured, 'han') });
-      setReading(false);
+      if (!stable.confident && hasHan && !textWinner(text)) text = matchText(index, { latin, han: await readOnce(captured, 'han', setReading) });
     }
     return decide(index, stable.ranked, stable.confident, text, DEFAULT_STABILIZER.candidates);
   };
@@ -327,6 +370,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             imageLanguage: languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN),
             region: ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null,
             ocr: new Map(),
+            timedOut: new Set(),
             shot,
           };
           const decision = await identify(captured);
@@ -373,37 +417,41 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input, sample, ...overrides } : s)));
     onChange();
     if (old?.source === 'auto' && sample?.source !== 'auto') onLearn();
+    return result;
   };
 
-  /**
-   * Deine Bewertung eines automatisch gespeicherten Scans in die Genauigkeit einrechnen (jeder Scan zählt
-   * einmal; „falsch“ überschreibt ein früheres „richtig“). kind: falsche Karte oder nur Foil falsch.
-   */
-  const judge = (saved: Saved, verdict: 'right' | 'wrong', kind: 'card' | 'foil' = 'card'): Saved['judged'] => {
-    if (!saved.auto || saved.judged === 'wrong' || saved.judged === verdict) return saved.judged;
-    setStats(
-      updateStats((s) =>
-        verdict === 'right'
-          ? { right: s.right + 1 }
-          : { right: s.right - (saved.judged === 'right' ? 1 : 0), ...(kind === 'card' ? { wrong: s.wrong + 1 } : { foilWrong: s.foilWrong + 1 }) },
-      ),
-    );
-    return verdict;
+  /** Deine Bewertung eines automatisch gespeicherten Scans in die Genauigkeit einrechnen (jeder Scan zählt einmal). */
+  const judge = (saved: Saved, verdict: Judgement): Saved['judged'] => {
+    if (!saved.auto) return saved.judged;
+    const { judged, patch } = judgeStats(saved.judged, verdict);
+    if (patch) setStats(updateStats(patch));
+    return judged;
   };
 
   /** Foil-Angabe bestätigt oder korrigiert: daraus lernt die Foil-Schwelle (nur wenn Foil am Foto bestimmt wurde). */
   const teachFoil = (saved: Saved, foil: boolean) => {
     if (saved.foilScore === undefined) return;
-    setFoilShare(learnFoilShare(addFoilFeedback(saved.key, { score: saved.foilScore, foil })));
+    setFoilShare(learnFoilShare(foilFeedback.add(saved.key, { score: saved.foilScore, foil })));
   };
 
-  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
-  const flag = (saved: Saved) => resave(saved, { confirmed: false }, { flagged: true, judged: judge(saved, 'wrong') });
+  /** Sprache bestätigt oder korrigiert: daraus lernt, ab wann ein Druck ohne englischen Text als chinesisch gilt. */
+  const teachLanguage = (saved: Saved, language: string) => {
+    if (saved.latinScore === undefined) return;
+    noLatinRef.current = learnNoLatin(languageFeedback.add(saved.key, { score: saved.latinScore, above: !isHanLanguage(language) }));
+  };
 
-  /** Richtig erkannt (Karte und Foil): Der Scan wird zum eigenen Referenzbild und zählt als bestätigt. */
+  /** Zustand bestätigt oder korrigiert: daraus lernt, wie streng der Zustand geschätzt wird. */
+  const teachCondition = (saved: Saved, condition: Condition) => {
+    if (!saved.wear) return;
+    conditionScaleRef.current = learnConditionScale(conditionFeedback.add(saved.key, { ...saved.wear, condition }));
+  };
+
+  /** Richtig erkannt (Karte, Sprache, Foil, Zustand): Der Scan wird zum eigenen Referenzbild und zählt als bestätigt. */
   const verify = async (saved: Saved) => {
     const judged = judge(saved, 'right');
     teachFoil(saved, saved.input.finish === 'foil');
+    teachLanguage(saved, saved.input.language);
+    teachCondition(saved, saved.input.condition);
     setRecent((r) => r.map((s) => (s === saved ? { ...s, verified: true, judged } : s)));
     if (saved.sample) {
       await learning.confirmItem(saved.result.item.itemId, saved.printing.printingId);
@@ -415,7 +463,41 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const correctFinish = (saved: Saved, finish: Finish) => {
     if (saved.input.finish === finish) return;
     teachFoil(saved, finish === 'foil');
-    return resave(saved, { finish }, { finishNote: undefined, judged: judge(saved, 'wrong', 'foil') });
+    setFixing(null);
+    return resave(saved, { finish }, { finishNote: undefined, judged: judge(saved, 'foil') });
+  };
+
+  /** Sprache korrigiert: zählt als Fehler, die Spracherkennung lernt daraus, folgende Karten nehmen sie als Vorgabe. */
+  const correctLanguage = (saved: Saved, language: string) => {
+    if (saved.input.language === language) return;
+    lastLanguage.current = language;
+    teachLanguage(saved, language);
+    setFixing(null);
+    return resave(saved, { language }, { languageNote: undefined, judged: judge(saved, 'language') });
+  };
+
+  /** Zustand korrigiert: zählt als Fehler (nur wenn er geschätzt war), die Zustandsschätzung lernt daraus. */
+  const correctCondition = (saved: Saved, condition: Condition) => {
+    if (saved.input.condition === condition) return;
+    teachCondition(saved, condition);
+    setFixing(null);
+    return resave(saved, { condition }, { conditionNote: undefined, judged: saved.wear ? judge(saved, 'condition') : saved.judged });
+  };
+
+  /** Falsche Karte oder Variante: richtigen Druck speichern; der Scan wird sein Referenzbild. */
+  const correctCard = async (saved: Saved, printing: Printing) => {
+    setFixing(null);
+    setFixQuery('');
+    if (printing.printingId === saved.printing.printingId) return;
+    const result = await resave(saved, { printingId: printing.printingId, confirmed: true }, { printing, judged: judge(saved, 'card'), verified: true });
+    await learning.confirmItem(result.item.itemId, printing.printingId);
+    onLearn();
+  };
+
+  /** Weiß gerade nicht, welche Karte es ist: unter „Prüfen“ ablegen. */
+  const flag = (saved: Saved) => {
+    setFixing(null);
+    return resave(saved, { confirmed: false }, { flagged: true, judged: judge(saved, 'card') });
   };
 
   /** Antwort auf die Nachfrage: gewählte Karte speichern, oder (null) neu scannen. */
@@ -428,6 +510,71 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     else stabilizer.current.reset();
     // Erst jetzt weiterscannen, damit nicht zwei Auswertungen gleichzeitig laufen
     questionRef.current = null;
+  };
+
+  const languages = (gameId: string) => catalogs?.languages.get(gameId) ?? [];
+  const searchCatalog = (gameId: string, query: string) => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return (catalogs?.ordered.get(gameId) ?? [])
+      .filter((p) => `${p.cardName} ${nameIn(p, 'fr')} ${nameIn(p, 'zh-CN')} ${p.setCode} ${p.collectorNumber} ${p.setCode}-${p.collectorNumber}`.toLowerCase().includes(q))
+      .slice(0, 12);
+  };
+  const candidateButtons = (list: Printing[], pick: (p: Printing) => void) => (
+    <div class="candidates">
+      {list.map((p) => (
+        <button key={p.printingId} class="candidate" onClick={() => pick(p)}>
+          <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
+          <small>{printingLabel(p)}</small>
+        </button>
+      ))}
+    </div>
+  );
+  const chips = <T extends string>(label: string, options: { value: T; label: string }[], current: T, pick: (v: T) => void) => (
+    <div class="segmented condition" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button role="radio" aria-checked={current === o.value} class={current === o.value ? 'active' : ''} onClick={() => pick(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+  const languageChips = (s: Saved) =>
+    chips('Sprache dieser Karte', languages(s.input.gameId).map((l) => ({ value: l.code, label: l.label })), s.input.language, (l) => correctLanguage(s, l));
+  const conditionChips = (s: Saved) => chips('Zustand dieser Karte', CONDITIONS.map((c) => ({ value: c, label: c })), s.input.condition, (c) => correctCondition(s, c));
+  const finishChips = (s: Saved) => chips('Foil dieser Karte', FINISHES, s.input.finish, (f) => correctFinish(s, f));
+
+  /** „Falsch“: erst fragen, was falsch war, dann genau das korrigieren. */
+  const renderFix = (s: Saved, kind: FixKind | null) => {
+    const all = catalogs?.ordered.get(s.input.gameId) ?? [];
+    const variants = all.filter((p) => p.cardName === s.printing.cardName && p.printingId !== s.printing.printingId);
+    const kinds: { value: FixKind; label: string }[] = [
+      { value: 'card', label: 'Karte' },
+      ...(variants.length ? [{ value: 'variant' as const, label: 'Variante' }] : []),
+      ...(languages(s.input.gameId).length > 1 ? [{ value: 'language' as const, label: 'Sprache' }] : []),
+      { value: 'finish', label: 'Foil' },
+      { value: 'condition', label: 'Zustand' },
+    ];
+    const byId = new Map(all.map((p) => [p.printingId, p]));
+    const alternatives = (s.input.alternatives ?? []).map((id) => byId.get(id)).filter((p): p is Printing => !!p && p.printingId !== s.printing.printingId);
+    return (
+      <div class="fix">
+        <small>Was war falsch? Daraus lernt die Erkennung.</small>
+        {chips('Was war falsch', kinds, kind ?? ('' as FixKind), (k) => setFixing({ key: s.key, kind: k }))}
+        {kind === 'card' && (
+          <>
+            {alternatives.length > 0 && candidateButtons(alternatives, (p) => correctCard(s, p))}
+            <input type="search" placeholder="Name oder Nummer suchen" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
+            {candidateButtons(searchCatalog(s.input.gameId, fixQuery), (p) => correctCard(s, p))}
+            <button onClick={() => flag(s)}>Weiß ich gerade nicht, unter „Prüfen“ ablegen</button>
+          </>
+        )}
+        {kind === 'variant' && candidateButtons(variants, (p) => correctCard(s, p))}
+        {kind === 'language' && languageChips(s)}
+        {kind === 'finish' && finishChips(s)}
+        {kind === 'condition' && conditionChips(s)}
+      </div>
+    );
   };
 
   const sq = searchQuery.trim().toLowerCase();
@@ -465,7 +612,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         {running && (
           <div class="hud">
             {reading ? (
-              <span>Lese Kartentext …</span>
+              <span>{reading === 'han' ? 'Lese chinesischen Text …' : 'Lese Kartentext …'}</span>
             ) : analyzing ? (
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
@@ -584,55 +731,23 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 <small> ×{s.result.item.quantity}</small>
               </span>
               {s.auto && s.result.item.confirmed && !s.flagged && !s.judged && <button onClick={() => verify(s)}>Richtig</button>}
-              {s.auto && s.result.item.confirmed && !s.flagged && !s.verified && <button onClick={() => flag(s)}>Falsch</button>}
+              {s.result.item.confirmed && !s.flagged && (
+                <button
+                  aria-expanded={fixing?.key === s.key}
+                  onClick={() => {
+                    setFixQuery('');
+                    setFixing(fixing?.key === s.key ? null : { key: s.key, kind: null });
+                  }}
+                >
+                  Falsch
+                </button>
+              )}
               {s.verified && <small> · ✓ bestätigt</small>}
               <button onClick={() => undo(s)}>Rückgängig</button>
-              {i === 0 && (catalogs?.languages.get(s.input.gameId)?.length ?? 0) > 1 && (
-                <div class="segmented condition" role="radiogroup" aria-label="Sprache dieser Karte">
-                  {catalogs!.languages.get(s.input.gameId)!.map((l) => (
-                    <button
-                      role="radio"
-                      aria-checked={s.input.language === l.code}
-                      class={s.input.language === l.code ? 'active' : ''}
-                      onClick={() => {
-                        if (s.input.language === l.code) return;
-                        lastLanguage.current = l.code;
-                        resave(s, { language: l.code }, { languageNote: undefined });
-                      }}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {i === 0 && (
-                <div class="segmented condition" role="radiogroup" aria-label="Zustand dieser Karte">
-                  {CONDITIONS.map((c) => (
-                    <button
-                      role="radio"
-                      aria-checked={s.input.condition === c}
-                      class={s.input.condition === c ? 'active' : ''}
-                      onClick={() => s.input.condition !== c && resave(s, { condition: c }, { conditionNote: undefined })}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {i === 0 && (
-                <div class="segmented condition" role="radiogroup" aria-label="Foil dieser Karte">
-                  {FINISHES.map((f) => (
-                    <button
-                      role="radio"
-                      aria-checked={s.input.finish === f.value}
-                      class={s.input.finish === f.value ? 'active' : ''}
-                      onClick={() => correctFinish(s, f.value)}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {fixing?.key === s.key && renderFix(s, fixing.kind)}
+              {i === 0 && fixing?.key !== s.key && languages(s.input.gameId).length > 1 && languageChips(s)}
+              {i === 0 && fixing?.key !== s.key && conditionChips(s)}
+              {i === 0 && fixing?.key !== s.key && finishChips(s)}
               {i === 0 && s.languageNote && <small class="note warn">{s.languageNote}</small>}
               {i === 0 && s.finishNote && <small class="note">{s.finishNote}</small>}
               {i === 0 && s.conditionNote && <small class="note">{s.conditionNote}</small>}

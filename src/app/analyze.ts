@@ -1,4 +1,4 @@
-import { estimateCondition, toGray, type ConditionEstimate } from '../core/condition';
+import { estimateCondition, toGray, type ConditionEstimate, type ConditionThresholds } from '../core/condition';
 import { estimateFoil, type FoilEstimate } from '../core/foil';
 import type { Rect } from '../core/geometry';
 import type { Pixels } from '../core/imageops';
@@ -40,7 +40,13 @@ export interface CardAnalysis {
  * Schätzt Zustand und Foil der Karte im Canvas. Hat der Druck mehrere Originale (z. B. englisch und
  * chinesisch), zählt das, zu dem das Foto am besten passt.
  */
-export async function analyzeCanvas(ctx: CanvasRenderingContext2D, guide: Rect, references: string[], foilShare?: number): Promise<CardAnalysis> {
+export async function analyzeCanvas(
+  ctx: CanvasRenderingContext2D,
+  guide: Rect,
+  references: string[],
+  foilShare?: number,
+  thresholds?: ConditionThresholds,
+): Promise<CardAnalysis> {
   const { width, height } = ctx.canvas;
   const pixels: Pixels = { data: ctx.getImageData(0, 0, width, height).data, width, height, channels: 4 };
   const photo = toGray(pixels);
@@ -49,7 +55,7 @@ export async function analyzeCanvas(ctx: CanvasRenderingContext2D, guide: Rect, 
   for (const url of references) {
     const ref = await loadReference(url);
     if (!ref) continue;
-    const est = estimateCondition(photo, guide, toGray(ref));
+    const est = estimateCondition(photo, guide, toGray(ref), thresholds);
     if (est.fit > best.fit) [best, bestRef] = [est, ref];
   }
   // Foil nur, wenn die Karte gefunden wurde und zum Original passt (sonst wären die Farben verschoben)

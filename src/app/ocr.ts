@@ -37,14 +37,14 @@ export function cropTextRegion(card: HTMLCanvasElement, target: HTMLCanvasElemen
 }
 
 /**
- * Liest Text; leer bei Fehler oder Zeitüberschreitung. Das chinesische Modell ist groß und braucht beim
- * ersten Mal auf dem Handy deutlich länger, daher mehr Zeit für 'han'.
+ * Liest Text; leer bei Fehler oder Zeitüberschreitung (timedOut). Das chinesische Modell ist groß und
+ * braucht auf dem Handy deutlich länger (beim ersten Mal kommt das Laden dazu), daher viel mehr Zeit für 'han'.
  */
-export async function readText(image: HTMLCanvasElement, script: Script, timeoutMs = script === 'han' ? 12000 : 5000): Promise<string> {
-  const timeout = new Promise<string>((resolve) => setTimeout(() => resolve(''), timeoutMs));
+export async function readText(image: HTMLCanvasElement, script: Script, timeoutMs = script === 'han' ? 30000 : 8000): Promise<{ text: string; timedOut: boolean }> {
+  const timeout = new Promise<{ text: string; timedOut: boolean }>((resolve) => setTimeout(() => resolve({ text: '', timedOut: true }), timeoutMs));
   const work = worker(script)
     .then((w) => w.recognize(image))
-    .then((r) => r.data.text)
-    .catch(() => '');
+    .then((r) => ({ text: r.data.text, timedOut: false }))
+    .catch(() => ({ text: '', timedOut: false }));
   return Promise.race([work, timeout]);
 }

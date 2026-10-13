@@ -294,6 +294,41 @@ export function classify(edge: number, corner: number, t: ConditionThresholds = 
   return 'HP';
 }
 
+/** Deine Zustandsangabe zu einem Scan mit den gemessenen Abnutzungswerten. */
+export interface ConditionFeedback {
+  edge: number;
+  corner: number;
+  condition: Condition;
+}
+
+const RANK: Record<Condition, number> = { NM: 0, LP: 1, MP: 2, HP: 3, DMG: 4 };
+
+/** Schwellen mit Faktor: > 1 = nachsichtiger (mehr Abnutzung für dieselbe Stufe), < 1 = strenger. */
+export function scaleThresholds(scale: number, t: ConditionThresholds = DEFAULT_THRESHOLDS): ConditionThresholds {
+  const f = ([e, c]: [number, number]): [number, number] => [e * scale, c * scale];
+  return { NM: f(t.NM), LP: f(t.LP), MP: f(t.MP) };
+}
+
+/**
+ * Lernt aus deinen Zustandsangaben, wie streng die Schätzung sein soll: der Faktor auf alle Schwellen,
+ * bei dem die geschätzten Stufen am wenigsten von deinen abweichen (je Stufe Unterschied ein Fehlerpunkt).
+ * Bei Gleichstand der Faktor am nächsten an 1; ohne Angaben 1.
+ */
+export function learnConditionScale(feedback: ConditionFeedback[]): number {
+  if (!feedback.length) return 1;
+  const cost = (scale: number) => {
+    const t = scaleThresholds(scale);
+    return feedback.reduce((sum, f) => sum + Math.abs(RANK[classify(f.edge, f.corner, t)] - RANK[f.condition]), 0);
+  };
+  let best = 1;
+  for (let k = -8; k <= 8; k++) {
+    const scale = 2 ** (k / 4);
+    const c = cost(scale), b = cost(best);
+    if (c < b || (c === b && Math.abs(k) < Math.abs(Math.log2(best) * 4))) best = scale;
+  }
+  return best;
+}
+
 /**
  * Gleicht Helligkeit und Kontrast des Fotos an das Original an (Innenbereich) und probiert
  * kleine Verschiebungen, um Restfehler der Kantensuche auszugleichen.

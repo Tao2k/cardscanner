@@ -148,27 +148,43 @@ export function readCollectorNumber(text: string): string | null {
   return m ? normalizeNumber(m[1] + m[2]) : null;
 }
 
+type Vocabulary = ReturnType<typeof ocrVocabulary>;
+
+function scoreGroup(g: TextGroup, latin: Vocabulary | null, han: Set<string> | null): number {
+  let score = 0;
+  if (latin && g.latinTotal) {
+    let hit = 0;
+    for (const [w, weight] of g.latin) if (found(w, latin)) hit += weight;
+    score = Math.max(score, hit / (g.latinTotal + SMOOTHING));
+  }
+  if (han && g.hanTotal) {
+    let hit = 0;
+    for (const [c, weight] of g.han) if (han.has(c)) hit += weight;
+    score = Math.max(score, hit / (g.hanTotal + SMOOTHING));
+  }
+  return score;
+}
+
 /** Bewertet alle Textgruppen gegen den gelesenen Text (Latin- und/oder Han-OCR). */
 export function matchText(index: TextIndex, ocr: { latin?: string; han?: string }): TextMatch {
   const latin = ocr.latin ? ocrVocabulary(ocr.latin) : null;
   const han = ocr.han ? new Set(ocr.han.match(HAN) ?? []) : null;
   const ranked: TextScore[] = [];
   index.groups.forEach((g, group) => {
-    let score = 0;
-    if (latin && g.latinTotal) {
-      let hit = 0;
-      for (const [w, weight] of g.latin) if (found(w, latin)) hit += weight;
-      score = Math.max(score, hit / (g.latinTotal + SMOOTHING));
-    }
-    if (han && g.hanTotal) {
-      let hit = 0;
-      for (const [c, weight] of g.han) if (han.has(c)) hit += weight;
-      score = Math.max(score, hit / (g.hanTotal + SMOOTHING));
-    }
+    const score = scoreGroup(g, latin, han);
     if (score > 0) ranked.push({ group, score });
   });
   ranked.sort((a, b) => b.score - a.score);
   return { ranked, collector: readCollectorNumber(`${ocr.latin ?? ''} ${ocr.han ?? ''}`) };
+}
+
+/**
+ * Wie gut der lateinisch gelesene Text zum englischen (bzw. lateinischen) Text dieses Drucks passt (0–1).
+ * Bei chinesischen Drucken ist das fast 0, bei englischen meist deutlich mehr; hilft der Spracherkennung,
+ * wenn die chinesische Texterkennung nichts liefert.
+ */
+export function latinMatch(index: TextIndex, printing: number, latinText: string): number {
+  return scoreGroup(index.groups[index.groupOf[printing]], ocrVocabulary(latinText), null);
 }
 
 /** Beste Textgruppe, wenn sie eindeutig ist, sonst null. */

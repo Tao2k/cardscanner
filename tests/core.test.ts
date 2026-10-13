@@ -97,10 +97,10 @@ describe('stabilizer', () => {
   });
 
   it('verlangt mehr Abstand, wenn viele Treffer als falsch gemeldet werden', () => {
-    expect(strictness({ auto: 10, wrong: 5, right: 0, foilWrong: 0, asked: 0 })).toBe(0);
-    expect(strictness({ auto: 100, wrong: 5, right: 0, foilWrong: 0, asked: 0 })).toBe(0);
-    expect(strictness({ auto: 100, wrong: 7, right: 0, foilWrong: 0, asked: 0 })).toBeCloseTo(0.01);
-    expect(strictness({ auto: 100, wrong: 50, right: 0, foilWrong: 0, asked: 0 })).toBeCloseTo(0.06);
+    expect(strictness({ auto: 10, wrong: 5, right: 0, foilWrong: 0, languageWrong: 0, conditionWrong: 0, asked: 0 })).toBe(0);
+    expect(strictness({ auto: 100, wrong: 5, right: 0, foilWrong: 0, languageWrong: 0, conditionWrong: 0, asked: 0 })).toBe(0);
+    expect(strictness({ auto: 100, wrong: 7, right: 0, foilWrong: 0, languageWrong: 0, conditionWrong: 0, asked: 0 })).toBeCloseTo(0.01);
+    expect(strictness({ auto: 100, wrong: 50, right: 0, foilWrong: 0, languageWrong: 0, conditionWrong: 0, asked: 0 })).toBeCloseTo(0.06);
   });
 
   it('mittelt Treffer über Frames, fehlende zählen mit dem schlechtesten Wert', () => {
