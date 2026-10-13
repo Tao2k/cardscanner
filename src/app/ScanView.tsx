@@ -44,6 +44,8 @@ interface Saved {
   flagged?: boolean;
   /** Ob der Zustand geschätzt wurde, sonst warum nicht. */
   conditionNote?: string;
+  /** Gesetzt, wenn die Sprache nicht erkannt, sondern angenommen wurde. */
+  languageNote?: string;
 }
 
 export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
@@ -63,6 +65,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
   /** Zuletzt erkannte Sprache; Fallback, wenn der Text nicht eindeutig ist (Stapel sind meist einsprachig). */
   const lastLanguage = useRef<string | null>(null);
+  const labelOf = (gameId: string, code: string) => catalogs?.languages.get(gameId)?.find((l) => l.code === code)?.label ?? code;
   const imageEvidence = useRef<{ printing: number; frames: { lang: string; score: number }[][] }>({ printing: -1, frames: [] });
 
   // Kamera starten/stoppen
@@ -142,10 +145,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           setAnalyzing(false);
           if (!active) break;
           let language = p.language;
+          let languageNote: string | undefined;
           if (autoLanguage) {
             // Reihenfolge: gelesener Text, dann Bild, dann die zuletzt erkannte Sprache (Stapel sind meist einsprachig)
             const detected = languageGuess?.lang ?? imageLanguage;
             language = detected ?? lastLanguage.current ?? languages[0];
+            if (!detected) languageNote = `Sprache nicht sicher erkannt, angenommen: ${labelOf(gameId, language)}`;
             if (detected) lastLanguage.current = detected;
           }
           const condition = conditionGuess?.condition ?? p.condition;
@@ -173,7 +178,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 .catch(() => undefined)
             : undefined;
           navigator.vibrate?.(stable.confident ? 40 : [40, 60, 40]);
-          setRecent((r) => [{ result, printing, input, sample, conditionNote }, ...r].slice(0, 5));
+          setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote }, ...r].slice(0, 5));
           onChange();
           if (sample?.source === 'auto') onLearn();
         }
@@ -304,6 +309,24 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               </span>
               {s.result.item.confirmed && !s.flagged && <button onClick={() => flag(s)}>Falsch</button>}
               <button onClick={() => undo(s)}>Rückgängig</button>
+              {i === 0 && (catalogs?.languages.get(s.input.gameId)?.length ?? 0) > 1 && (
+                <div class="segmented condition" role="radiogroup" aria-label="Sprache dieser Karte">
+                  {catalogs!.languages.get(s.input.gameId)!.map((l) => (
+                    <button
+                      role="radio"
+                      aria-checked={s.input.language === l.code}
+                      class={s.input.language === l.code ? 'active' : ''}
+                      onClick={() => {
+                        if (s.input.language === l.code) return;
+                        lastLanguage.current = l.code;
+                        resave(s, { language: l.code }, { languageNote: undefined });
+                      }}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {i === 0 && (
                 <div class="segmented condition" role="radiogroup" aria-label="Zustand dieser Karte">
                   {CONDITIONS.map((c) => (
@@ -318,6 +341,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                   ))}
                 </div>
               )}
+              {i === 0 && s.languageNote && <small class="note warn">{s.languageNote}</small>}
               {i === 0 && s.conditionNote && <small class="note">{s.conditionNote}</small>}
             </li>
           ))}

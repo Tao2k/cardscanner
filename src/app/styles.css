@@ -99,3 +99,4 @@ button.link { background: none; border: none; color: var(--accent); padding: 0 0
 .segmented.condition { flex-basis: 100%; }
 .segmented.condition button { min-width: 0; min-height: 36px; }
 .recent .note { flex-basis: 100%; color: var(--muted); font-size: 0.75rem; }
+.recent .note.warn { color: var(--warn); }
