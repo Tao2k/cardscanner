@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collapseToPrintings, l2normalize, topK } from '../src/core/matcher';
-import { averageMatches, Stabilizer } from '../src/core/stabilizer';
+import { averageMatches, CALIBRATION, confidenceOf, DEFAULT_STABILIZER, Stabilizer } from '../src/core/stabilizer';
+import { strictness } from '../src/app/stats';
 import { boxToVideo, CARD_ASPECT, guideRect } from '../src/core/geometry';
 import { letterboxToSquare, toPortrait } from '../src/core/imageops';
 import { parseEmbeddings } from '../src/core/catalog';
@@ -86,6 +87,20 @@ describe('stabilizer', () => {
     s.push(m(1, 0.9));
     expect(s.push(m(2, 0.9))).toBeNull();
     expect(s.push(m(2, 0.9))?.index).toBe(2);
+  });
+
+  it('speichert ohne Nachfrage nur ab 95 % geschätzter Sicherheit', () => {
+    expect(confidenceOf(DEFAULT_STABILIZER.confidentMargin)).toBeGreaterThanOrEqual(0.95);
+    // Sicherheit steigt nie, wenn der Abstand kleiner wird
+    for (let i = 1; i < CALIBRATION.length; i++) expect(CALIBRATION[i].p).toBeGreaterThanOrEqual(CALIBRATION[i - 1].p);
+    expect(confidenceOf(0.012)).toBeLessThan(0.95);
+  });
+
+  it('verlangt mehr Abstand, wenn viele Treffer als falsch gemeldet werden', () => {
+    expect(strictness({ auto: 10, wrong: 5, asked: 0 })).toBe(0);
+    expect(strictness({ auto: 100, wrong: 5, asked: 0 })).toBe(0);
+    expect(strictness({ auto: 100, wrong: 7, asked: 0 })).toBeCloseTo(0.01);
+    expect(strictness({ auto: 100, wrong: 50, asked: 0 })).toBeCloseTo(0.06);
   });
 
   it('mittelt Treffer über Frames, fehlende zählen mit dem schlechtesten Wert', () => {

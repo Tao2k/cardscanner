@@ -38,3 +38,14 @@ export function accuracyText(s: ScanStats): string | null {
   const pct = Math.floor((100 * (s.auto - s.wrong)) / s.auto);
   return `${pct} % richtig (${s.wrong} von ${s.auto} automatisch erkannten als falsch gemeldet)`;
 }
+
+/**
+ * Lernen aus deinen Meldungen: Meldest du mehr als 5 % der automatisch gespeicherten Treffer als
+ * falsch (ab 20 Treffern), verlangt der Scanner mehr Abstand zum Zweitbesten und fragt öfter nach.
+ * Je 2,5 Prozentpunkte über 5 % kommt 0,01 dazu, höchstens 0,06.
+ */
+export function strictness(s: ScanStats): number {
+  if (s.auto < 20) return 0;
+  const excess = s.wrong / s.auto - 0.05;
+  return excess <= 0 ? 0 : Math.min(0.06, Math.ceil(excess / 0.025) * 0.01);
+}

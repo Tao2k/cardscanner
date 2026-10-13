@@ -9,7 +9,8 @@ export interface StabilizerConfig {
   minScore: number;
   /**
    * Abstand Platz 1 zu Platz 2 (gemittelt über die Frames), ab dem ohne Nachfrage gespeichert wird.
-   * Kalibriert mit `npm run eval`: darüber sind praktisch alle Treffer richtig.
+   * Kalibriert mit `npm run eval` (siehe CALIBRATION): ab 0,06 waren in jedem Abstandsbereich
+   * mindestens 96,5 % richtig, auch nach unterer 95-%-Schranke. Darunter wird nachgefragt.
    */
   confidentMargin: number;
   /** So viele Kandidaten werden beim Nachfragen gezeigt. */
@@ -20,7 +21,7 @@ export const DEFAULT_STABILIZER: StabilizerConfig = {
   requiredFrames: 3,
   maxFrames: 10,
   minScore: 0.55,
-  confidentMargin: 0.04,
+  confidentMargin: 0.06,
   candidates: 4,
 };
 
@@ -29,6 +30,8 @@ export interface StableResult {
   score: number;
   /** true = sicher, wird gespeichert; false = knapp, die App fragt nach. */
   confident: boolean;
+  /** Geschätzte Wahrscheinlichkeit, dass der Treffer stimmt (0–1), aus CALIBRATION. */
+  confidence: number;
   /** Weitere Kandidaten, beste zuerst. */
   alternatives: number[];
   /** Anzahl ausgewerteter Frames. */
@@ -48,6 +51,32 @@ export function averageMatches(frames: Match[][]): Match[] {
     for (const index of sums.keys()) sums.set(index, sums.get(index)! + (seen.get(index) ?? floor));
   }
   return [...sums].map(([index, s]) => ({ index, score: s / frames.length })).sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Wie oft ein Treffer mit diesem Abstand zum Zweitbesten richtig war: gemessen an 1500 verzerrten
+ * Kartenbildern (`npm run eval -- --samples 1500`, Oktober 2026), Bereiche geglättet, damit größerer
+ * Abstand nie weniger Sicherheit bedeutet. Echte Handyfotos können schlechter abschneiden; deshalb
+ * zählt die App zusätzlich mit, wie oft du Treffer als falsch meldest (strictness).
+ */
+export const CALIBRATION: { margin: number; p: number }[] = [
+  { margin: 0, p: 0.4 },
+  { margin: 0.01, p: 0.48 },
+  { margin: 0.015, p: 0.6 },
+  { margin: 0.02, p: 0.73 },
+  { margin: 0.025, p: 0.79 },
+  { margin: 0.03, p: 0.86 },
+  { margin: 0.04, p: 0.98 },
+  { margin: 0.05, p: 0.99 },
+  { margin: 0.06, p: 0.995 },
+  { margin: 0.08, p: 0.999 },
+];
+
+/** Wahrscheinlichkeit richtig für einen Abstand (Stufen aus CALIBRATION). */
+export function confidenceOf(margin: number): number {
+  let p = CALIBRATION[0].p;
+  for (const c of CALIBRATION) if (margin >= c.margin) p = c.p;
+  return p;
 }
 
 /** Sicher, wenn der gemittelte Abstand zum Zweiten groß genug ist. */
@@ -97,6 +126,7 @@ export class Stabilizer {
       index: avg[0].index,
       score: avg[0].score,
       confident,
+      confidence: confidenceOf(avg[0].score - (avg[1]?.score ?? 0)),
       alternatives: shown.slice(1).map((m) => m.index),
       frames: this.frames.length,
     };

@@ -14,7 +14,7 @@ import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
-import { accuracyText, loadStats, updateStats } from './stats';
+import { accuracyText, loadStats, strictness, updateStats } from './stats';
 import { nameIn } from '../core/catalog';
 
 interface Props {
@@ -54,6 +54,8 @@ interface Saved {
   finishNote?: string;
   /** Ohne Nachfrage gespeichert (zählt für die Genauigkeit). */
   auto?: boolean;
+  /** Geschätzte Sicherheit des Treffers (nur bei automatisch gespeicherten). */
+  confidence?: number;
 }
 
 /** Was im Moment des Treffers aufgenommen wurde; ausgewertet wird, sobald die Karte feststeht. */
@@ -91,6 +93,11 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [collecting, setCollecting] = useState(0);
   const [stats, setStats] = useState(loadStats);
   const recordAuto = () => setStats(updateStats((s) => ({ auto: s.auto + 1 })));
+  // Meldest du viele Fehler, verlangt der Scanner mehr Abstand, bevor er ohne Nachfrage speichert
+  const extraMargin = strictness(stats);
+  useEffect(() => {
+    stabilizer.current = new Stabilizer({ ...DEFAULT_STABILIZER, confidentMargin: DEFAULT_STABILIZER.confidentMargin + extraMargin });
+  }, [extraMargin]);
   const recordAsked = () => setStats(updateStats((s) => ({ asked: s.asked + 1 })));
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
   const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -207,7 +214,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     }
     if (how === 'auto') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto' }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto', confidence: how === 'auto' ? stable.confidence : undefined }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
   };
@@ -376,7 +383,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       {question && (
         <div class="ask">
           <p>
-            <strong>Nicht sicher, welche Karte das ist.</strong> Tippe auf die richtige, daraus lernt die Erkennung.
+            <strong>Nur zu etwa {Math.round(question.captured.stable.confidence * 100)} % sicher, welche Karte das ist.</strong> Gespeichert wird erst ab 95 %. Tippe
+            auf die richtige, daraus lernt die Erkennung.
           </p>
           <div class="candidates">
             {question.candidates.map((p) => (
@@ -448,6 +456,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       {accuracy && (
         <p class="muted stats">
           Genauigkeit bisher: {accuracy}. Nachgefragt: {stats.asked}×.
+          {extraMargin > 0 && ' Wegen gemeldeter Fehler fragt der Scanner jetzt öfter nach.'}
         </p>
       )}
 
@@ -460,6 +469,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {printingLabel(s.printing)}
                 <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}{s.result.item.finish === 'foil' ? ' · Foil' : ''}</small>
                 {!s.result.item.confirmed && <em> · prüfen</em>}
+                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher</small>}
+                {s.auto === false && <small> · von dir gewählt</small>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
               {s.result.item.confirmed && !s.flagged && <button onClick={() => flag(s)}>Falsch</button>}
