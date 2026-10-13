@@ -20,7 +20,7 @@ import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/
 import type { Embedder } from '../src/core/embedder';
 import { estimateCondition, toGray, type Gray } from '../src/core/condition';
 import { compareReference } from './compare-ref';
-import { estimateFoil, FOIL_SHARE, finishesOf } from '../src/core/foil';
+import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 
 const args = process.argv.slice(2);
@@ -258,8 +258,10 @@ async function evalFoil(file: CatalogFile, n: number) {
     { name: 'Foil mittel (15 %)', foil: 0.15, glare: false },
     { name: 'Foil stark (25 %)', foil: 0.25, glare: false },
   ];
-  const scores = new Map<string, number[]>();
-  let skipped = 0;
+  const PIXEL_THRESHOLDS = [0.03, 0.045, 0.06, 0.08, FOIL_PIXEL];
+  // Fall → je Pixelschwelle die Anteile schimmernder Pixel
+  const scores = new Map<string, number[][]>();
+  const skipped = new Map<string, number>();
   for (const r of rows) {
     const p = file.printings[file.refs[r].p];
     const buf = await readFile(path.join('.cache/images', createHash('sha1').update(p.imageUrl).digest('hex')));
@@ -312,21 +314,25 @@ async function evalFoil(file: CatalogFile, n: number) {
       const expected = { x: cx - w / 2 + between(-jitter, jitter), y: cy - h / 2 + between(-jitter, jitter), width: w, height: h };
       const cond = estimateCondition(toGray(photo), expected, refGray);
       if (!cond.quad || cond.fit < 0.6) {
-        skipped++;
+        skipped.set(c.name, (skipped.get(c.name) ?? 0) + 1);
         continue;
       }
-      const est = estimateFoil(photo, cond.quad, ref);
-      scores.set(c.name, [...(scores.get(c.name) ?? []), est.score]);
+      const residual = foilResidual(photo, cond.quad, ref);
+      if (!residual) continue;
+      scores.set(c.name, [...(scores.get(c.name) ?? []), PIXEL_THRESHOLDS.map((t) => shimmerShare(residual, t))]);
     }
   }
-  console.log(`\n=== Foil: ${rows.length} Karten × ${cases.length} Fälle, Schwelle ${Math.round(FOIL_SHARE * 100)} % Schimmer (${skipped} ohne Aussage)`);
-  for (const c of cases) {
-    const s = [...(scores.get(c.name) ?? [])].sort((a, b) => a - b);
-    if (!s.length) continue;
-    const q = (f: number) => `${Math.round(s[Math.min(s.length - 1, Math.floor(f * s.length))] * 100)} %`;
-    const foil = s.filter((x) => x >= FOIL_SHARE).length;
-    console.log(`${c.name.padEnd(22)} → als Foil erkannt ${Math.round((100 * foil) / s.length)} %   (Schimmer 10/50/90 %-Quantil: ${q(0.1)}, ${q(0.5)}, ${q(0.9)})`);
-  }
+  console.log(`\n=== Foil: ${rows.length} Karten × ${cases.length} Fälle, aktuell Pixelschwelle ${FOIL_PIXEL}, Anteil ${Math.round(FOIL_SHARE * 100)} %`);
+  PIXEL_THRESHOLDS.forEach((t, ti) => {
+    console.log(`Pixelschwelle ${t}:`);
+    for (const c of cases) {
+      const s = (scores.get(c.name) ?? []).map((x) => x[ti]).sort((a, b) => a - b);
+      if (!s.length) continue;
+      const q = (f: number) => `${(s[Math.min(s.length - 1, Math.floor(f * s.length))] * 100).toFixed(1)} %`;
+      const foil = s.filter((x) => x >= FOIL_SHARE).length;
+      console.log(`  ${c.name.padEnd(22)} → Foil ${Math.round((100 * foil) / s.length)} %   Schimmer-Quantile 10/50/90/99 %: ${q(0.1)}, ${q(0.5)}, ${q(0.9)}, ${q(0.99)}   (${skipped.get(c.name) ?? 0} ohne Aussage)`);
+    }
+  });
 }
 
 async function grayOf(img: sharp.Sharp): Promise<Gray> {

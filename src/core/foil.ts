@@ -164,16 +164,26 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
  * @param reference farbiges Original im Kartenformat
  */
 export function estimateFoil(photo: Pixels, quad: Quad, reference: Pixels): FoilEstimate {
+  const residual = foilResidual(photo, quad, reference);
+  if (!residual) return { foil: null, score: 0 };
+  const score = shimmerShare(residual, FOIL_PIXEL);
+  return { foil: score >= FOIL_SHARE, score };
+}
+
+/** Farbabweichung je Pixel; null, wenn das Original keine Farben hat (alter Katalog mit Graustufenbildern). */
+export function foilResidual(photo: Pixels, quad: Quad, reference: Pixels): Float32Array | null {
   const ref = resizeRgb(reference);
-  // Graustufen-Original (alter Katalog): Farben lassen sich nicht vergleichen
   let colorful = 0;
   for (let i = 0; i < W * H; i++) colorful = Math.max(colorful, Math.max(ref[i * 3], ref[i * 3 + 1], ref[i * 3 + 2]) - Math.min(ref[i * 3], ref[i * 3 + 1], ref[i * 3 + 2]));
-  if (colorful < 12) return { foil: null, score: 0 };
-  const residual = chromaResidual(warpRgb(photo, quad), ref);
-  let shimmer = 0;
-  for (const r of residual) if (r > FOIL_PIXEL) shimmer++;
-  const score = shimmer / residual.length;
-  return { foil: score >= FOIL_SHARE, score };
+  if (colorful < 12) return null;
+  return chromaResidual(warpRgb(photo, quad), ref);
+}
+
+/** Anteil der Pixel mit Farbabweichung über der Schwelle. */
+export function shimmerShare(residual: Float32Array, pixelThreshold: number): number {
+  let n = 0;
+  for (const r of residual) if (r > pixelThreshold) n++;
+  return n / residual.length;
 }
 
 /** Welche Ausführungen es von einem Druck gibt; ohne Angabe im Katalog beide. */
