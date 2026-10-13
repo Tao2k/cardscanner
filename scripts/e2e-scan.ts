@@ -122,7 +122,7 @@ async function main() {
         file.printings[r.p].variant === 'normal' &&
         file.printings[r.p].type !== 'Rune' &&
         (!c.rarity || file.printings[r.p].rarity === c.rarity) &&
-        i % 7 === (c.foil ? 5 : 3),
+        i % 7 === 3,
     );
     const printing = file.printings[file.refs[row].p];
     const url = imageIn(printing, c.lang).imageUrl;
