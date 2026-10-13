@@ -6,7 +6,8 @@ import type { Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
 import { CONDITION_MARGIN } from '../core/condition';
-import { finishesOf } from '../core/foil';
+import { finishesOf, learnFoilShare } from '../core/foil';
+import { addFoilFeedback, loadFoilFeedback } from './foilFeedback';
 import { analyzeCanvas, type CardAnalysis } from './analyze';
 import { detectLanguage, IMAGE_LANGUAGE_MARGIN, languageFromImage } from '../core/language';
 import { cropTextRegion, readText, warmUpOcr } from './ocr';
@@ -48,6 +49,12 @@ interface Saved {
   flagged?: boolean;
   /** Mit „Richtig“ bestätigt. */
   verified?: boolean;
+  /** Deine Bewertung (zählt einmal in der Genauigkeit). */
+  judged?: 'right' | 'wrong';
+  /** Schimmer-Wert, wenn Foil am Foto bestimmt wurde (dann lernt die Erkennung aus Korrekturen). */
+  foilScore?: number;
+  /** Eindeutig je Scan, für die Foil-Rückmeldung. */
+  key: string;
   /** Ob der Zustand geschätzt wurde, sonst warum nicht. */
   conditionNote?: string;
   /** Gesetzt, wenn die Sprache nicht erkannt, sondern angenommen wurde. */
@@ -94,6 +101,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [searchQuery, setSearchQuery] = useState('');
   const [collecting, setCollecting] = useState(0);
   const [stats, setStats] = useState(loadStats);
+  // Foil-Schwelle, gelernt aus deinen Foil-Bestätigungen und -Korrekturen
+  const [foilShare, setFoilShare] = useState(() => learnFoilShare(loadFoilFeedback()));
+  const foilShareRef = useRef(foilShare);
+  foilShareRef.current = foilShare;
   const recordAuto = () => setStats(updateStats((s) => ({ auto: s.auto + 1 })));
   // Meldest du viele Fehler, verlangt der Scanner mehr Abstand, bevor er ohne Nachfrage speichert
   const extraMargin = strictness(stats);
@@ -153,7 +164,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         ? detectLanguage((script) => readText(region!, script), printing.texts ?? {}, languages)
         : Promise.resolve(null),
       shot
-        ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId)).catch(
+        ? analyzeCanvas(shot.ctx, shot.guide, catalogs.compareRefs(gameId, printing.printingId), foilShareRef.current).catch(
             (e: Error): CardAnalysis => ({ condition: { condition: null, reason: e.message, edge: 0, corner: 0, fit: 0 }, foil: null }),
           )
         : Promise.resolve(null),
@@ -178,6 +189,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     // Foil: gibt es den Druck nur in einer Ausführung, steht sie fest; sonst entscheidet das Foto
     let finish = p.finish;
     let finishNote: string | undefined;
+    let foilScore: number | undefined;
     if (p.finishAuto) {
       const finishes = finishesOf(printing);
       const foil = analysis?.foil;
@@ -186,7 +198,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
       } else if (foil && foil.foil !== null) {
         finish = foil.foil ? 'foil' : 'normal';
-        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %)`;
+        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %, Foil ab ${Math.round(foilShareRef.current * 100)} %). Falsch? Unten tippen, daraus lernt die Erkennung.`;
+        foilScore = foil.score;
       } else {
         finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
       }
@@ -216,7 +229,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     }
     if (how === 'auto') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto', confidence: how === 'auto' ? stable.confidence : undefined }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how === 'auto', confidence: how === 'auto' ? stable.confidence : undefined, foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
   };
@@ -312,20 +325,47 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (old?.source === 'auto' && sample?.source !== 'auto') onLearn();
   };
 
-  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
-  const flag = (saved: Saved) => {
-    if (saved.auto) setStats(updateStats((s) => ({ wrong: s.wrong + 1 })));
-    return resave(saved, { confirmed: false }, { flagged: true });
+  /**
+   * Deine Bewertung eines automatisch gespeicherten Scans in die Genauigkeit einrechnen (jeder Scan zählt
+   * einmal; „falsch“ überschreibt ein früheres „richtig“). kind: falsche Karte oder nur Foil falsch.
+   */
+  const judge = (saved: Saved, verdict: 'right' | 'wrong', kind: 'card' | 'foil' = 'card'): Saved['judged'] => {
+    if (!saved.auto || saved.judged === 'wrong' || saved.judged === verdict) return saved.judged;
+    setStats(
+      updateStats((s) =>
+        verdict === 'right'
+          ? { right: s.right + 1 }
+          : { right: s.right - (saved.judged === 'right' ? 1 : 0), ...(kind === 'card' ? { wrong: s.wrong + 1 } : { foilWrong: s.foilWrong + 1 }) },
+      ),
+    );
+    return verdict;
   };
 
-  /** Richtig erkannt: Der Scan wird zum eigenen Referenzbild und zählt als bestätigter Treffer. */
+  /** Foil-Angabe bestätigt oder korrigiert: daraus lernt die Foil-Schwelle (nur wenn Foil am Foto bestimmt wurde). */
+  const teachFoil = (saved: Saved, foil: boolean) => {
+    if (saved.foilScore === undefined) return;
+    setFoilShare(learnFoilShare(addFoilFeedback(saved.key, { score: saved.foilScore, foil })));
+  };
+
+  /** Sicher gespeichert, aber falsch: Scan als unsicher unter „Prüfen“ ablegen, dort die richtige Karte wählen. */
+  const flag = (saved: Saved) => resave(saved, { confirmed: false }, { flagged: true, judged: judge(saved, 'wrong') });
+
+  /** Richtig erkannt (Karte und Foil): Der Scan wird zum eigenen Referenzbild und zählt als bestätigt. */
   const verify = async (saved: Saved) => {
-    if (saved.auto) setStats(updateStats((s) => ({ right: s.right + 1 })));
-    setRecent((r) => r.map((s) => (s === saved ? { ...s, verified: true } : s)));
+    const judged = judge(saved, 'right');
+    teachFoil(saved, saved.input.finish === 'foil');
+    setRecent((r) => r.map((s) => (s === saved ? { ...s, verified: true, judged } : s)));
     if (saved.sample) {
       await learning.confirmItem(saved.result.item.itemId, saved.printing.printingId);
       onLearn();
     }
+  };
+
+  /** Foil/Normal korrigiert: zählt als Fehler und die Foil-Erkennung lernt daraus. */
+  const correctFinish = (saved: Saved, finish: Finish) => {
+    if (saved.input.finish === finish) return;
+    teachFoil(saved, finish === 'foil');
+    return resave(saved, { finish }, { finishNote: undefined, judged: judge(saved, 'wrong', 'foil') });
   };
 
   /** Antwort auf die Nachfrage: gewählte Karte speichern, oder (null) neu scannen. */
@@ -485,12 +525,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 {s.auto === false && <small> · von dir gewählt</small>}
                 <small> ×{s.result.item.quantity}</small>
               </span>
-              {s.auto && s.result.item.confirmed && !s.flagged && !s.verified && (
-                <>
-                  <button onClick={() => verify(s)}>Richtig</button>
-                  <button onClick={() => flag(s)}>Falsch</button>
-                </>
-              )}
+              {s.auto && s.result.item.confirmed && !s.flagged && !s.judged && <button onClick={() => verify(s)}>Richtig</button>}
+              {s.auto && s.result.item.confirmed && !s.flagged && !s.verified && <button onClick={() => flag(s)}>Falsch</button>}
               {s.verified && <small> · ✓ bestätigt</small>}
               <button onClick={() => undo(s)}>Rückgängig</button>
               {i === 0 && (catalogs?.languages.get(s.input.gameId)?.length ?? 0) > 1 && (
@@ -532,7 +568,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                       role="radio"
                       aria-checked={s.input.finish === f.value}
                       class={s.input.finish === f.value ? 'active' : ''}
-                      onClick={() => s.input.finish !== f.value && resave(s, { finish: f.value }, { finishNote: undefined })}
+                      onClick={() => correctFinish(s, f.value)}
                     >
                       {f.label}
                     </button>

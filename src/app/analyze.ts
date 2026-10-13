@@ -40,7 +40,7 @@ export interface CardAnalysis {
  * Schätzt Zustand und Foil der Karte im Canvas. Hat der Druck mehrere Originale (z. B. englisch und
  * chinesisch), zählt das, zu dem das Foto am besten passt.
  */
-export async function analyzeCanvas(ctx: CanvasRenderingContext2D, guide: Rect, references: string[]): Promise<CardAnalysis> {
+export async function analyzeCanvas(ctx: CanvasRenderingContext2D, guide: Rect, references: string[], foilShare?: number): Promise<CardAnalysis> {
   const { width, height } = ctx.canvas;
   const pixels: Pixels = { data: ctx.getImageData(0, 0, width, height).data, width, height, channels: 4 };
   const photo = toGray(pixels);
@@ -53,7 +53,7 @@ export async function analyzeCanvas(ctx: CanvasRenderingContext2D, guide: Rect, 
     if (est.fit > best.fit) [best, bestRef] = [est, ref];
   }
   // Foil nur, wenn die Karte gefunden wurde und zum Original passt (sonst wären die Farben verschoben)
-  const foil = best.quad && bestRef && best.fit >= FOIL_MIN_FIT ? estimateFoil(pixels, best.quad, bestRef) : null;
+  const foil = best.quad && bestRef && best.fit >= FOIL_MIN_FIT ? estimateFoil(pixels, best.quad, bestRef, foilShare) : null;
   return { condition: best, foil };
 }
 

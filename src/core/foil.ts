@@ -175,11 +175,38 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
  * @param quad      Kartenecken im Foto (aus der Zustandsschätzung, richtig herum)
  * @param reference farbiges Original im Kartenformat
  */
-export function estimateFoil(photo: Pixels, quad: Quad, reference: Pixels): FoilEstimate {
+export function estimateFoil(photo: Pixels, quad: Quad, reference: Pixels, share = FOIL_SHARE): FoilEstimate {
   const residual = foilResidual(photo, quad, reference);
   if (!residual) return { foil: null, score: 0 };
   const score = shimmerShare(residual, FOIL_PIXEL);
-  return { foil: score >= FOIL_SHARE, score };
+  return { foil: score >= share, score };
+}
+
+/** Von dir bestätigte oder korrigierte Foil-Angabe zu einem Scan mit seinem Schimmer-Wert. */
+export interface FoilFeedback {
+  score: number;
+  foil: boolean;
+}
+
+/**
+ * Lernt die Foil-Schwelle aus deinen Bestätigungen und Korrekturen: die Schwelle, bei der am wenigsten
+ * deiner Karten falsch eingeordnet würden. Bei Gleichstand die, die am nächsten an der Standardschwelle
+ * liegt. Ohne Rückmeldungen bleibt es bei der Standardschwelle.
+ */
+export function learnFoilShare(feedback: FoilFeedback[], fallback = FOIL_SHARE): number {
+  if (!feedback.length) return fallback;
+  const scores = [...new Set(feedback.map((f) => f.score))].sort((a, b) => a - b);
+  const candidates = new Set([fallback, scores[0] * 0.8, scores[scores.length - 1] * 1.25]);
+  for (let i = 1; i < scores.length; i++) candidates.add((scores[i - 1] + scores[i]) / 2);
+  const errors = (t: number) => feedback.filter((f) => f.foil !== f.score >= t).length;
+  const distance = (t: number) => Math.abs(Math.log(Math.max(t, 1e-4) / fallback));
+  let best = fallback;
+  for (const t of candidates) {
+    if (t <= 0) continue;
+    const e = errors(t), b = errors(best);
+    if (e < b || (e === b && distance(t) < distance(best))) best = t;
+  }
+  return Math.min(0.6, Math.max(0.005, best));
 }
 
 /** Farbabweichung je Pixel; null, wenn das Original keine Farben hat (alter Katalog mit Graustufenbildern). */

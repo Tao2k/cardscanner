@@ -193,11 +193,22 @@ async function main() {
       console.log(`  [${c.lang}] „Richtig“ gedrückt: ${verified ? 'bestätigt' : 'NICHT bestätigt'}`);
     }
     await page.screenshot({ path: path.join(tmp, `scan-${c.lang}-${c.specks}.png`) });
+    // Foil am Foto bestimmt: Korrektur antippen, die Erkennung muss daraus lernen
+    let taught = true;
+    if (/Schimmer/.test(shown)) {
+      const other = items[0]?.finish === 'foil' ? 'Normal' : 'Foil';
+      await page.locator('.recent li').first().getByRole('radio', { name: other }).click();
+      await page.waitForTimeout(500);
+      const stored = await page.evaluate(() => ({ foil: localStorage.getItem('cardscanner.foil'), stats: localStorage.getItem('cardscanner.stats') }));
+      const feedback = JSON.parse(stored.foil ?? '[]');
+      taught = feedback.length >= 1;
+      console.log(`  [${c.lang}] Foil korrigiert auf ${other}: ${taught ? 'gelernt' : 'NICHT gelernt'}, Statistik ${stored.stats}`);
+    }
     await browser.close();
 
     const item = items[0];
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified;
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught;
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(

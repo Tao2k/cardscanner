@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findCard, toGray } from '../src/core/condition';
-import { estimateFoil, finishesOf } from '../src/core/foil';
+import { estimateFoil, finishesOf, FOIL_SHARE, learnFoilShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 import type { Printing } from '../src/core/types';
 
@@ -94,5 +94,23 @@ describe('Foil-Erkennung', () => {
     const p = { finishes: ['foil'] } as Printing;
     expect(finishesOf(p)).toEqual(['foil']);
     expect(finishesOf({} as Printing)).toEqual(['normal', 'foil']);
+  });
+
+  it('lernt die Foil-Schwelle aus Bestätigungen und Korrekturen', () => {
+    expect(learnFoilShare([])).toBe(FOIL_SHARE);
+    // Echte Foils schimmern bei dir schwächer als gedacht: Schwelle sinkt zwischen normal und Foil
+    const feedback = [
+      { score: 0.02, foil: false },
+      { score: 0.03, foil: false },
+      { score: 0.07, foil: true },
+      { score: 0.09, foil: true },
+    ];
+    const t = learnFoilShare(feedback);
+    expect(t).toBeGreaterThan(0.03);
+    expect(t).toBeLessThanOrEqual(0.07);
+    // Normale Karten mit viel Spiegelung: Schwelle steigt
+    expect(learnFoilShare([{ score: 0.2, foil: false }, { score: 0.5, foil: true }])).toBeGreaterThan(0.2);
+    // Passt alles schon zur Standardschwelle, bleibt sie
+    expect(learnFoilShare([{ score: 0.01, foil: false }, { score: 0.4, foil: true }])).toBe(FOIL_SHARE);
   });
 });

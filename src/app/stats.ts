@@ -9,6 +9,8 @@ export interface ScanStats {
   wrong: number;
   /** Davon mit „Richtig“ bestätigt. */
   right: number;
+  /** Davon Karte richtig, aber Foil/Normal falsch (von dir korrigiert). */
+  foilWrong: number;
   /** Nachgefragt, weil der Treffer knapp war. */
   asked: number;
 }
@@ -17,9 +19,9 @@ const KEY = 'cardscanner.stats';
 
 export function loadStats(): ScanStats {
   try {
-    return { auto: 0, wrong: 0, right: 0, asked: 0, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
+    return { auto: 0, wrong: 0, right: 0, foilWrong: 0, asked: 0, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
   } catch {
-    return { auto: 0, wrong: 0, right: 0, asked: 0 };
+    return { auto: 0, wrong: 0, right: 0, foilWrong: 0, asked: 0 };
   }
 }
 
@@ -37,8 +39,10 @@ export function updateStats(patch: (s: ScanStats) => Partial<ScanStats>): ScanSt
 /** z. B. „98 % richtig (2 von 120 als falsch gemeldet)“; null, solange zu wenig gezählt ist. */
 export function accuracyText(s: ScanStats): string | null {
   if (s.auto < 1) return null;
-  const pct = Math.floor((100 * (s.auto - s.wrong)) / s.auto);
-  return `${pct} % richtig (von ${s.auto} automatisch erkannten ${s.right} bestätigt, ${s.wrong} als falsch gemeldet)`;
+  const wrong = s.wrong + s.foilWrong;
+  const pct = Math.floor((100 * (s.auto - wrong)) / s.auto);
+  const foil = s.foilWrong ? `, davon ${s.foilWrong}× nur Foil falsch` : '';
+  return `${pct} % richtig (von ${s.auto} automatisch erkannten ${s.right} bestätigt, ${wrong} falsch${foil})`;
 }
 
 /**
