@@ -25,7 +25,7 @@ const H = 88;
 /** Die äußeren 3 mm (abgerundete Ecken, Übergang zum Tisch) bleiben außen vor. */
 const INSET = 3;
 /** Farbabweichung (Anteil des Helligkeitsumfangs), ab der ein Pixel als schimmernd zählt. */
-export const FOIL_PIXEL = 0.045;
+export const FOIL_PIXEL = 0.03;
 /** Anteil schimmernder Pixel, ab dem die Karte als Foil gilt. */
 export const FOIL_SHARE = 0.15;
 
