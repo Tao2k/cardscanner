@@ -16,6 +16,7 @@ import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWin
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingLabel } from './format';
+import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
 import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
 import { nameIn } from '../core/catalog';
@@ -89,6 +90,8 @@ interface Captured {
   /** Schriften, deren Texterkennung zu lange gebraucht hat. */
   timedOut: Set<Script>;
   shot: { ctx: CanvasRenderingContext2D; guide: { x: number; y: number; width: number; height: number } } | null;
+  /** Standbild der Karte für die Hinzufügen-Animation. */
+  snapshot: string | null;
 }
 
 /** Knapper Treffer: Kandidaten zum Antippen. */
@@ -138,6 +141,34 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [analyzing, setAnalyzing] = useState(false);
   const [reading, setReading] = useState<Script | null>(null);
+  /** Zuletzt hinzugefügte Karte, kurz im Kamerabereich angezeigt. */
+  const [added, setAdded] = useState<string | null>(null);
+  const addedTimer = useRef<ReturnType<typeof setTimeout>>();
+  /** Die eben erfasste Karte liegt noch im Bild (wird nicht noch einmal gezählt). */
+  const [holding, setHolding] = useState(false);
+  const viewfinderRef = useRef<HTMLDivElement>(null);
+  const guideRef = useRef<HTMLDivElement>(null);
+  /** Blitz und Vorschaubild für eine erfasste Karte (nichts, wenn Bild oder Rahmen fehlen). */
+  const startFx = (captured: Captured, flash: boolean): CaptureFx | null =>
+    captured.snapshot && guideRef.current && viewfinderRef.current
+      ? captureFx(captured.snapshot, guideRef.current.getBoundingClientRect(), viewfinderRef.current.getBoundingClientRect(), flash)
+      : null;
+  /** Speichern mit Animation; die gespeicherte Karte gilt als erfasst, bis sie aus dem Bild ist. */
+  const saveWithFx = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen', flash: boolean) => {
+    const fx = startFx(captured, flash);
+    try {
+      await saveScan(captured, printing, how);
+      const index = catalogs?.ordered.get(captured.gameId)?.indexOf(printing) ?? -1;
+      if (index >= 0) stabilizer.current.markHandled(index);
+      fx?.land();
+      clearTimeout(addedTimer.current);
+      setAdded(printing.cardName);
+      addedTimer.current = setTimeout(() => setAdded(null), 2500);
+    } catch (e) {
+      fx?.cancel();
+      throw e;
+    }
+  };
   const [fixing, setFixing] = useState<{ key: string; kind: FixKind | null } | null>(null);
   const [fixQuery, setFixQuery] = useState('');
   const textIndexes = useRef(new Map<string, TextIndex>());
@@ -355,6 +386,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         setGuess(top ? { printing: printings[top.index], score: top.score, ms } : null);
         const stable = stabilizer.current.push(matches);
         setCollecting(stable ? 0 : stabilizer.current.collected);
+        setHolding(stabilizer.current.holding);
         if (stable) {
           const p = prefsRef.current;
           // Gibt es eigene Bilder je Sprache (z. B. chinesische Drucke), hilft das Bild, wenn der Text nicht eindeutig ist
@@ -372,11 +404,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             ocr: new Map(),
             timedOut: new Set(),
             shot,
+            snapshot: ocrCtx ? snapshotOf(ocrCanvasRef.current!) : null,
           };
           const decision = await identify(captured);
           if (!active) break;
           if (decision.action === 'save') {
-            await saveScan(captured, printings[decision.index], decision.via === 'image' ? 'auto' : 'text');
+            await saveWithFx(captured, printings[decision.index], decision.via === 'image' ? 'auto' : 'text', true);
           } else {
             // Knapp: nicht raten, sondern nachfragen. Die Erkennung pausiert, bis du gewählt hast.
             recordAsked();
@@ -506,7 +539,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     if (!q) return;
     setQuestion(null);
     setSearchQuery('');
-    if (printing) await saveScan(q.captured, printing, 'chosen');
+    if (printing) await saveWithFx(q.captured, printing, 'chosen', false);
     else stabilizer.current.reset();
     // Erst jetzt weiterscannen, damit nicht zwei Auswertungen gleichzeitig laufen
     questionRef.current = null;
@@ -593,13 +626,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   return (
     <section class="scan">
-      <div class="viewfinder">
+      <div class="viewfinder" ref={viewfinderRef}>
         <video ref={videoRef} playsInline muted />
         <canvas ref={canvasRef} hidden />
         <canvas ref={ocrCanvasRef} hidden />
         <canvas ref={conditionCanvasRef} hidden />
         {running && guide && (
-          <div class="guide" style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
+          <div ref={guideRef} class={`guide${holding ? ' done' : ''}`} style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
         )}
         {!running && (
           <div class="overlay">
@@ -617,6 +650,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
               <span>Welche Karte ist es? Bitte unten antippen.</span>
+            ) : added ? (
+              <span class="added">✓ {added} zur Sammlung hinzugefügt</span>
+            ) : holding ? (
+              <span>Gespeichert. Nächste Karte in den Rahmen legen.</span>
             ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (
               <span>Noch unsicher, Karte ruhig halten …</span>
             ) : guess ? (

@@ -139,6 +139,12 @@ async function main() {
     const page = await context.newPage();
     page.on('pageerror', (e) => console.log(`  Seitenfehler: ${e.message}`));
     page.on('console', (m) => m.type() !== 'debug' && console.log(`  Konsole ${m.type()}: ${m.text().slice(0, 200)}`));
+    // Merkt sich, ob die Hinzufügen-Animation (Vorschaubild) gelaufen ist
+    await page.addInitScript(() => {
+      new MutationObserver((list) => {
+        for (const m of list) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains('fx-card')) (window as unknown as { fxSeen: boolean }).fxSeen = true;
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    });
     await page.goto(URL_);
     const start = page.getByRole('button', { name: 'Scannen starten' });
     await start.waitFor({ timeout: 180_000 });
@@ -171,6 +177,9 @@ async function main() {
       await browser.close();
       continue;
     }
+    // Die Karte bleibt im Bild: sie darf nicht noch einmal gezählt werden
+    await page.waitForTimeout(5000);
+    const fxSeen = await page.evaluate(() => !!(window as unknown as { fxSeen?: boolean }).fxSeen);
     const shown = (await page.locator('.recent li').first().innerText()).replace(/\s+/g, ' ');
     const items = await page.evaluate(
       () =>
@@ -207,8 +216,11 @@ async function main() {
     await browser.close();
 
     const item = items[0];
+    const count = items.reduce((n, i) => n + ((i as { quantity?: number }).quantity ?? 1), 0);
+    if (count !== 1) console.log(`  [${c.lang}] FEHLER: ${count} Exemplare gespeichert, erwartet 1 (doppelt gescannt)`);
+    if (!fxSeen) console.log(`  [${c.lang}] FEHLER: keine Hinzufügen-Animation`);
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught;
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught && count === 1 && fxSeen;
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(

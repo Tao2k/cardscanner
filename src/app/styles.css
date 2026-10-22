@@ -107,3 +107,17 @@ button.link { background: none; border: none; color: var(--accent); padding: 0 0
 .stats { font-size: 0.75rem; margin: 4px 0; }
 .recent .fix { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--accent); border-radius: 8px; }
 .recent .fix .segmented.condition { flex-basis: auto; }
+
+/* Hinzufügen-Animation: Blitz, Vorschaubild, Zähler springt */
+.fx-flash { position: fixed; background: #fff; pointer-events: none; z-index: 50; opacity: 0; }
+.fx-card { position: fixed; z-index: 51; object-fit: cover; border-radius: 12px; border: 3px solid #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); transform-origin: 0 0; pointer-events: none; }
+.guide.done { border-color: #4ade80; transition: border-color 0.2s; }
+.hud .added { color: #4ade80; font-weight: 600; }
+.tabs .count { animation: count-pop 0.4s ease-out; }
+@keyframes count-pop { 0% { transform: scale(1); } 40% { transform: scale(1.4); } 100% { transform: scale(1); } }
+.recent li:first-child { animation: added-row 1.2s ease-out; }
+@keyframes added-row { 0% { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); } 100% { background: var(--surface); } }
+@media (prefers-reduced-motion: reduce) {
+  .tabs .count, .recent li:first-child { animation: none; }
+}

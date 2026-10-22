@@ -99,6 +99,7 @@ export function App() {
   }, []);
 
   const toReview = items.filter((i) => !i.confirmed).length;
+  const total = items.reduce((n, i) => n + i.quantity, 0);
 
   return (
     <div class="app">
@@ -135,8 +136,8 @@ export function App() {
       </main>
       <nav class="tabs">
         <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>Scannen</button>
-        <button class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
-          Sammlung <span class="count">{items.reduce((n, i) => n + i.quantity, 0)}</span>
+        <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
+          Sammlung <span class="count" key={total}>{total}</span>
         </button>
         <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}

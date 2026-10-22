@@ -15,6 +15,11 @@ export interface StabilizerConfig {
   confidentMargin: number;
   /** So viele Kandidaten werden beim Nachfragen gezeigt. */
   candidates: number;
+  /**
+   * So lange (ms) muss eine erfasste Karte aus dem Bild sein, bevor sie erneut erfasst wird. Kurze
+   * Aussetzer (Wackeln, Hand im Bild, Unschärfe) sollen nicht zu einem zweiten Scan derselben Karte führen.
+   */
+  clearAfterMs: number;
 }
 
 export const DEFAULT_STABILIZER: StabilizerConfig = {
@@ -23,6 +28,7 @@ export const DEFAULT_STABILIZER: StabilizerConfig = {
   minScore: 0.55,
   confidentMargin: 0.06,
   candidates: 4,
+  clearAfterMs: 1200,
 };
 
 export interface StableResult {
@@ -94,8 +100,12 @@ export function isConfident(avg: Match[], config: Pick<StabilizerConfig, 'minSco
  */
 export class Stabilizer {
   private frames: Match[][] = [];
-  /** Schon gemeldete Drucke; solange einer davon vorne liegt, ist es noch dieselbe Karte. */
+  /** Schon gemeldete Karte (sie und ihre Kandidaten); solange einer davon vorne liegt, ist es noch dieselbe Karte. */
   private handled = new Set<number>();
+  /** Seit wann keine Karte mehr im Bild ist (null = Karte im Bild). */
+  private absentSince: number | null = null;
+  /** true, solange die eben erfasste Karte noch im Bild liegt (für den Hinweis in der App). */
+  holding = false;
 
   constructor(private readonly config: StabilizerConfig = DEFAULT_STABILIZER) {}
 
@@ -104,13 +114,21 @@ export class Stabilizer {
     return this.frames.length;
   }
 
-  push(matches: Match[]): StableResult | null {
+  push(matches: Match[], now = Date.now()): StableResult | null {
     const top = matches[0];
     if (!top || top.score < this.config.minScore) {
-      this.reset();
+      // Karte weg: erst nach einer Weile ohne Karte darf dieselbe wieder erfasst werden
+      this.frames = [];
+      this.absentSince ??= now;
+      if (now - this.absentSince >= this.config.clearAfterMs) {
+        this.handled.clear();
+        this.holding = false;
+      }
       return null;
     }
-    if (this.handled.has(top.index)) return null;
+    this.absentSince = null;
+    this.holding = this.handled.has(top.index);
+    if (this.holding) return null;
     // Neue Karte: Liegt der Treffer nicht unter den bisherigen Favoriten, neu anfangen
     if (this.frames.length) {
       const leaders = averageMatches(this.frames).slice(0, this.config.candidates).map((m) => m.index);
@@ -133,14 +151,23 @@ export class Stabilizer {
       frames: this.frames.length,
       ranked: avg.slice(0, 8),
     };
-    this.handled = new Set(confident ? [avg[0].index] : shown.map((m) => m.index));
+    // Auch die Kandidaten zählen als „diese Karte“: springt die Erkennung zwischen Varianten, bleibt es ein Scan
+    this.handled = new Set(shown.map((m) => m.index));
+    this.holding = true;
     this.frames = [];
     return result;
+  }
+
+  /** Zusätzlich als erfasst merken (z. B. die gespeicherte Karte, wenn sie nicht unter den Kandidaten war). */
+  markHandled(index: number): void {
+    this.handled.add(index);
   }
 
   /** Erlaubt, dieselbe Karte sofort noch einmal zu erfassen (z. B. nach „Rückgängig“). */
   reset(): void {
     this.frames = [];
     this.handled.clear();
+    this.absentSince = null;
+    this.holding = false;
   }
 }

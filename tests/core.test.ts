@@ -41,7 +41,7 @@ describe('stabilizer', () => {
     { index, score },
     { index: index + 100, score: second },
   ];
-  const cfg = (requiredFrames: number, maxFrames = 5) => ({ requiredFrames, maxFrames, minScore: 0.5, confidentMargin: 0.05, candidates: 4 });
+  const cfg = (requiredFrames: number, maxFrames = 5) => ({ requiredFrames, maxFrames, minScore: 0.5, confidentMargin: 0.05, candidates: 4, clearAfterMs: 1000 });
 
   it('meldet erst nach mehreren Frames und nur einmal pro Karte', () => {
     const s = new Stabilizer(cfg(3));
@@ -53,12 +53,26 @@ describe('stabilizer', () => {
     expect(s.push(m(1, 0.9))).toBeNull();
   });
 
-  it('meldet dieselbe Karte erneut, nachdem sie das Bild verlassen hat', () => {
+  it('meldet dieselbe Karte erst erneut, nachdem sie eine Weile aus dem Bild war', () => {
     const s = new Stabilizer(cfg(1));
-    expect(s.push(m(1, 0.9))).not.toBeNull();
-    expect(s.push(m(1, 0.9))).toBeNull();
-    expect(s.push([])).toBeNull();
-    expect(s.push(m(1, 0.9))).not.toBeNull();
+    expect(s.push(m(1, 0.9), 0)).not.toBeNull();
+    expect(s.push(m(1, 0.9), 100)).toBeNull();
+    expect(s.holding).toBe(true);
+    // Kurzer Aussetzer (Wackeln, Hand im Bild): dieselbe Karte zählt nicht noch einmal
+    expect(s.push([], 200)).toBeNull();
+    expect(s.push(m(1, 0.4), 500)).toBeNull();
+    expect(s.push(m(1, 0.9), 700)).toBeNull();
+    // Karte weggenommen und wieder hingelegt (z. B. zweites Exemplar)
+    expect(s.push([], 800)).toBeNull();
+    expect(s.push([], 1900)).toBeNull();
+    expect(s.holding).toBe(false);
+    expect(s.push(m(1, 0.9), 2000)).not.toBeNull();
+  });
+
+  it('zählt einen Sprung auf eine Variante derselben Karte nicht als neuen Scan', () => {
+    const s = new Stabilizer(cfg(1));
+    expect(s.push([{ index: 1, score: 0.9 }, { index: 2, score: 0.8 }], 0)).not.toBeNull();
+    expect(s.push([{ index: 2, score: 0.9 }, { index: 1, score: 0.8 }], 100)).toBeNull();
   });
 
   it('sammelt bei knappen Treffern weiter und fragt erst nach maxFrames nach', () => {
