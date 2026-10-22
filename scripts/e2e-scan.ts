@@ -143,7 +143,7 @@ async function main() {
     await page.addInitScript(() => {
       new MutationObserver((list) => {
         for (const m of list) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains('fx-card')) (window as unknown as { fxSeen: boolean }).fxSeen = true;
-      }).observe(document.documentElement, { childList: true, subtree: true });
+      }).observe(document, { childList: true, subtree: true });
     });
     await page.goto(URL_);
     const start = page.getByRole('button', { name: 'Scannen starten' });
