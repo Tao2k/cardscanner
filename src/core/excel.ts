@@ -37,9 +37,8 @@ const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const FINISHES: Finish[] = ['normal', 'foil'];
 
 /**
- * Reihenfolge der Sets: nach Erscheinungsdatum, wo der Katalog eins kennt, sonst in der Reihenfolge
- * des Katalogs (die offizielle Galerie listet die Sets in Erscheinungsreihenfolge). Unbekannte Sets
- * kommen danach, alphabetisch.
+ * Reihenfolge der Sets: nach Erscheinungsdatum, wo der Katalog eins kennt; Sets ohne Datum danach in
+ * Katalogreihenfolge, Sets, die der Katalog gar nicht kennt, ganz am Ende (alphabetisch).
  */
 export function setRanks(sets: CardSet[]): Map<string, number> {
   const ordered = sets

@@ -56,6 +56,19 @@ export interface GallerySet {
   [key: string]: unknown;
 }
 
+/**
+ * Erscheinungsdaten (weltweit), weil die Galerie keine liefert und die Sets alphabetisch listet.
+ * Quelle: runeweave.com/sets (Stand Oktober 2026). Neue Sets ohne Eintrag kommen im Export ans Ende.
+ */
+export const RELEASE_DATES: Record<string, string> = {
+  OGN: '2025-10-31',
+  OGS: '2025-10-31',
+  SFD: '2026-02-13',
+  UNL: '2026-05-08',
+  VEN: '2026-07-31',
+  RAD: '2026-10-23',
+};
+
 /** Erscheinungsdatum eines Sets (JJJJ-MM-TT), falls die Galerie eins mitliefert (Feldname unbekannt, daher gesucht). */
 export function releaseDateOf(set: GallerySet): string | undefined {
   for (const [key, value] of Object.entries(set)) {
@@ -217,10 +230,9 @@ export const riftbound: GameAdapter = {
       }
     }
     const printings = [...byId.values()].slice(0, limit ?? Infinity);
-    // Reihenfolge der Galerie beibehalten (Erscheinungsreihenfolge); Datum, wo vorhanden
-    const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name, releaseDate: releaseDateOf(s) }));
+    // Datum aus der Galerie, sonst aus RELEASE_DATES
+    const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name, releaseDate: releaseDateOf(s) ?? RELEASE_DATES[s.id] }));
     console.log(`Sets in der Galerie: ${cardSets.map((s) => `${s.code} „${s.name}“ ${s.releaseDate ?? 'ohne Datum'}`).join(' · ')}`);
-    if (sets[0]) console.log(`Felder eines Sets: ${JSON.stringify(sets[0]).slice(0, 400)}`);
     return { sets: cardSets, printings };
   },
 };
