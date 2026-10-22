@@ -1,5 +1,5 @@
 import type { Workbook } from 'exceljs';
-import type { CollectionItem, Condition, Finish, Printing } from './types';
+import type { CardSet, CollectionItem, Condition, Finish, Printing } from './types';
 
 /** Lädt exceljs erst bei Bedarf (das Paket ist groß und wird nur für Export/Import gebraucht). */
 async function newWorkbook(): Promise<Workbook> {
@@ -14,6 +14,7 @@ export type PrintingLookup = (gameId: string, printingId: string) => Printing | 
 export const COLLECTION_COLUMNS = [
   { header: 'Spiel', key: 'gameId', width: 12 },
   { header: 'Set', key: 'setCode', width: 8 },
+  { header: 'Set-Name', key: 'setName', width: 22 },
   { header: 'Nummer', key: 'collectorNumber', width: 9 },
   { header: 'Name', key: 'cardName', width: 36 },
   { header: 'Sprache', key: 'language', width: 9 },
@@ -35,10 +36,59 @@ export const COLLECTION_COLUMNS = [
 const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const FINISHES: Finish[] = ['normal', 'foil'];
 
+/**
+ * Reihenfolge der Sets: nach Erscheinungsdatum, wo der Katalog eins kennt, sonst in der Reihenfolge
+ * des Katalogs (die offizielle Galerie listet die Sets in Erscheinungsreihenfolge). Unbekannte Sets
+ * kommen danach, alphabetisch.
+ */
+export function setRanks(sets: CardSet[]): Map<string, number> {
+  const ordered = sets
+    .map((set, i) => ({ set, i }))
+    .sort((a, b) => (a.set.releaseDate ?? '9999').localeCompare(b.set.releaseDate ?? '9999') || a.i - b.i);
+  return new Map(ordered.map(({ set }, rank) => [set.code, rank]));
+}
+
+/** Sammlernummer zum Sortieren: Zahl, dann Zusatz („123“ < „123a“ < „123*“). */
+function numberKey(n: string): [number, string] {
+  const m = n.trim().match(/^(\d+)(.*)$/);
+  return m ? [Number(m[1]), m[2].toLowerCase()] : [Number.POSITIVE_INFINITY, n.toLowerCase()];
+}
+
+export function compareCollectorNumbers(a: string, b: string): number {
+  const [na, sa] = numberKey(a);
+  const [nb, sb] = numberKey(b);
+  return na - nb || (sa === sb ? 0 : sa === '' ? -1 : sb === '' ? 1 : sa.localeCompare(sb));
+}
+
+/**
+ * Sortierung des Exports: Spiel, Set (nach Erscheinen), Kartennummer; bei gleichem Druck Sprache,
+ * Normal vor Foil, besserer Zustand zuerst.
+ */
+export function exportOrder(lookup: PrintingLookup, sets: Map<string, CardSet[]> = new Map()) {
+  const ranks = new Map([...sets].map(([gameId, list]) => [gameId, setRanks(list)]));
+  const rankOf = (gameId: string, code: string) => ranks.get(gameId)?.get(code) ?? Number.POSITIVE_INFINITY;
+  return (a: CollectionItem, b: CollectionItem): number => {
+    const pa = lookup(a.gameId, a.printingId);
+    const pb = lookup(b.gameId, b.printingId);
+    const sa = pa?.setCode ?? '', sb = pb?.setCode ?? '';
+    const ra = rankOf(a.gameId, sa), rb = rankOf(b.gameId, sb);
+    return (
+      a.gameId.localeCompare(b.gameId) ||
+      (ra === rb ? 0 : ra < rb ? -1 : 1) ||
+      sa.localeCompare(sb) ||
+      compareCollectorNumbers(pa?.collectorNumber ?? '', pb?.collectorNumber ?? '') ||
+      (pa?.cardName ?? '').localeCompare(pb?.cardName ?? '') ||
+      a.language.localeCompare(b.language) ||
+      FINISHES.indexOf(a.finish) - FINISHES.indexOf(b.finish) ||
+      CONDITIONS.indexOf(a.condition) - CONDITIONS.indexOf(b.condition)
+    );
+  };
+}
+
 export async function exportWorkbook(
   items: CollectionItem[],
   lookup: PrintingLookup,
-  catalogs: { gameId: string; printings: Printing[] }[] = [],
+  catalogs: { gameId: string; printings: Printing[]; sets?: CardSet[] }[] = [],
 ): Promise<ArrayBuffer> {
   const wb = await newWorkbook();
   wb.creator = 'CardScanner';
@@ -46,20 +96,15 @@ export async function exportWorkbook(
 
   const sheet = wb.addWorksheet('Sammlung', { views: [{ state: 'frozen', ySplit: 1 }] });
   sheet.columns = COLLECTION_COLUMNS.map((c) => ({ ...c }));
-  const sorted = [...items].sort((a, b) => {
-    const pa = lookup(a.gameId, a.printingId);
-    const pb = lookup(b.gameId, b.printingId);
-    return (
-      a.gameId.localeCompare(b.gameId) ||
-      (pa?.setCode ?? '').localeCompare(pb?.setCode ?? '') ||
-      (pa?.collectorNumber ?? '').localeCompare(pb?.collectorNumber ?? '', undefined, { numeric: true })
-    );
-  });
+  const sets = new Map(catalogs.map((c) => [c.gameId, c.sets ?? []]));
+  const setNames = new Map(catalogs.flatMap((c) => (c.sets ?? []).map((s) => [`${c.gameId}/${s.code}`, s.name] as const)));
+  const sorted = [...items].sort(exportOrder(lookup, sets));
   for (const item of sorted) {
     const p = lookup(item.gameId, item.printingId);
     sheet.addRow({
       ...item,
       setCode: p?.setCode ?? '',
+      setName: p ? (setNames.get(`${item.gameId}/${p.setCode}`) ?? '') : '',
       collectorNumber: p?.collectorNumber ?? '',
       cardName: p ? p.cardName : '(unbekannter Druck)',
       variant: p?.variant ?? '',
@@ -84,7 +129,10 @@ export async function exportWorkbook(
       { header: 'Typ', key: 'type', width: 14 },
       { header: 'Druck-ID', key: 'printingId', width: 24 },
     ];
-    for (const p of printings) cat.addRow({ ...p, nameFr: p.names?.fr ?? '', nameZh: p.names?.['zh-CN'] ?? '' });
+    const ranks = setRanks(sets.get(gameId) ?? []);
+    const rank = (p: Printing) => ranks.get(p.setCode) ?? Number.POSITIVE_INFINITY;
+    const inOrder = [...printings].sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) < rank(b) ? -1 : 1) || a.setCode.localeCompare(b.setCode) || compareCollectorNumbers(a.collectorNumber, b.collectorNumber));
+    for (const p of inOrder) cat.addRow({ ...p, nameFr: p.names?.fr ?? '', nameZh: p.names?.['zh-CN'] ?? '' });
     cat.getRow(1).font = { bold: true };
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportWorkbook, importWorkbook } from '../src/core/excel';
+import { compareCollectorNumbers, exportOrder, exportWorkbook, importWorkbook } from '../src/core/excel';
 import type { CollectionItem, Printing } from '../src/core/types';
 
 const printing: Printing = {
@@ -59,6 +59,31 @@ describe('Excel', () => {
     expect(items).toHaveLength(1);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('gibt-es-nicht');
+  });
+
+  it('sortiert nach Set (Erscheinungsreihenfolge) und darin nach Kartennummer', async () => {
+    const p = (setCode: string, collectorNumber: string): Printing => ({ ...printing, printingId: `${setCode}-${collectorNumber}`, setCode, collectorNumber });
+    const printings = [p('SFD', '2'), p('OGN', '10'), p('OGN', '2'), p('OGN', '2a'), p('UNL', '1'), p('OGN', '229*'), p('OGN', '299')];
+    const byId = new Map(printings.map((x) => [x.printingId, x]));
+    const items = printings.map((x, i) => ({ ...item, itemId: `i${i}`, printingId: x.printingId }));
+    // Galerie-Reihenfolge OGN, SFD, UNL; alphabetisch wäre es genauso, daher UNL mit früherem Datum
+    const sets = [
+      { setId: 'OGN', code: 'OGN', name: 'Origins' },
+      { setId: 'SFD', code: 'SFD', name: 'Spiritforged' },
+      { setId: 'UNL', code: 'UNL', name: 'Unleashed', releaseDate: '2025-01-01' },
+    ];
+    const order = exportOrder((_, id) => byId.get(id), new Map([['riftbound', sets]]));
+    expect([...items].sort(order).map((i) => i.printingId)).toEqual(['UNL-1', 'OGN-2', 'OGN-2a', 'OGN-10', 'OGN-229*', 'OGN-299', 'SFD-2']);
+    expect(compareCollectorNumbers('9', '10')).toBeLessThan(0);
+
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await exportWorkbook(items, (_, id) => byId.get(id), [{ gameId: 'riftbound', printings, sets }]));
+    const sheet = wb.getWorksheet('Sammlung')!;
+    const header = (sheet.getRow(1).values as string[]).slice(1);
+    const col = (name: string) => header.indexOf(name) + 1;
+    expect(sheet.getRow(2).getCell(col('Set-Name')).value).toBe('Unleashed');
+    expect(sheet.getRow(3).getCell(col('Nummer')).value).toBe('2');
   });
 
   it('meldet unbekannte Sprachen', async () => {

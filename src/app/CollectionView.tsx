@@ -42,7 +42,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       const data = await exportWorkbook(
         items,
         catalogs.lookup,
-        gameIds.map((gameId) => ({ gameId, printings: [...(catalogs.byGame.get(gameId)?.values() ?? [])] })),
+        gameIds.map((gameId) => ({ gameId, printings: [...(catalogs.byGame.get(gameId)?.values() ?? [])], sets: catalogs.sets.get(gameId) ?? [] })),
       );
       downloadBlob(data, `kartensammlung-${new Date().toISOString().slice(0, 10)}.xlsx`, XLSX_TYPE);
       setPrefs({ lastExportAt: new Date().toISOString() });

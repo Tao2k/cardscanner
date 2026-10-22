@@ -53,6 +53,17 @@ export interface GallerySet {
   id: string;
   name: string;
   collectorNumberMax?: number;
+  [key: string]: unknown;
+}
+
+/** Erscheinungsdatum eines Sets (JJJJ-MM-TT), falls die Galerie eins mitliefert (Feldname unbekannt, daher gesucht). */
+export function releaseDateOf(set: GallerySet): string | undefined {
+  for (const [key, value] of Object.entries(set)) {
+    if (!/date|release/i.test(key) || typeof value !== 'string') continue;
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  return undefined;
 }
 
 /** Sucht in den Seitendaten die Liste der Karten und Sets, egal an welcher Stelle der Seite sie stehen. */
@@ -206,7 +217,10 @@ export const riftbound: GameAdapter = {
       }
     }
     const printings = [...byId.values()].slice(0, limit ?? Infinity);
-    const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name }));
+    // Reihenfolge der Galerie beibehalten (Erscheinungsreihenfolge); Datum, wo vorhanden
+    const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name, releaseDate: releaseDateOf(s) }));
+    console.log(`Sets in der Galerie: ${cardSets.map((s) => `${s.code} „${s.name}“ ${s.releaseDate ?? 'ohne Datum'}`).join(' · ')}`);
+    if (sets[0]) console.log(`Felder eines Sets: ${JSON.stringify(sets[0]).slice(0, 400)}`);
     return { sets: cardSets, printings };
   },
 };

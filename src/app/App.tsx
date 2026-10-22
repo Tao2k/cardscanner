@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
-import type { CollectionItem, LanguageInfo, Printing } from '../core/types';
+import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
 import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
@@ -18,6 +18,8 @@ export interface Catalogs {
   /** Drucke in Katalogreihenfolge (Index = Ergebnis der Erkennung). */
   ordered: Map<string, Printing[]>;
   languages: Map<string, LanguageInfo[]>;
+  /** Sets je Spiel in Katalogreihenfolge (für die Sortierung im Export). */
+  sets: Map<string, CardSet[]>;
   lookup(gameId: string, printingId: string): Printing | undefined;
   /** Vergleichsbilder eines Drucks für Zustand und Foil (URLs, leer bei alten Katalogen). */
   compareRefs(gameId: string, printingId: string): string[];
@@ -58,12 +60,14 @@ export function App() {
         const byGame = new Map<string, Map<string, Printing>>();
         const ordered = new Map<string, Printing[]>();
         const languages = new Map<string, LanguageInfo[]>();
+        const sets = new Map<string, CardSet[]>();
         const compare = new Map<string, Map<string, string[]>>();
         for (const g of games) {
           const file: CatalogFile = await fetch(`${BASE}data/${g.gameId}/catalog.json`).then((r) => r.json());
           byGame.set(g.gameId, new Map(file.printings.map((p) => [p.printingId, p])));
           ordered.set(g.gameId, file.printings);
           languages.set(g.gameId, file.meta.languages ?? [{ code: 'en', label: 'EN' }]);
+          sets.set(g.gameId, file.meta.sets ?? []);
           const byPrinting = new Map<string, string[]>();
           for (const ref of file.refs) {
             if (!ref.g) continue;
@@ -77,6 +81,7 @@ export function App() {
           byGame,
           ordered,
           languages,
+          sets,
           lookup: (gameId, id) => byGame.get(gameId)?.get(id),
           compareRefs: (gameId, id) => compare.get(gameId)?.get(id) ?? [],
         });
