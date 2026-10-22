@@ -70,6 +70,34 @@ export function nameKey(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+/** Tippfehler-Abstand (Optimal String Alignment: einfügen, löschen, ersetzen, Nachbarn tauschen). */
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * Gleicher Name trotz anderer Schreibweise. Riots Galerie nennt Champions nur „Ahri“ und Legenden nur
+ * „Blind Monk“, dotgg „Ahri - Alluring“ bzw. „Lee Sin - Blind Monk“, Cardmarket „Ahri, Alluring“;
+ * Tokens heißen dort „Bird // Buff“. Daher zählt auch ein Teil des Namens. Kleine Tippfehler
+ * („Corinna“/„Corina“) sind erlaubt, weil Set und Nummer die Karte schon festlegen.
+ */
+export function sameName(theirs: string, ours: string): boolean {
+  const own = nameKey(ours);
+  if (!own) return false;
+  const parts = [theirs, ...theirs.replace(/\([^)]*\)/g, '').split(/\s+-\s+|\s*\/\/\s*|,\s+/)].map(nameKey);
+  if (parts.includes(own)) return true;
+  return own.length >= 6 && editDistance(nameKey(theirs), own) <= 2;
+}
+
 /**
  * Nummer eines Drucks im Format von dotgg: Set-Code, Nummer dreistellig, Buchstabe für Alternate Art,
  * „-star“ für Signature (bei Riot „*“). Vergleich ohne Groß-/Kleinschreibung.
@@ -118,7 +146,7 @@ export interface MatchReport {
 
 /**
  * Ordnet jedem Druck eine Cardmarket-Produktnummer zu und holt den Preis.
- * 1. dotgg-Nummer = Set + Nummer des Drucks und der Name stimmt überein.
+ * 1. dotgg-Nummer = Set + Nummer des Drucks und der Name passt (siehe sameName).
  * 2. Sonst (nur normale Drucke): genau ein Produkt mit gleichem Namen in derselben Cardmarket-Erweiterung.
  * Was nicht eindeutig passt, bleibt ohne Preis, statt falsch bepreist zu werden.
  */
@@ -137,7 +165,7 @@ export function matchPrices(
   for (const p of printings) {
     const card = byKey.get(dotggKey(p));
     if (!card?.cmid) continue;
-    if (nameKey(card.name) !== nameKey(p.cardName)) {
+    if (!sameName(card.name, p.cardName)) {
       report.rejected.push(`${p.printingId}: dotgg ${card.id} heißt „${card.name}“, nicht „${p.cardName}“`);
       continue;
     }
@@ -163,7 +191,7 @@ export function matchPrices(
     if (linked.has(p.printingId) || p.variant !== 'normal') continue;
     const exp = expansionOf.get(p.setCode);
     if (exp === undefined) continue;
-    const candidates = products.filter((c) => c.idExpansion === exp && !used.has(c.idProduct) && nameKey(c.name) === nameKey(p.cardName));
+    const candidates = products.filter((c) => c.idExpansion === exp && !used.has(c.idProduct) && sameName(c.name, p.cardName));
     if (candidates.length !== 1) continue;
     linked.set(p.printingId, { idProduct: candidates[0].idProduct });
     used.add(candidates[0].idProduct);

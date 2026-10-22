@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dotggKey, guideEntry, isoTime, matchPrices, nameKey, parseDotgg, type CmProduct, type GuideRow } from '../scripts/adapters/riftbound-prices';
+import { dotggKey, guideEntry, isoTime, matchPrices, nameKey, parseDotgg, sameName, type CmProduct, type GuideRow } from '../scripts/adapters/riftbound-prices';
 import { collectionValue, priceFor } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
@@ -26,6 +26,18 @@ describe('Cardmarket-Zuordnung', () => {
     expect(nameKey('Ahri - Alluring')).toBe(nameKey('Ahri, Alluring'));
     expect(nameKey('Ahri - Alluring (Origins Launch Event Promo)')).toBe(nameKey('Ahri, Alluring'));
     expect(nameKey('Kai’Sa')).toBe(nameKey("Kai'Sa"));
+  });
+
+  it('erkennt Riots kurze Namen und kleine Tippfehler wieder', () => {
+    expect(sameName('Ahri - Alluring', 'Ahri')).toBe(true);
+    expect(sameName('Lee Sin - Blind Monk', 'Blind Monk')).toBe(true);
+    expect(sameName('Ahri, Alluring', 'Ahri')).toBe(true);
+    expect(sameName('Bird // Buff', 'Bird')).toBe(true);
+    expect(sameName('Corina Veraza', 'Corinna Veraza')).toBe(true);
+    expect(sameName('Sky Cruiser', 'Sky Crusier')).toBe(true);
+    expect(sameName('Something Else', 'Acceptable Losses')).toBe(false);
+    expect(sameName('Ahri - Alluring', 'Akali')).toBe(false);
+    expect(sameName('Fury Rune', 'Body Rune')).toBe(false);
   });
 
   it('liest die positionsbasierte dotgg-Liste', () => {
