@@ -5,6 +5,7 @@ import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingLabel } from './format';
 import { nameIn } from '../core/catalog';
+import { collectionValue, formatAsOf, formatEur, itemPrice } from '../core/prices';
 import type { Prefs } from './prefs';
 
 interface Props {
@@ -30,6 +31,8 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
     .filter(({ item, printing }) => !q || `${printing?.cardName} ${printing ? nameIn(printing, item.language) : ''} ${printing?.setCode} ${printing?.collectorNumber} ${item.location}`.toLowerCase().includes(q))
     .sort((a, b) => (b.item.updatedAt).localeCompare(a.item.updatedAt));
   const total = items.reduce((n, i) => n + i.quantity, 0);
+  const value = collectionValue(items, catalogs.price, catalogs.lookup);
+  const priceSources = [...new Set(items.map((i) => i.gameId))].map((g) => catalogs.prices.get(g)).filter((f) => !!f);
 
   const lastExport = prefs.lastExportAt ? new Date(prefs.lastExportAt) : null;
   const changedSinceExport = items.some((i) => !lastExport || new Date(i.updatedAt) > lastExport);
@@ -43,6 +46,10 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
         items,
         catalogs.lookup,
         gameIds.map((gameId) => ({ gameId, printings: [...(catalogs.byGame.get(gameId)?.values() ?? [])], sets: catalogs.sets.get(gameId) ?? [] })),
+        (item, printing) => {
+          const asOf = catalogs.prices.get(item.gameId)?.asOf;
+          return { price: itemPrice(item, catalogs.price, printing), asOf: asOf ? formatAsOf(asOf) : undefined };
+        },
       );
       downloadBlob(data, `kartensammlung-${new Date().toISOString().slice(0, 10)}.xlsx`, XLSX_TYPE);
       setPrefs({ lastExportAt: new Date().toISOString() });
@@ -86,6 +93,14 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       <header>
         <h1>Sammlung</h1>
         <p class="muted">{total} Karten in {items.length} Einträgen</p>
+        {priceSources.length > 0 && items.length > 0 && (
+          <p class="value">
+            Wert: <strong>{formatEur(value.total)}</strong>
+            <small class="muted">
+              {' '}laut Cardmarket{value.unpriced ? `, ${value.unpriced} Karten ohne Preis` : ''}
+            </small>
+          </p>
+        )}
       </header>
       {exportDue && items.length > 0 && (
         <p class="banner">
@@ -112,40 +127,57 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
       {message && <p class="banner">{message}</p>}
       <input type="search" placeholder="Suchen (Name, Set, Nummer)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
       <ul class="items">
-        {rows.slice(0, 300).map(({ item, printing }) => (
-          <li key={item.itemId}>
-            {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
-            <div class="info">
-              <strong>{printing ? printingLabel(printing) : item.printingId}</strong>
-              <small>
-                {item.finish === 'foil' ? 'Foil · ' : ''}
-                {item.condition}
-                {item.location ? ` · ${item.location}` : ''}
-                {!item.confirmed ? ' · ungeprüft' : ''}
-              </small>
-            </div>
-            {(catalogs.languages.get(item.gameId)?.length ?? 0) > 1 && (
-              <select
-                class="lang"
-                aria-label="Sprache"
-                value={item.language}
-                onChange={(e) => service.update(item.itemId, { language: e.currentTarget.value }).then(onChange)}
-              >
-                {catalogs.languages.get(item.gameId)!.map((l) => <option value={l.code}>{l.label}</option>)}
-              </select>
-            )}
-            <div class="qty">
-              <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
-              <span>{item.quantity}</span>
-              <button onClick={() => changeQty(item, 1)} aria-label="mehr">+</button>
-            </div>
-          </li>
-        ))}
+        {rows.slice(0, 300).map(({ item, printing }) => {
+          const price = itemPrice(item, catalogs.price, printing);
+          const url = catalogs.price(item.gameId, item.printingId)?.url;
+          return (
+            <li key={item.itemId}>
+              {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
+              <div class="info">
+                <strong>{printing ? printingLabel(printing) : item.printingId}</strong>
+                <small>
+                  {item.finish === 'foil' ? 'Foil · ' : ''}
+                  {item.condition}
+                  {item.location ? ` · ${item.location}` : ''}
+                  {!item.confirmed ? ' · ungeprüft' : ''}
+                  {price !== undefined && (
+                    <>
+                      {' · '}
+                      {url ? <a href={url} target="_blank" rel="noopener">{formatEur(price)}</a> : formatEur(price)}
+                      {item.quantity > 1 ? ` (${formatEur(price * item.quantity)})` : ''}
+                    </>
+                  )}
+                </small>
+              </div>
+              {(catalogs.languages.get(item.gameId)?.length ?? 0) > 1 && (
+                <select
+                  class="lang"
+                  aria-label="Sprache"
+                  value={item.language}
+                  onChange={(e) => service.update(item.itemId, { language: e.currentTarget.value }).then(onChange)}
+                >
+                  {catalogs.languages.get(item.gameId)!.map((l) => <option value={l.code}>{l.label}</option>)}
+                </select>
+              )}
+              <div class="qty">
+                <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
+                <span>{item.quantity}</span>
+                <button onClick={() => changeQty(item, 1)} aria-label="mehr">+</button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
       {rows.length > 300 && <p class="muted">Es werden die 300 zuletzt geänderten Einträge angezeigt. Suche nutzen, um weitere zu finden.</p>}
       <footer class="legal">
         CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games
         does not endorse or sponsor this project. Kartendaten und Bilder: offizielle Riftbound-Kartengalerie.
+        {priceSources.map((f) => (
+          <>
+            {' '}Preise: <a href={f.sourceUrl} target="_blank" rel="noopener">{f.source}</a>-Preisguide (Trendpreis, Near Mint), Stand{' '}
+            {formatAsOf(f.asOf)}.
+          </>
+        ))}
       </footer>
     </section>
   );

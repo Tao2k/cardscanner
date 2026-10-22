@@ -11,6 +11,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "catalog": "tsx scripts/build-catalog.ts",
+    "prices": "tsx scripts/build-prices.ts",
     "eval": "tsx scripts/eval-recognition.ts"
   },
   "dependencies": {

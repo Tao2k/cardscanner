@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   schedule:
-    # Montags 04:00 UTC: neue Karten und Sets übernehmen
-    - cron: '0 4 * * 1'
+    # Täglich 04:00 UTC: Cardmarket-Preise (Preisguide kommt gegen 01:00 UTC), neue Karten und Sets
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +38,10 @@ jobs:
           restore-keys: catalog-
       - name: Riftbound-Katalog bauen
         run: npm run catalog -- riftbound
+      - name: Cardmarket-Preise holen
+        # Fällt die Preisquelle aus, erscheint die App trotzdem, nur ohne Preise.
+        continue-on-error: true
+        run: npm run prices -- riftbound
       - name: App bauen
         run: npm run build
         env:

@@ -23,6 +23,9 @@ export const COLLECTION_COLUMNS = [
   { header: 'Anzahl', key: 'quantity', width: 8 },
   { header: 'Zustand', key: 'condition', width: 9 },
   { header: 'Finish', key: 'finish', width: 9 },
+  { header: 'Preis (€)', key: 'price', width: 10 },
+  { header: 'Wert (€)', key: 'value', width: 10 },
+  { header: 'Preisstand', key: 'priceAsOf', width: 11 },
   { header: 'Lagerort', key: 'location', width: 18 },
   { header: 'Bestätigt', key: 'confirmed', width: 10 },
   { header: 'Erkennungswert', key: 'matchScore', width: 15 },
@@ -84,10 +87,14 @@ export function exportOrder(lookup: PrintingLookup, sets: Map<string, CardSet[]>
   };
 }
 
+/** Marktpreis eines Eintrags (pro Stück) und Datum des Preisstands, z. B. „21.10.2026“. */
+export type ItemPricing = (item: CollectionItem, printing?: Printing) => { price?: number; asOf?: string };
+
 export async function exportWorkbook(
   items: CollectionItem[],
   lookup: PrintingLookup,
   catalogs: { gameId: string; printings: Printing[]; sets?: CardSet[] }[] = [],
+  pricing?: ItemPricing,
 ): Promise<ArrayBuffer> {
   const wb = await newWorkbook();
   wb.creator = 'CardScanner';
@@ -98,8 +105,12 @@ export async function exportWorkbook(
   const sets = new Map(catalogs.map((c) => [c.gameId, c.sets ?? []]));
   const setNames = new Map(catalogs.flatMap((c) => (c.sets ?? []).map((s) => [`${c.gameId}/${s.code}`, s.name] as const)));
   const sorted = [...items].sort(exportOrder(lookup, sets));
+  let totalValue = 0;
   for (const item of sorted) {
     const p = lookup(item.gameId, item.printingId);
+    const { price, asOf } = pricing?.(item, p) ?? {};
+    const value = price === undefined ? undefined : Math.round(price * item.quantity * 100) / 100;
+    totalValue += value ?? 0;
     sheet.addRow({
       ...item,
       setCode: p?.setCode ?? '',
@@ -110,10 +121,24 @@ export async function exportWorkbook(
       rarity: p?.rarity ?? '',
       confirmed: item.confirmed ? 'ja' : 'nein',
       matchScore: item.matchScore === undefined ? '' : Math.round(item.matchScore * 1000) / 1000,
+      // leer statt '' lassen, damit Excel mit den Spalten rechnen kann
+      price: price ?? null,
+      value: value ?? null,
+      priceAsOf: price === undefined ? null : (asOf ?? null),
     });
   }
+  sheet.getColumn('price').numFmt = '0.00';
+  sheet.getColumn('value').numFmt = '0.00';
   sheet.getRow(1).font = { bold: true };
   sheet.autoFilter = { from: 'A1', to: { row: 1, column: COLLECTION_COLUMNS.length } };
+  if (pricing && sorted.length) {
+    // Summe mit Abstand unter der Tabelle; ohne Spiel und Druck-ID überspringt der Import die Zeile.
+    const valueCol = sheet.getColumn('value').letter;
+    const total = sheet.getRow(sorted.length + 3);
+    total.getCell('cardName').value = 'Gesamtwert (Cardmarket)';
+    total.getCell('value').value = { formula: `SUM(${valueCol}2:${valueCol}${sorted.length + 1})`, result: Math.round(totalValue * 100) / 100 };
+    total.font = { bold: true };
+  }
 
   for (const { gameId, printings } of catalogs) {
     const cat = wb.addWorksheet(`Katalog ${gameId}`.slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });

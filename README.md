@@ -8,6 +8,7 @@ Sammelkarten mit der Handykamera erkennen und als eigene Sammlung erfassen. Star
 - **Live-Scan:** Karte in den Rahmen halten. Sobald die Erkennung über mehrere Bilder stabil ist, wird die Karte sofort gespeichert. Knappe Treffer landen unter „Prüfen“.
 - **Erkennung auf dem Gerät:** Ein Bildmodell ([DINOv2 small](https://huggingface.co/Xenova/dinov2-small)) berechnet einen Vektor des Kamerabilds und sucht die ähnlichste Referenzkarte. Kein Training pro Karte nötig.
 - **Daten bleiben lokal:** Jede Person hat ihre Sammlung nur im Browser ihres Geräts. Export und Import als Excel (`.xlsx`).
+- **Preise:** Euro-Preise von Cardmarket pro Karte, als Gesamtwert der Sammlung und als Spalten „Preis (€)“, „Wert (€)“ und „Preisstand“ im Excel. Quelle ist Cardmarkets öffentlicher Preisguide (Trendpreis, Near Mint, ohne Unterschied nach Sprache oder Zustand), täglich erneuert.
 
 ## Aufbau
 
@@ -31,6 +32,7 @@ src/app/              Oberfläche (Preact), Kamera, Erkennungs-Worker
 npm install
 npm test
 npm run catalog -- riftbound --limit 30   # kleiner Testkatalog (braucht Internet)
+npm run prices -- riftbound               # Cardmarket-Preise zum gebauten Katalog
 npm run dev
 ```
 
@@ -38,10 +40,12 @@ Die Kamera funktioniert nur über HTTPS oder `localhost`.
 
 ## Veröffentlichen
 
-Jeder Push auf `main` und jeden Montag baut die GitHub-Action den Katalog neu und veröffentlicht die App auf GitHub Pages. Einmalig nötig: unter *Settings → Pages* als Quelle **GitHub Actions** wählen.
+Jeder Push auf `main` und jeden Morgen (04:00 UTC, für frische Preise) baut die GitHub-Action den Katalog neu und veröffentlicht die App auf GitHub Pages. Einmalig nötig: unter *Settings → Pages* als Quelle **GitHub Actions** wählen.
 
 ## Rechtliches
 
 CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games does not endorse or sponsor this project.
 
 Kartendaten und Bilder stammen aus der [offiziellen Riftbound-Kartengalerie](https://playriftbound.com/en-us/card-gallery/). Die App liefert nur Embeddings aus und zeigt Kartenbilder über die Original-URLs an. ([Riftcodex](https://riftcodex.com) wäre eine Alternative, sperrt aber Anfragen aus GitHub Actions.)
+
+Preise: [Cardmarket](https://www.cardmarket.com/en/Riftbound)-Preisguide und -Produktkatalog (öffentliche Downloads, Riftbound = Spiel 22). Die Zuordnung Kartennummer → Cardmarket-Produkt kommt aus der öffentlichen Kartenliste von [dotgg](https://riftbound.gg); passt dort der Name nicht oder fehlt die Karte, gilt ein eindeutiger Name im selben Cardmarket-Set, sonst bleibt die Karte ohne Preis.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
+import { loadPrices, type PriceEntry, type PriceFile } from '../core/prices';
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
 import { LearningService } from '../core/learning';
@@ -21,6 +22,9 @@ export interface Catalogs {
   /** Sets je Spiel in Katalogreihenfolge (für die Sortierung im Export). */
   sets: Map<string, CardSet[]>;
   lookup(gameId: string, printingId: string): Printing | undefined;
+  /** Marktpreise je Spiel (fehlt, wenn es für das Spiel keine gibt). */
+  prices: Map<string, PriceFile>;
+  price(gameId: string, printingId: string): PriceEntry | undefined;
   /** Vergleichsbilder eines Drucks für Zustand und Foil (URLs, leer bei alten Katalogen). */
   compareRefs(gameId: string, printingId: string): string[];
 }
@@ -62,7 +66,9 @@ export function App() {
         const languages = new Map<string, LanguageInfo[]>();
         const sets = new Map<string, CardSet[]>();
         const compare = new Map<string, Map<string, string[]>>();
+        const prices = new Map<string, PriceFile>();
         for (const g of games) {
+          const pricesLoaded = loadPrices(BASE, g.gameId);
           const file: CatalogFile = await fetch(`${BASE}data/${g.gameId}/catalog.json`).then((r) => r.json());
           byGame.set(g.gameId, new Map(file.printings.map((p) => [p.printingId, p])));
           ordered.set(g.gameId, file.printings);
@@ -75,6 +81,8 @@ export function App() {
             byPrinting.set(id, [...(byPrinting.get(id) ?? []), `${BASE}data/${g.gameId}/${ref.g}`]);
           }
           compare.set(g.gameId, byPrinting);
+          const priceFile = await pricesLoaded;
+          if (priceFile) prices.set(g.gameId, priceFile);
         }
         setCatalogs({
           games,
@@ -83,6 +91,8 @@ export function App() {
           languages,
           sets,
           lookup: (gameId, id) => byGame.get(gameId)?.get(id),
+          prices,
+          price: (gameId, id) => prices.get(gameId)?.prices[id],
           compareRefs: (gameId, id) => compare.get(gameId)?.get(id) ?? [],
         });
         if (!games.some((g) => g.gameId === prefs.gameId) && games[0]) setPrefs({ gameId: games[0].gameId });
