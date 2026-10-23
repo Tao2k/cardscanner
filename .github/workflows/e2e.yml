@@ -30,3 +30,11 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npx tsx scripts/e2e-scan.ts
+        env:
+          E2E_SHOTS: e2e-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-shots
+          path: e2e-shots
+          if-no-files-found: ignore

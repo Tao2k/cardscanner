@@ -7,7 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -97,6 +97,9 @@ async function main() {
   const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'inherit' });
   await new Promise((r) => setTimeout(r, 3000));
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'e2e-'));
+  // Bildschirmfotos zum Ansehen (in CI als Artefakt hochgeladen)
+  const shots = process.env.E2E_SHOTS ?? tmp;
+  await mkdir(shots, { recursive: true });
   let failures = 0;
 
   // Größe des Suchers messen, damit die Karte im Video genau im Zielrahmen liegt
@@ -180,6 +183,8 @@ async function main() {
     // Die Karte bleibt im Bild: sie darf nicht noch einmal gezählt werden
     await page.waitForTimeout(5000);
     const fxSeen = await page.evaluate(() => !!(window as unknown as { fxSeen?: boolean }).fxSeen);
+    // Sprache, Foil und Zustand stehen erst in den Details
+    await page.locator('.recent li').first().getByRole('button', { name: 'Details' }).click();
     const shown = (await page.locator('.recent li').first().innerText()).replace(/\s+/g, ' ');
     const items = await page.evaluate(
       () =>
@@ -201,18 +206,25 @@ async function main() {
       verified = await page.locator('.recent li').first().getByText('✓ bestätigt').waitFor({ timeout: 5000 }).then(() => true, () => false);
       console.log(`  [${c.lang}] „Richtig“ gedrückt: ${verified ? 'bestätigt' : 'NICHT bestätigt'}`);
     }
-    await page.screenshot({ path: path.join(tmp, `scan-${c.lang}-${c.specks}.png`) });
+    await page.screenshot({ path: path.join(shots, `scan-${c.lang}-${c.specks}.png`) });
     // Foil am Foto bestimmt: Korrektur antippen, die Erkennung muss daraus lernen
     let taught = true;
     if (/Schimmer/.test(shown)) {
       const other = items[0]?.finish === 'foil' ? 'Normal' : 'Foil';
-      await page.locator('.recent li').first().getByRole('radio', { name: other }).click();
+      await page.locator('.recent li').first().getByRole('button', { name: 'Falsch' }).click();
+      await page.getByRole('radiogroup', { name: 'Was war falsch' }).getByRole('radio', { name: 'Foil' }).click();
+      await page.screenshot({ path: path.join(shots, `falsch-${c.lang}-${c.specks}.png`) });
+      await page.getByRole('radiogroup', { name: 'Foil dieser Karte' }).getByRole('radio', { name: other }).click();
       await page.waitForTimeout(500);
       const stored = await page.evaluate(() => ({ foil: localStorage.getItem('cardscanner.foil'), stats: localStorage.getItem('cardscanner.stats') }));
       const feedback = JSON.parse(stored.foil ?? '[]');
       taught = feedback.length >= 1;
       console.log(`  [${c.lang}] Foil korrigiert auf ${other}: ${taught ? 'gelernt' : 'NICHT gelernt'}, Statistik ${stored.stats}`);
     }
+    // Einstellungen nur bei Bedarf: als Blatt von unten
+    await page.getByRole('button', { name: 'Einstellungen' }).click();
+    await page.getByRole('dialog', { name: 'Einstellungen' }).waitFor({ timeout: 5000 });
+    await page.screenshot({ path: path.join(shots, `einstellungen-${c.lang}-${c.specks}.png`) });
     await browser.close();
 
     const item = items[0];

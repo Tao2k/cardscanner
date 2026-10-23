@@ -4,3 +4,4 @@ dist/
 public/data/
 public/models/
 *.log
+e2e-shots/

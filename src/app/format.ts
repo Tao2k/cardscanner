@@ -10,8 +10,13 @@ const VARIANT_LABEL: Record<string, string> = {
 
 /** Anzeige immer mit englischem Namen; die Drucksprache steht nur als Merkmal am Eintrag. */
 export function printingLabel(p: Printing): string {
+  return `${p.cardName} (${printingCode(p)})`;
+}
+
+/** Set, Nummer und Variante, z. B. „OGN 042, Alt Art“. */
+export function printingCode(p: Printing): string {
   const variant = VARIANT_LABEL[p.variant];
-  return `${p.cardName} (${p.setCode} ${p.collectorNumber}${variant ? `, ${variant}` : ''})`;
+  return `${p.setCode} ${p.collectorNumber}${variant ? `, ${variant}` : ''}`;
 }
 
 export function downloadBlob(data: BlobPart, filename: string, type: string) {

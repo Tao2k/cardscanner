@@ -135,14 +135,30 @@ export function App() {
         )}
       </main>
       <nav class="tabs">
-        <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>Scannen</button>
+        <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>
+          {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
+          Scannen
+        </button>
         <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
+          {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
           Sammlung <span class="count" key={total}>{total}</span>
         </button>
         <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
+          {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
         </button>
       </nav>
     </div>
+  );
+}
+
+/** Strich-Symbol für die Navigation unten. */
+function tabIcon(d: string) {
+  return (
+    <span class="tab-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d={d} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </span>
   );
 }

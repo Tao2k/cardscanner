@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddResult, CollectionService, ScanInput } from '../core/collection';
 import type { LearningService, Sample } from '../core/learning';
@@ -15,7 +16,7 @@ import { cropTextRegion, readText, warmUpOcr, type Script } from './ocr';
 import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
-import { printingLabel } from './format';
+import { printingCode, printingLabel } from './format';
 import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
 import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
@@ -171,6 +172,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   };
   const [fixing, setFixing] = useState<{ key: string; kind: FixKind | null } | null>(null);
   const [fixQuery, setFixQuery] = useState('');
+  /** Einstellungen (Spiel, Sprache, Foil, Zustand) sind nur bei Bedarf offen. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Scan, dessen Details (Sicherheit, Hinweise, Rückgängig) aufgeklappt sind. */
+  const [details, setDetails] = useState<string | null>(null);
   const textIndexes = useRef(new Map<string, TextIndex>());
   const [question, setQuestion] = useState<Question | null>(null);
   const questionRef = useRef<Question | null>(null);
@@ -268,7 +273,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       language = detected ?? lastLanguage.current ?? languages[0];
       if (!detected) {
         const slow = captured.timedOut.has('han') ? ' (chinesische Texterkennung zu langsam)' : '';
-        languageNote = `Sprache nicht sicher erkannt${slow}, angenommen: ${labelOf(gameId, language)}. Falsch? Unten tippen.`;
+        languageNote = `Sprache nicht sicher erkannt${slow}, angenommen: ${labelOf(gameId, language)}. Falsch? „Falsch“ antippen.`;
       } else {
         languageNote = languageGuess?.lang ? languageReason(languageGuess, labelOf(gameId, language)) : `Sprache ${labelOf(gameId, language)}: am Kartenbild erkannt`;
       }
@@ -294,7 +299,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
       } else if (foil && foil.foil !== null) {
         finish = foil.foil ? 'foil' : 'normal';
-        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %, Foil ab ${Math.round(foilShareRef.current * 100)} %). Falsch? Unten tippen, daraus lernt die Erkennung.`;
+        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %, Foil ab ${Math.round(foilShareRef.current * 100)} %). Falsch? „Falsch“ antippen, daraus lernt die Erkennung.`;
         foilScore = foil.score;
       } else {
         finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
@@ -564,7 +569,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     </div>
   );
   const chips = <T extends string>(label: string, options: { value: T; label: string }[], current: T, pick: (v: T) => void) => (
-    <div class="segmented condition" role="radiogroup" aria-label={label}>
+    <div class="chips" role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button role="radio" aria-checked={current === o.value} class={current === o.value ? 'active' : ''} onClick={() => pick(o.value)}>
           {o.label}
@@ -576,6 +581,17 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     chips('Sprache dieser Karte', languages(s.input.gameId).map((l) => ({ value: l.code, label: l.label })), s.input.language, (l) => correctLanguage(s, l));
   const conditionChips = (s: Saved) => chips('Zustand dieser Karte', CONDITIONS.map((c) => ({ value: c, label: c })), s.input.condition, (c) => correctCondition(s, c));
   const finishChips = (s: Saved) => chips('Foil dieser Karte', FINISHES, s.input.finish, (f) => correctFinish(s, f));
+
+  /** Blatt, das von unten hereinfährt; ohne onClose schließt ein Tipp daneben es nicht. */
+  const sheet = (cls: string, title: string, body: ComponentChildren, onClose?: () => void) => (
+    <>
+      <div class="backdrop" onClick={onClose} />
+      <div class={`sheet ${cls}`} role="dialog" aria-label={title}>
+        <div class="grabber" />
+        {body}
+      </div>
+    </>
+  );
 
   /** „Falsch“: erst fragen, was falsch war, dann genau das korrigieren. */
   const renderFix = (s: Saved, kind: FixKind | null) => {
@@ -590,9 +606,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     ];
     const byId = new Map(all.map((p) => [p.printingId, p]));
     const alternatives = (s.input.alternatives ?? []).map((id) => byId.get(id)).filter((p): p is Printing => !!p && p.printingId !== s.printing.printingId);
-    return (
-      <div class="fix">
-        <small>Was war falsch? Daraus lernt die Erkennung.</small>
+    const close = () => setFixing(null);
+    return sheet(
+      'fix',
+      'Was war falsch?',
+      <>
+        <h2>Was war falsch?</h2>
+        <p class="muted">{printingLabel(s.printing)}. Daraus lernt die Erkennung.</p>
         {chips('Was war falsch', kinds, kind ?? ('' as FixKind), (k) => setFixing({ key: s.key, kind: k }))}
         {kind === 'card' && (
           <>
@@ -606,7 +626,65 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         {kind === 'language' && languageChips(s)}
         {kind === 'finish' && finishChips(s)}
         {kind === 'condition' && conditionChips(s)}
-      </div>
+        <button class="ghost" onClick={close}>Abbrechen</button>
+      </>,
+      close,
+    );
+  };
+
+  const gameLanguages = catalogs?.languages.get(prefs.gameId) ?? [];
+  /** Was in den Einstellungen fest vorgegeben ist (sonst erkennt die App es selbst). */
+  const fixedPrefs = [
+    gameLanguages.length > 1 && prefs.language !== 'auto' ? gameLanguages.find((l) => l.code === prefs.language)?.label : undefined,
+    prefs.finishAuto ? undefined : FINISHES.find((f) => f.value === prefs.finish)?.label,
+    prefs.conditionAuto ? undefined : prefs.condition,
+  ].filter((x): x is string => !!x);
+
+  const renderSettings = () => {
+    const close = () => setSettingsOpen(false);
+    return sheet(
+      'settings',
+      'Einstellungen',
+      <>
+        <h2>Einstellungen</h2>
+        <p class="muted">Normalerweise erkennt die App das selbst. Lege es nur fest, wenn du einen ganzen Stapel gleicher Art scannst.</p>
+        {catalogs && catalogs.games.length > 1 && (
+          <label class="field">
+            <span>Spiel</span>
+            <select value={prefs.gameId} onChange={(e) => setPrefs({ gameId: e.currentTarget.value })}>
+              {catalogs.games.map((g) => <option value={g.gameId}>{g.gameName}</option>)}
+            </select>
+          </label>
+        )}
+        {gameLanguages.length > 1 && (
+          <div class="field">
+            <span>Sprache</span>
+            {chips('Sprache der Karten', [{ value: 'auto', label: 'Automatisch' }, ...gameLanguages.map((l) => ({ value: l.code, label: l.label }))], prefs.language, (l) =>
+              setPrefs({ language: l }),
+            )}
+          </div>
+        )}
+        <div class="field">
+          <span>Foil</span>
+          {chips('Foil', [{ value: 'auto', label: 'Automatisch' }, ...FINISHES], prefs.finishAuto ? 'auto' : prefs.finish, (v) =>
+            setPrefs(v === 'auto' ? { finishAuto: true } : { finishAuto: false, finish: v as Finish }),
+          )}
+        </div>
+        <div class="field">
+          <span>Zustand</span>
+          {chips('Zustand', [{ value: 'auto', label: 'Automatisch' }, ...CONDITIONS.map((c) => ({ value: c, label: c }))], prefs.conditionAuto ? 'auto' : prefs.condition, (v) =>
+            setPrefs(v === 'auto' ? { conditionAuto: true } : { conditionAuto: false, condition: v as Condition }),
+          )}
+        </div>
+        {accuracy && (
+          <p class="muted stats">
+            Genauigkeit bisher: {accuracy}. Nachgefragt: {stats.asked}×.
+            {extraMargin > 0 && ' Wegen gemeldeter Fehler fragt der Scanner jetzt öfter nach.'}
+          </p>
+        )}
+        <button class="primary" onClick={close}>Fertig</button>
+      </>,
+      close,
     );
   };
 
@@ -624,6 +702,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const guide = box.w ? guideRect(box.w, box.h) : null;
   const ready = !status && recognizer && catalogs;
 
+  const fixed = fixing ? recent.find((s) => s.key === fixing.key) : undefined;
+
   return (
     <section class="scan">
       <div class="viewfinder" ref={viewfinderRef}>
@@ -634,6 +714,15 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         {running && guide && (
           <div ref={guideRef} class={`guide${holding ? ' done' : ''}`} style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
         )}
+        <button class={`settings-button${fixedPrefs.length ? ' set' : ''}`} aria-label="Einstellungen" onClick={() => setSettingsOpen(true)}>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M4 7h10.2a3 3 0 0 1 5.6 0H20a1 1 0 1 1 0 2h-.2a3 3 0 0 1-5.6 0H4a1 1 0 0 1 0-2Zm13 1a1 1 0 1 0 0-.01ZM4 15h.2a3 3 0 0 1 5.6 0H20a1 1 0 1 1 0 2H9.8a3 3 0 0 1-5.6 0H4a1 1 0 1 1 0-2Zm3 1a1 1 0 1 0 0-.01Z"
+            />
+          </svg>
+          {fixedPrefs.length > 0 && <span>{fixedPrefs.join(' · ')}</span>}
+        </button>
         {!running && (
           <div class="overlay">
             {camError && <p class="banner error">{camError}</p>}
@@ -649,7 +738,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             ) : analyzing ? (
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
-              <span>Welche Karte ist es? Bitte unten antippen.</span>
+              <span>Welche Karte ist es?</span>
             ) : added ? (
               <span class="added">✓ {added} zur Sammlung hinzugefügt</span>
             ) : holding ? (
@@ -658,7 +747,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <span>Noch unsicher, Karte ruhig halten …</span>
             ) : guess ? (
               <span>
-                {guess.printing.cardName} · {Math.round(guess.score * 100)} % · {guess.ms} ms
+                {guess.printing.cardName} · {Math.round(guess.score * 100)} %
               </span>
             ) : (
               <span>Karte in den Rahmen halten</span>
@@ -668,128 +757,92 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
       </div>
 
-      {question && (
-        <div class="ask">
-          <p>
-            <strong>
+      {question &&
+        sheet(
+          'ask',
+          'Welche Karte ist es?',
+          <>
+            <h2>Welche Karte ist es?</h2>
+            <p class="muted">
               {question.reason === 'conflict'
                 ? 'Bild und Kartentext passen nicht zur selben Karte.'
                 : question.reason === 'variant'
                   ? 'Karte am Text erkannt, aber nicht welche Variante.'
-                  : `Nur zu etwa ${Math.round(question.captured.stable.confidence * 100)} % sicher, welche Karte das ist.`}
-            </strong>{' '}
-            Gespeichert wird erst ab 95 %. Tippe auf die richtige, daraus lernt die Erkennung.
-          </p>
-          <div class="candidates">
-            {question.candidates.map((p) => (
-              <button key={p.printingId} class="candidate" onClick={() => answer(p)}>
-                <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
-                <small>{printingLabel(p)}</small>
-              </button>
-            ))}
-          </div>
-          <input type="search" placeholder="Keine davon? Name oder Nummer suchen" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
-          {searchResults.length > 0 && (
-            <div class="candidates">
-              {searchResults.map((p) => (
-                <button key={p.printingId} class="candidate" onClick={() => answer(p)}>
-                  <img src={p.imageUrl} alt={p.cardName} loading="lazy" />
-                  <small>{printingLabel(p)}</small>
-                </button>
-              ))}
-            </div>
-          )}
-          <button onClick={() => answer(null)}>Nicht speichern, neu scannen</button>
-        </div>
-      )}
-
-      <div class="controls">
-        {catalogs && catalogs.games.length > 1 && (
-          <select value={prefs.gameId} onChange={(e) => setPrefs({ gameId: e.currentTarget.value })}>
-            {catalogs.games.map((g) => <option value={g.gameId}>{g.gameName}</option>)}
-          </select>
+                  : `Nur zu etwa ${Math.round(question.captured.stable.confidence * 100)} % sicher.`}{' '}
+              Tippe auf die richtige, daraus lernt die Erkennung.
+            </p>
+            {candidateButtons(question.candidates, (p) => answer(p))}
+            <input type="search" placeholder="Keine davon? Name oder Nummer suchen" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
+            {searchResults.length > 0 && candidateButtons(searchResults, (p) => answer(p))}
+            <button class="ghost" onClick={() => answer(null)}>Nicht speichern, neu scannen</button>
+          </>,
         )}
-        {catalogs && (catalogs.languages.get(prefs.gameId)?.length ?? 0) > 1 && (
-          <div class="segmented" role="radiogroup" aria-label="Sprache der Karten">
-            {[{ code: 'auto', label: 'Auto' }, ...catalogs.languages.get(prefs.gameId)!].map((l) => (
-              <button
-                role="radio"
-                aria-checked={prefs.language === l.code}
-                class={prefs.language === l.code ? 'active' : ''}
-                onClick={() => setPrefs({ language: l.code })}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        )}
-        <select
-          aria-label="Foil"
-          value={prefs.finishAuto ? 'auto' : prefs.finish}
-          onChange={(e) => {
-            const v = e.currentTarget.value;
-            setPrefs(v === 'auto' ? { finishAuto: true } : { finishAuto: false, finish: v as Finish });
-          }}
-        >
-          <option value="auto">Foil: Auto</option>
-          {FINISHES.map((f) => <option value={f.value}>{f.label}</option>)}
-        </select>
-        <select
-          aria-label="Zustand"
-          value={prefs.conditionAuto ? 'auto' : prefs.condition}
-          onChange={(e) => {
-            const v = e.currentTarget.value;
-            setPrefs(v === 'auto' ? { conditionAuto: true } : { conditionAuto: false, condition: v as Condition });
-          }}
-        >
-          <option value="auto">Zustand: Auto</option>
-          {CONDITIONS.map((c) => <option value={c}>{c}</option>)}
-        </select>
-      </div>
 
-      {accuracy && (
-        <p class="muted stats">
-          Genauigkeit bisher: {accuracy}. Nachgefragt: {stats.asked}×.
-          {extraMargin > 0 && ' Wegen gemeldeter Fehler fragt der Scanner jetzt öfter nach.'}
-        </p>
-      )}
+      {fixing && fixed && renderFix(fixed, fixing.kind)}
+      {settingsOpen && renderSettings()}
+
+      {recent.length === 0 && <p class="muted hint">Halte eine Karte in den Rahmen. Erkannte Karten landen automatisch in deiner Sammlung.</p>}
 
       {recent.length > 0 && (
         <ul class="recent">
-          {recent.map((s, i) => (
-            <li key={s.result.item.itemId + s.result.item.quantity}>
-              <img src={thumb(s.printing)} alt="" loading="lazy" />
-              <span>
-                {printingLabel(s.printing)}
-                <small> · {catalogs?.languages.get(s.result.item.gameId)?.find((l) => l.code === s.result.item.language)?.label}{s.result.item.finish === 'foil' ? ' · Foil' : ''}</small>
-                {!s.result.item.confirmed && <em> · prüfen</em>}
-                {s.confidence !== undefined && <small> · {Math.floor(s.confidence * 100)} % sicher{s.byText ? ' (Text gelesen)' : ''}</small>}
-                {s.auto === false && <small> · von dir gewählt</small>}
-                <small> ×{s.result.item.quantity}</small>
-              </span>
-              {s.auto && s.result.item.confirmed && !s.flagged && !s.judged && <button onClick={() => verify(s)}>Richtig</button>}
-              {s.result.item.confirmed && !s.flagged && (
-                <button
-                  aria-expanded={fixing?.key === s.key}
-                  onClick={() => {
-                    setFixQuery('');
-                    setFixing(fixing?.key === s.key ? null : { key: s.key, kind: null });
-                  }}
-                >
-                  Falsch
-                </button>
-              )}
-              {s.verified && <small> · ✓ bestätigt</small>}
-              <button onClick={() => undo(s)}>Rückgängig</button>
-              {fixing?.key === s.key && renderFix(s, fixing.kind)}
-              {i === 0 && fixing?.key !== s.key && languages(s.input.gameId).length > 1 && languageChips(s)}
-              {i === 0 && fixing?.key !== s.key && conditionChips(s)}
-              {i === 0 && fixing?.key !== s.key && finishChips(s)}
-              {i === 0 && s.languageNote && <small class="note warn">{s.languageNote}</small>}
-              {i === 0 && s.finishNote && <small class="note">{s.finishNote}</small>}
-              {i === 0 && s.conditionNote && <small class="note">{s.conditionNote}</small>}
-            </li>
-          ))}
+          {recent.map((s) => {
+            const item = s.result.item;
+            const language = catalogs?.languages.get(item.gameId)?.find((l) => l.code === item.language)?.label;
+            const canVerify = s.auto && item.confirmed && !s.flagged && !s.judged;
+            const canFix = item.confirmed && !s.flagged;
+            const open = details === s.key;
+            return (
+              <li key={item.itemId + item.quantity}>
+                <div class="main">
+                  <img src={thumb(s.printing)} alt="" loading="lazy" />
+                  <span class="info">
+                    <strong>{s.printing.cardName}</strong>
+                    <small>
+                      {printingCode(s.printing)} · {language}
+                      {item.finish === 'foil' ? ' · Foil' : ''} · ×{item.quantity}
+                    </small>
+                    {!item.confirmed && <em class="warn">Liegt unter „Prüfen“</em>}
+                    {s.verified && <em class="ok">✓ bestätigt</em>}
+                    {!s.verified && s.languageNote?.startsWith('Sprache nicht sicher') && <em class="warn">Sprache unsicher</em>}
+                  </span>
+                  <button class={`icon${open ? ' open' : ''}`} aria-label="Details" aria-expanded={open} onClick={() => setDetails(open ? null : s.key)}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+                {(canVerify || canFix) && (
+                  <div class="verdict">
+                    {canVerify && <button class="primary" onClick={() => verify(s)}>Richtig</button>}
+                    {canFix && (
+                      <button
+                        aria-expanded={fixing?.key === s.key}
+                        onClick={() => {
+                          setFixQuery('');
+                          setFixing({ key: s.key, kind: null });
+                        }}
+                      >
+                        Falsch
+                      </button>
+                    )}
+                  </div>
+                )}
+                {open && (
+                  <div class="details">
+                    <small>
+                      Zustand {item.condition}
+                      {s.confidence !== undefined && ` · ${Math.floor(s.confidence * 100)} % sicher${s.byText ? ' (Text gelesen)' : ''}`}
+                      {s.auto === false && ' · von dir gewählt'}
+                    </small>
+                    {s.languageNote && <small class="note">{s.languageNote}</small>}
+                    {s.finishNote && <small class="note">{s.finishNote}</small>}
+                    {s.conditionNote && <small class="note">{s.conditionNote}</small>}
+                    <button class="ghost" onClick={() => undo(s)}>Rückgängig</button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
