@@ -5,7 +5,8 @@ import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
 import type { CollectionItem, Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
-import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
+import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
+import { AutoTorch } from '../core/light';
 import { CONDITION_MARGIN, learnConditionScale, scaleThresholds } from '../core/condition';
 import { finishesOf, learnFoilShare } from '../core/foil';
 import { conditionFeedback, foilFeedback, languageFeedback } from './feedback';
@@ -206,17 +207,38 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const labelOf = (gameId: string, code: string) => catalogs?.languages.get(gameId)?.find((l) => l.code === code)?.label ?? code;
   const imageEvidence = useRef<{ printing: number; frames: { lang: string; score: number }[][] }>({ printing: -1, frames: [] });
 
+  const streamRef = useRef<MediaStream | null>(null);
+  const lumaCanvasRef = useRef<HTMLCanvasElement>(null);
+  /** Kann die Kamera ihr Licht einschalten, und ist es gerade an? */
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const torchOnRef = useRef(false);
+  torchOnRef.current = torchOn;
+  /** Hast du das Licht selbst geschaltet, greift die Automatik bis zum nächsten Scan nicht mehr ein. */
+  const torchManual = useRef(false);
+  /** Zu dunkel und kein Licht verfügbar (oder aus): Hinweis zeigen. */
+  const [dark, setDark] = useState(false);
+
+  const switchTorch = async (on: boolean) => {
+    if (await setTorch(streamRef.current, on)) setTorchOn(on);
+  };
+
   // Kamera starten/stoppen
   useEffect(() => {
     if (!running) return;
     let stream: MediaStream | null = null;
     let cancelled = false;
+    let recheck: ReturnType<typeof setTimeout> | undefined;
     startCamera(videoRef.current!)
       .then((s) => {
         stream = s;
-        if (cancelled) stopCamera(s);
+        if (cancelled) return stopCamera(s);
+        streamRef.current = s;
         const v = videoRef.current!;
         setBox({ w: v.clientWidth, h: v.clientHeight });
+        // Manche Android-Geräte melden das Licht erst kurz nach dem Start
+        setTorchAvailable(torchSupported(s));
+        recheck = setTimeout(() => !cancelled && setTorchAvailable(torchSupported(s)), 800);
       })
       .catch((e: Error) => {
         setCamError(
@@ -228,8 +250,31 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       });
     return () => {
       cancelled = true;
+      clearTimeout(recheck);
+      // Mit dem Beenden der Kamera geht auch ihr Licht aus
       stopCamera(stream);
+      streamRef.current = null;
+      torchManual.current = false;
+      setTorchAvailable(false);
+      setTorchOn(false);
+      setDark(false);
     };
+  }, [running]);
+
+  // Helligkeit messen; ist es zu dunkel, Kameralicht automatisch einschalten
+  useEffect(() => {
+    if (!running) return;
+    const auto = new AutoTorch();
+    auto.reset(performance.now());
+    const timer = setInterval(() => {
+      const luma = videoRef.current && lumaCanvasRef.current ? frameLuma(videoRef.current, lumaCanvasRef.current) : null;
+      if (luma === null) return;
+      const fire = auto.push(luma, performance.now());
+      const canAuto = prefsRef.current.torchAuto && !torchManual.current && torchSupported(streamRef.current);
+      if (fire && canAuto && !torchOnRef.current) void switchTorch(true);
+      setDark(auto.dark && !torchOnRef.current && !(fire && canAuto));
+    }, 250);
+    return () => clearInterval(timer);
   }, [running]);
 
   /**
@@ -666,6 +711,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           </div>
         )}
         <div class="field">
+          <span>Licht</span>
+          {chips('Kameralicht', [{ value: 'auto', label: 'Automatisch' }, { value: 'off', label: 'Nur von Hand' }], prefs.torchAuto ? 'auto' : 'off', (v) =>
+            setPrefs({ torchAuto: v === 'auto' }),
+          )}
+        </div>
+        <div class="field">
           <span>Foil</span>
           {chips('Foil', [{ value: 'auto', label: 'Automatisch' }, ...FINISHES], prefs.finishAuto ? 'auto' : prefs.finish, (v) =>
             setPrefs(v === 'auto' ? { finishAuto: true } : { finishAuto: false, finish: v as Finish }),
@@ -718,6 +769,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <canvas ref={canvasRef} hidden />
         <canvas ref={ocrCanvasRef} hidden />
         <canvas ref={conditionCanvasRef} hidden />
+        <canvas ref={lumaCanvasRef} hidden />
         {running && guide && (
           <div ref={guideRef} class={`guide${holding ? ' done' : ''}`} style={{ left: guide.x, top: guide.y, width: guide.width, height: guide.height }} />
         )}
@@ -730,6 +782,18 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           </svg>
           {fixedPrefs.length > 0 && <span>{fixedPrefs.join(' · ')}</span>}
         </button>
+        {running && torchAvailable && (
+          <button
+            class={`torch-button${torchOn ? ' on' : ''}`}
+            aria-label={torchOn ? 'Licht aus' : 'Licht an'}
+            aria-pressed={torchOn}
+            onClick={() => { torchManual.current = true; void switchTorch(!torchOn); }}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path fill="currentColor" d="M13.4 2.2a.8.8 0 0 1 .6 1L12.6 10H18a.8.8 0 0 1 .6 1.3l-8 10.4a.8.8 0 0 1-1.4-.7L10.6 14H6a.8.8 0 0 1-.6-1.3l7.2-10.2a.8.8 0 0 1 .8-.3Z" />
+            </svg>
+          </button>
+        )}
         {!running && (
           <div class="overlay">
             {camError && <p class="banner error">{camError}</p>}
@@ -758,6 +822,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <span>
                 {guess.printing.cardName} · {Math.round(guess.score * 100)} %
               </span>
+            ) : dark ? (
+              <span>{torchAvailable ? 'Zu dunkel. Tippe auf den Blitz.' : 'Zu dunkel. Bitte mehr Licht.'}</span>
             ) : (
               <span>Karte in den Rahmen halten</span>
             )}
