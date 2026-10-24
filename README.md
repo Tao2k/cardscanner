@@ -1,4 +1,4 @@
-# CardScanner
+# ScannR
 
 Sammelkarten mit der Handykamera erkennen und als eigene Sammlung erfassen. Start mit **Riftbound**, aufgebaut für weitere TCGs.
 
@@ -44,7 +44,7 @@ Jeder Push auf `main` und jeden Morgen (04:00 UTC, für frische Preise) baut die
 
 ## Rechtliches
 
-CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games does not endorse or sponsor this project.
+ScannR was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games does not endorse or sponsor this project.
 
 Kartendaten und Bilder stammen aus der [offiziellen Riftbound-Kartengalerie](https://playriftbound.com/en-us/card-gallery/). Die App liefert nur Embeddings aus und zeigt Kartenbilder über die Original-URLs an. ([Riftcodex](https://riftcodex.com) wäre eine Alternative, sperrt aber Anfragen aus GitHub Actions.)
 

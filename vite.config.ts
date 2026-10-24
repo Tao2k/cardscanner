@@ -13,8 +13,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'],
       manifest: {
-        name: 'CardScanner',
-        short_name: 'CardScanner',
+        name: 'ScannR',
+        short_name: 'ScannR',
         description: 'Sammelkarten mit der Handykamera erkennen und als Sammlung erfassen',
         lang: 'de',
         display: 'standalone',

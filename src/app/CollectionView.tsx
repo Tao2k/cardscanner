@@ -237,7 +237,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
         </>
       )}
       <footer class="legal">
-        CardScanner was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games
+        ScannR was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games
         does not endorse or sponsor this project. Kartendaten und Bilder: offizielle Riftbound-Kartengalerie.
         {priceSources.map((f) => (
           <>
