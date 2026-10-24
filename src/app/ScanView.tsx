@@ -23,6 +23,7 @@ import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
 import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
 import { nameIn } from '../core/catalog';
+import { APP_VERSION, updates } from './updates';
 
 interface Props {
   catalogs: Catalogs | null;
@@ -199,6 +200,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   useEffect(() => {
     stabilizer.current = new Stabilizer({ ...DEFAULT_STABILIZER, confidentMargin: DEFAULT_STABILIZER.confidentMargin + extraMargin });
   }, [extraMargin]);
+  // Während gescannt, nachgefragt oder korrigiert wird, kommt kein Update dazwischen
+  useEffect(() => updates.setBusy(running || !!question || !!fixing), [running, question, fixing]);
+  useEffect(() => () => updates.setBusy(false), []);
   const recordAsked = () => setStats(updateStats((s) => ({ asked: s.asked + 1 })));
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
   const conditionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -686,6 +690,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     prefs.conditionAuto ? undefined : prefs.condition,
   ].filter((x): x is string => !!x);
 
+  const [updateCheck, setUpdateCheck] = useState<'idle' | 'checking' | 'found' | 'none'>('idle');
+  const checkForUpdate = async () => {
+    setUpdateCheck('checking');
+    setUpdateCheck((await updates.maybeCheck(true)) ? 'found' : 'none');
+  };
+
   const renderSettings = () => {
     const close = () => setSettingsOpen(false);
     return sheet(
@@ -734,6 +744,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             {extraMargin > 0 && ' Wegen gemeldeter Fehler fragt der Scanner jetzt öfter nach.'}
           </p>
         )}
+        <p class="muted stats version">
+          Version {APP_VERSION}{' '}
+          <button class="link" disabled={updateCheck === 'checking'} onClick={checkForUpdate}>
+            {updateCheck === 'checking' ? 'Suche …' : updateCheck === 'found' ? 'Update wird geladen …' : updateCheck === 'none' ? 'Neueste Version ✓' : 'Nach Updates suchen'}
+          </button>
+        </p>
         <button class="primary" onClick={close}>Fertig</button>
       </>,
       close,

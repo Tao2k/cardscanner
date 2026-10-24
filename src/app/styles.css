@@ -71,6 +71,8 @@ select { appearance: none; padding-right: 36px;
 
 .banner { margin: 0; padding: 12px 16px; border-radius: 18px; background: var(--accent-soft); }
 main > .banner { margin: 12px 12px 0; }
+.banner.update { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.banner.update button.link { min-height: 44px; }
 .banner.error { background: color-mix(in srgb, var(--error) 12%, var(--bg)); color: var(--error); }
 
 /* Kamera */

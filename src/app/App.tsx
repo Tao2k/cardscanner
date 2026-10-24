@@ -10,6 +10,7 @@ import { Recognizer, type Learned } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
+import { updates, useUpdatePending } from './updates';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -42,6 +43,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [tab, setTab] = useState<Tab>('scan');
+  const updatePending = useUpdatePending();
 
   const setPrefs = (patch: Partial<Prefs>) => {
     setPrefsState((p) => {
@@ -121,6 +123,12 @@ export function App() {
       </header>
       <main>
         {error && <p class="banner error">{error}</p>}
+        {updatePending && (
+          <p class="banner update" role="status">
+            Neue Version verfügbar.
+            <button class="link" onClick={() => updates.applyNow()}>Neu laden</button>
+          </p>
+        )}
         {tab === 'scan' && (
           <ScanView
             catalogs={catalogs}

@@ -1,15 +1,36 @@
 import { defineConfig } from 'vitest/config';
 import preact from '@preact/preset-vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 // Auf GitHub Pages liegt die App unter /<repo>/; lokal unter /.
 const base = process.env.BASE_PATH ?? '/';
 
+// Versionsangabe für die Einstellungen: Paketversion, Commit und dessen Datum. Bewusst nicht die
+// Bauzeit: der tägliche Preis-Build soll keine neue App-Version erzeugen.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
+const git = (args: string) => {
+  try {
+    return execSync(`git ${args}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+};
+const commit = git('rev-parse --short HEAD');
+const committed = git('log -1 --format=%cI') || new Date().toISOString();
+
 export default defineConfig({
   base,
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_COMMIT__: JSON.stringify(commit),
+    __APP_BUILT__: JSON.stringify(committed),
+  },
   plugins: [
     preact(),
     VitePWA({
+      // Neue Version übernimmt sofort; wann die Seite neu lädt, entscheidet src/app/updates.ts.
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'],
       manifest: {
