@@ -113,6 +113,12 @@ export function App() {
 
   return (
     <div class="app">
+      <header class="brand">
+        <img src={`${BASE}icon-192.png`} alt="" width={28} height={28} />
+        <span>
+          Scann<b>R</b>
+        </span>
+      </header>
       <main>
         {error && <p class="banner error">{error}</p>}
         {tab === 'scan' && (

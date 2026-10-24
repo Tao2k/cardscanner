@@ -211,7 +211,7 @@ export function matchPrices(
 
 async function getJson<T>(url: string): Promise<T> {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(url, { headers: { 'User-Agent': 'CardScanner/0.1 (+https://github.com/Tao2k/cardscanner)', Accept: 'application/json' } });
+    const res = await fetch(url, { headers: { 'User-Agent': 'ScannR/0.1 (+https://github.com/Tao2k/cardscanner)', Accept: 'application/json' } });
     if (res.ok) return (await res.json()) as T;
     if (attempt >= 3) throw new Error(`${url}: HTTP ${res.status}`);
     await new Promise((r) => setTimeout(r, 2000 * attempt));

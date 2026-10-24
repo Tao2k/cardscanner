@@ -40,6 +40,10 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
 #app, .app { height: 100%; display: flex; flex-direction: column; }
+.brand { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 16px 4px; }
+.brand img { border-radius: 8px; }
+.brand span { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
+.brand b { color: var(--accent-text); font-weight: 900; }
 main { flex: 1; overflow-y: auto; padding-bottom: 16px; }
 h1 { font-size: 1.75rem; font-weight: 750; letter-spacing: -0.02em; margin: 0; }
 h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }

@@ -18,7 +18,7 @@ export const LOCALES = [
   { code: 'fr', label: 'FR', locale: 'fr-fr' },
   { code: 'zh-CN', label: 'ZH', locale: 'zh-cn' },
 ] as const;
-const USER_AGENT = 'Mozilla/5.0 (compatible; CardScanner/0.1; +https://github.com/Tao2k/cardscanner)';
+const USER_AGENT = 'Mozilla/5.0 (compatible; ScannR/0.1; +https://github.com/Tao2k/cardscanner)';
 
 interface Labeled<T> {
   label?: string;

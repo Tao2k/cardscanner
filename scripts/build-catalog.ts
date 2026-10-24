@@ -36,7 +36,7 @@ async function fetchImage(url: string): Promise<Buffer> {
   const file = path.join(IMAGE_CACHE, createHash('sha1').update(url).digest('hex'));
   if (existsSync(file)) return readFile(file);
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(url, { headers: { 'User-Agent': 'CardScanner/0.1 (+https://github.com/Tao2k/cardscanner)' } });
+    const res = await fetch(url, { headers: { 'User-Agent': 'ScannR/0.1 (+https://github.com/Tao2k/cardscanner)' } });
     if (res.ok) {
       const buf = Buffer.from(await res.arrayBuffer());
       await writeFile(file, buf);
