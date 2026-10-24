@@ -88,6 +88,9 @@ main > .banner { margin: 12px 12px 0; }
 .hud .added { color: #2b7d05; font-weight: 700; }
 .settings-button { position: absolute; top: 12px; right: 12px; z-index: 2; min-height: 44px; min-width: 44px; padding: 10px 12px;
   background: rgba(255, 255, 255, 0.92); color: #121512; box-shadow: var(--shadow); font-size: 0.85rem; }
+.torch-button { position: absolute; top: 12px; left: 12px; z-index: 2; min-height: 44px; min-width: 44px; padding: 10px;
+  background: rgba(255, 255, 255, 0.92); color: #121512; box-shadow: var(--shadow); }
+.torch-button.on { background: var(--accent); color: var(--on-accent); }
 .settings-button.set { background: var(--accent); color: var(--on-accent); padding-right: 16px; }
 
 .hint { margin: 4px 24px; text-align: center; font-size: 0.9rem; }

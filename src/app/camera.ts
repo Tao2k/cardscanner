@@ -1,5 +1,6 @@
 import { boxToVideo, guideRect, type Rect } from '../core/geometry';
 import type { Pixels } from '../core/imageops';
+import { meanLuma } from '../core/light';
 
 /** Kantenlänge (Höhe) des Ausschnitts, der an die Erkennung geht. Größer bringt nichts, das Modell rechnet mit 224 px. */
 const CROP_HEIGHT = 320;
@@ -63,3 +64,34 @@ export const OCR_CROP_HEIGHT = 1100;
 
 /** Höhe des Bildausschnitts für die Zustandsschätzung (inklusive Rand). */
 export const CONDITION_CROP_HEIGHT = 1000;
+
+/** Mittlere Helligkeit des ganzen Kamerabilds (stark verkleinert, das reicht und kostet fast nichts). */
+export function frameLuma(video: HTMLVideoElement, canvas: HTMLCanvasElement): number | null {
+  if (!video.videoWidth || !video.videoHeight) return null;
+  canvas.width = 64;
+  canvas.height = Math.max(1, Math.round((64 * video.videoHeight) / video.videoWidth));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return meanLuma({ data, width: canvas.width, height: canvas.height, channels: 4 }, 1);
+}
+
+/** Kann die Kamera ihr Licht (Taschenlampe) einschalten? Chrome auf Android ja, viele iPhones nicht. */
+export function torchSupported(stream: MediaStream | null): boolean {
+  const track = stream?.getVideoTracks()[0];
+  if (!track || typeof track.getCapabilities !== 'function') return false;
+  return !!(track.getCapabilities() as MediaTrackCapabilities & { torch?: boolean }).torch;
+}
+
+/** Schaltet das Kameralicht; false, wenn das Gerät es ablehnt. */
+export async function setTorch(stream: MediaStream | null, on: boolean): Promise<boolean> {
+  const track = stream?.getVideoTracks()[0];
+  if (!track) return false;
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
+    return true;
+  } catch {
+    return false;
+  }
+}
