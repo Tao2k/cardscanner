@@ -97,7 +97,7 @@ export async function exportWorkbook(
   pricing?: ItemPricing,
 ): Promise<ArrayBuffer> {
   const wb = await newWorkbook();
-  wb.creator = 'CardScanner';
+  wb.creator = 'ScannR';
   wb.created = new Date();
 
   const sheet = wb.addWorksheet('Sammlung', { views: [{ state: 'frozen', ySplit: 1 }] });
