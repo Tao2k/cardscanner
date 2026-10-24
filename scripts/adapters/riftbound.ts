@@ -1,4 +1,5 @@
 import type { CardSet, Finish, Printing, Variant } from '../../src/core/types';
+import { fetchRiftboundPrices } from './riftbound-prices';
 import type { GameAdapter } from './types';
 
 /**
@@ -209,6 +210,7 @@ export const riftbound: GameAdapter = {
   gameName: 'Riftbound',
   source: 'Offizielle Riftbound-Kartengalerie (playriftbound.com); Kartendaten und Bilder © Riot Games',
   languages: LOCALES.map(({ code, label }) => ({ code, label })),
+  fetchPrices: fetchRiftboundPrices,
   async fetchCatalog({ limit } = {}) {
     const galleries = [];
     for (const l of LOCALES) galleries.push({ lang: l.code, ...(await fetchGallery(l.locale)) });

@@ -86,6 +86,29 @@ describe('Excel', () => {
     expect(sheet.getRow(3).getCell(col('Nummer')).value).toBe('2');
   });
 
+  it('schreibt Preis, Wert, Preisstand und die Summe; der Import bleibt gleich', async () => {
+    const second = { ...item, itemId: 'item-2', finish: 'normal' as const, quantity: 1 };
+    const pricing = (i: CollectionItem) => (i.itemId === 'item-1' ? { price: 1.25, asOf: '21.10.2026' } : {});
+    const buf = await exportWorkbook([item, second], lookup, [{ gameId: 'riftbound', printings: [printing] }], pricing);
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const sheet = wb.getWorksheet('Sammlung')!;
+    const header = (sheet.getRow(1).values as string[]).slice(1);
+    const cell = (row: number, name: string) => sheet.getRow(row).getCell(header.indexOf(name) + 1).value;
+    // Sortierung: Normal vor Foil
+    expect(cell(2, 'Preis (€)')).toBe(null);
+    expect(cell(3, 'Preis (€)')).toBe(1.25);
+    expect(cell(3, 'Wert (€)')).toBe(3.75);
+    expect(cell(3, 'Preisstand')).toBe('21.10.2026');
+    expect(cell(5, 'Name')).toBe('Gesamtwert (Cardmarket)');
+    expect(cell(5, 'Wert (€)')).toMatchObject({ formula: 'SUM(M2:M3)', result: 3.75 });
+
+    const { items, errors } = await importWorkbook(buf, (g, id) => !!lookup(g, id), LANGS);
+    expect(errors).toEqual([]);
+    expect(items).toHaveLength(2);
+  });
+
   it('meldet unbekannte Sprachen', async () => {
     const buf = await exportWorkbook([{ ...item, language: 'xx' }], lookup);
     const { items, errors } = await importWorkbook(buf, (g, id) => !!lookup(g, id), LANGS);

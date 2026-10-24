@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddResult, CollectionService, ScanInput } from '../core/collection';
 import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
-import type { Condition, Finish, Printing } from '../core/types';
+import type { CollectionItem, Condition, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, grabCard, OCR_CROP_HEIGHT, startCamera, stopCamera } from './camera';
 import { CONDITION_MARGIN, learnConditionScale, scaleThresholds } from '../core/condition';
@@ -17,6 +17,7 @@ import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWin
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
 import { printingCode, printingLabel } from './format';
+import { formatEur, itemPrice } from '../core/prices';
 import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
 import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
@@ -700,6 +701,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const accuracy = accuracyText(stats);
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
+  const priceText = (item: CollectionItem, printing: Printing) => {
+    const price = catalogs ? itemPrice(item, catalogs.price, printing) : undefined;
+    return price === undefined ? null : ` · ${formatEur(price)}`;
+  };
   const ready = !status && recognizer && catalogs;
 
   const fixed = fixing ? recent.find((s) => s.key === fixing.key) : undefined;
@@ -800,6 +805,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     <small>
                       {printingCode(s.printing)} · {language}
                       {item.finish === 'foil' ? ' · Foil' : ''} · ×{item.quantity}
+                      {priceText(item, s.printing)}
                     </small>
                     {!item.confirmed && <em class="warn">Liegt unter „Prüfen“</em>}
                     {s.verified && <em class="ok">✓ bestätigt</em>}

@@ -27,6 +27,9 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
+      - name: Cardmarket-Preise holen (Abdeckung steht im Log)
+        continue-on-error: true
+        run: npm run prices -- riftbound
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npx tsx scripts/e2e-scan.ts

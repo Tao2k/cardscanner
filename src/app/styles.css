@@ -185,3 +185,4 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 @media (prefers-reduced-motion: reduce) {
   .tabs .count, .recent li:first-child { animation: none; }
 }
+.collection .value { margin: 2px 0 0; }
