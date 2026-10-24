@@ -14,10 +14,14 @@ export interface Prefs {
   /** Zustand aus dem Foto schätzen. */
   conditionAuto: boolean;
   lastExportAt: string | null;
+  /** Reihenfolge der Sammlung: zuletzt geändert, nach Set und Sammlernummer oder nach Preis. */
+  collectionSort: CollectionSort;
 }
 
+export type CollectionSort = 'recent' | 'set' | 'price';
+
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, lastExportAt: null };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, lastExportAt: null, collectionSort: 'recent' };
 
 export function loadPrefs(): Prefs {
   try {

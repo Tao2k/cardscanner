@@ -701,10 +701,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const accuracy = accuracyText(stats);
 
   const guide = box.w ? guideRect(box.w, box.h) : null;
-  const priceText = (item: CollectionItem, printing: Printing) => {
+  /** Aktueller Marktpreis eines Exemplars, formatiert (leer ohne Preis). */
+  const priceOf = (item: CollectionItem, printing: Printing) => {
     const price = catalogs ? itemPrice(item, catalogs.price, printing) : undefined;
-    return price === undefined ? null : ` · ${formatEur(price)}`;
+    return price === undefined ? '' : formatEur(price);
   };
+  const addedPrice = added && recent[0] ? priceOf(recent[0].result.item, recent[0].printing) : '';
   const ready = !status && recognizer && catalogs;
 
   const fixed = fixing ? recent.find((s) => s.key === fixing.key) : undefined;
@@ -745,7 +747,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             ) : question ? (
               <span>Welche Karte ist es?</span>
             ) : added ? (
-              <span class="added">✓ {added} zur Sammlung hinzugefügt</span>
+              <span class="added">
+                ✓ {added} hinzugefügt{addedPrice && <b> · {addedPrice}</b>}
+              </span>
             ) : holding ? (
               <span>Gespeichert. Nächste Karte in den Rahmen legen.</span>
             ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (
@@ -805,12 +809,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     <small>
                       {printingCode(s.printing)} · {language}
                       {item.finish === 'foil' ? ' · Foil' : ''} · ×{item.quantity}
-                      {priceText(item, s.printing)}
                     </small>
                     {!item.confirmed && <em class="warn">Liegt unter „Prüfen“</em>}
                     {s.verified && <em class="ok">✓ bestätigt</em>}
                     {!s.verified && s.languageNote?.startsWith('Sprache nicht sicher') && <em class="warn">Sprache unsicher</em>}
                   </span>
+                  {priceOf(item, s.printing) && <span class="price">{priceOf(item, s.printing)}</span>}
                   <button class={`icon${open ? ' open' : ''}`} aria-label="Details" aria-expanded={open} onClick={() => setDetails(open ? null : s.key)}>
                     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                       <path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />

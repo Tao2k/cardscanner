@@ -92,10 +92,15 @@ main > .banner { margin: 12px 12px 0; }
 .recent, .items { list-style: none; margin: 0; padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .items { padding: 0; }
 .recent li, .items li { display: flex; gap: 12px; align-items: center; background: var(--surface); border-radius: 22px; padding: 10px 12px 10px 10px; }
-.recent li { flex-direction: column; align-items: stretch; gap: 10px; }
-.recent .main { display: flex; gap: 12px; align-items: center; }
+.recent li, .items li { flex-direction: column; align-items: stretch; gap: 10px; }
+.recent .main, .items .main { display: flex; gap: 12px; align-items: center; }
 .recent img, .items img { width: 46px; height: 64px; object-fit: cover; border-radius: 8px; flex: none; }
 .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+button.info { align-items: flex-start; justify-content: center; text-align: left; background: none; padding: 0; min-height: 0; border-radius: 0; font-weight: 400; color: inherit; }
+button.info:active:not(:disabled) { transform: none; }
+.price { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.price small { font-weight: 400; }
+.recent .main > .price { flex: none; }
 .info strong { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .info small { color: var(--muted); }
 .info em { font-style: normal; font-size: 0.8rem; font-weight: 600; }
@@ -116,6 +121,14 @@ button.icon.open svg { transform: rotate(180deg); }
 .qty span { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
 select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; background-color: var(--raised); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; }
 
+.find { display: flex; gap: 8px; }
+.find input { flex: 1; min-width: 0; }
+.find .sort { flex: none; }
+.options { display: flex; flex-direction: column; gap: 6px; }
+.options button { justify-content: space-between; background: var(--surface); font-weight: 500; }
+.options button.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+.details a { color: var(--accent-text); font-weight: 600; }
+.items .details .chips button:not(.active) { background: var(--raised); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions > * { flex: 1; }
 .legal { font-size: 0.75rem; color: var(--muted); margin-top: 16px; }
