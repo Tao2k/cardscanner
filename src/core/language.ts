@@ -74,6 +74,17 @@ export function looksHan(ocrText: string, minDistinct = 8): boolean {
 }
 
 /**
+ * Steht der englische Kartenname im gelesenen Text (auch zusammengeschrieben, z. B. „PlayfulPhantom“)?
+ * Chinesische Drucke tragen den chinesischen Namen, das ist also ebenfalls ein Ausschlusskriterium.
+ * Erst ab 6 Buchstaben, kürzere Namen kommen zu leicht zufällig vor.
+ */
+export function showsName(ocrText: string, name: string): boolean {
+  const letters = (t: string) => t.normalize('NFC').toLowerCase().replace(/[^\p{Script=Latin}]/gu, '');
+  const n = letters(name);
+  return n.length >= 6 && letters(ocrText).includes(n);
+}
+
+/**
  * Bereich der Karte mit Name und Regeltext (Anteile von Breite/Höhe). Nur dieser Teil wird gelesen;
  * auf dem Artwork liefert die OCR nur Rauschen.
  */
@@ -190,9 +201,9 @@ export async function detectLanguage(
   /**
    * Wie gut der lateinisch gelesene Text zum englischen Text der Karte passt (siehe textmatch.latinMatch).
    * Nur wenn die chinesische Texterkennung nichts geliefert hat (leer, oder hanUnavailable: Zeitüberschreitung),
-   * gilt „kein englischer Text“ als Hinweis auf Chinesisch.
+   * gilt „kein englischer Text“ als Hinweis auf Chinesisch. name: englischer Kartenname (siehe showsName).
    */
-  latin?: { match: (text: string) => number; noLatinBelow: number; latinProof?: number; hanUnavailable?: () => boolean },
+  latin?: { match: (text: string) => number; noLatinBelow: number; latinProof?: number; hanUnavailable?: () => boolean; name?: string },
 ): Promise<LanguageGuess> {
   const latinLangs = languages.filter((l) => !isHanLanguage(l));
   const han = languages.find(isHanLanguage);
@@ -209,7 +220,7 @@ export async function detectLanguage(
     // treffen kann. Knappe Latin-Ergebnisse daher nur annehmen, wenn es keine Han-Sprache gibt.
     if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores, reason: only ? 'only' : 'words' };
     // Englischer Regeltext dieser Karte gelesen: kein chinesischer Druck, egal was die Han-OCR meint
-    if (han && latin && latin.match(latinText) >= (latin.latinProof ?? LATIN_PROOF)) {
+    if (han && latin && (latin.match(latinText) >= (latin.latinProof ?? LATIN_PROOF) || (latin.name && showsName(latinText, latin.name)))) {
       return { lang: pickLatin(scores, latinLangs, 1) ?? latinLangs[0], scores, reason: 'words' };
     }
   }

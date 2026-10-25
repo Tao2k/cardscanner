@@ -327,6 +327,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             match: matchLatin,
             noLatinBelow: noLatinRef.current,
             hanUnavailable: () => captured.timedOut.has('han'),
+            name: printing.cardName,
           })
         : Promise.resolve(null),
       shot

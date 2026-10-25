@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLanguage, hanChars, latinWords, scoreHan, textViews } from '../src/core/language';
+import { detectLanguage, hanChars, latinWords, scoreHan, showsName, textViews } from '../src/core/language';
 
 const LANGS = ['en', 'fr', 'zh-CN'];
 const texts = {
@@ -79,6 +79,15 @@ describe('Spracherkennung', () => {
   it('nimmt Han-Zeichensalat ohne Bezug zum chinesischen Kartentext nicht als Chinesisch', async () => {
     const r = reader('~~ ##', '山水火木金土日月星云雨');
     expect((await detectLanguage(r.read, texts, LANGS)).lang).toBeNull();
+  });
+
+  it('erkennt Englisch am Kartennamen, auch zusammengeschrieben (Playful Phantom)', async () => {
+    // So las die OCR die englische Playful Phantom: Name ohne Leerzeichen, sonst nur Flavor-Text
+    const latin = 'WMIT/ snapow isLES | SPIRIT . M PlayfulPhantom ês oO “My toys break so easily” LA';
+    const opts = { match: () => 0, noLatinBelow: 0.08, name: 'Playful Phantom' };
+    expect((await detectLanguage(reader(latin, '多 者 于 全 大 玉').read, { en: 'Playful Phantom [Deflect]' }, LANGS, undefined, opts)).lang).toBe('en');
+    expect(showsName('Play ful Phan tom', 'Playful Phantom')).toBe(true);
+    expect(showsName('the unit', 'Vi')).toBe(false);
   });
 
   it('liest Querformat-Karten gedreht in beide Richtungen', () => {
