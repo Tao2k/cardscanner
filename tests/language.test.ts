@@ -99,6 +99,13 @@ describe('Spracherkennung', () => {
     expect((await detectLanguage(r.read, { en: 'Order Rune' }, LANGS, undefined, { match: () => 0, noLatinBelow: 0.08 })).lang).toBe('en');
   });
 
+  it('wertet fehlenden Text auf Runen nicht als Chinesisch, erkennt chinesische Runen aber am Namen', async () => {
+    const rune = { en: 'Fury Rune', 'zh-CN': '炽烈符文' };
+    const opts = { match: () => 0, noLatinBelow: 0.08 };
+    expect((await detectLanguage(reader('Es', '人').read, rune, LANGS, undefined, opts)).lang).toBeNull();
+    expect((await detectLanguage(reader('5) ax v N', 'NN 9 亚 站 炽 烈 符 广').read, rune, LANGS, undefined, opts)).lang).toBe('zh-CN');
+  });
+
   it('liest Querformat-Karten gedreht in beide Richtungen', () => {
     expect(textViews({ attributes: { orientation: 'portrait' } }).map((v) => v.rotate)).toEqual([0]);
     expect(textViews({}).map((v) => v.rotate)).toEqual([0]);

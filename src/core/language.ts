@@ -197,6 +197,16 @@ function pickLatin(scores: Record<string, number>, latin: string[], minWords: nu
 }
 
 /**
+ * Trägt die Karte genug englischen Text, dass sein Fehlen etwas bedeutet? Runen haben nur ihren Namen,
+ * den die OCR oft gar nicht liest; „kein englischer Text“ hieße dort nichts.
+ */
+export const MIN_TEXT_WORDS = 6;
+function hasReadableText(texts: Record<string, string>): boolean {
+  const latin = Object.entries(texts).filter(([l]) => !isHanLanguage(l)).map(([, t]) => t);
+  return latin.some((t) => latinWords(t).size >= MIN_TEXT_WORDS);
+}
+
+/**
  * Zweistufig: erst mit Latin-OCR lesen (schnell, deckt die meisten Karten ab), nur wenn das nicht
  * eindeutig ist, mit chinesischer OCR nachlesen.
  * @param read  liest das Textfeld mit 'latin'- oder 'han'-Modell
@@ -241,10 +251,12 @@ export async function detectLanguage(
   if (han) {
     const text = (hanText = await read('han'));
     scores[han] = scoreHan(text, texts[han]);
+    // Karten mit kaum Text (Runen: nur der Name): dann reicht die Hälfte der chinesischen Zeichen, mindestens 2
+    const minHan = Math.max(2, Math.min(options.minHan, Math.ceil(hanChars(texts[han] ?? '').size / 2)));
     // Ohne Vergleichstext reichen viele Han-Zeichen; mit Vergleichstext müssen auch ein paar davon passen,
     // sonst ist es Zeichensalat (z. B. von Artwork oder gedrehtem Text).
     const enoughHan = looksHan(text) && (!texts[han] || scores[han] >= 2);
-    if (scores[han] >= options.minHan || enoughHan) return { lang: han, scores, reason: 'han' };
+    if (scores[han] >= minHan || enoughHan) return { lang: han, scores, reason: 'han' };
   }
   if (latinLangs.length) {
     const lang = pickLatin(scores, latinLangs, options.minWords);
@@ -252,7 +264,7 @@ export async function detectLanguage(
   }
   // Kein englischer Text zu sehen, obwohl die Karte feststeht: chinesischer Druck. Außer die chinesische
   // Texterkennung hat englischen Text gelesen (sie liest auch Lateinisch, manchmal besser als das Latin-Modell).
-  if (han && latin && !showsEnglish(hanText) && latinLangs.every((l) => (scores[l] ?? 0) < options.minWords) && latin.match(latinText) < latin.noLatinBelow) {
+  if (han && latin && hasReadableText(texts) && !showsEnglish(hanText) && latinLangs.every((l) => (scores[l] ?? 0) < options.minWords) && latin.match(latinText) < latin.noLatinBelow) {
     return { lang: han, scores, reason: 'no-latin' };
   }
   return { lang: null, scores };
