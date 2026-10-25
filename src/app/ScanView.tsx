@@ -326,7 +326,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         ? detectLanguage((script) => readForLanguage(captured, printing, script, setReading), printing.texts ?? {}, languages, undefined, {
             match: matchLatin,
             noLatinBelow: noLatinRef.current,
-            hanUnavailable: () => captured.timedOut.has('han'),
             name: printing.cardName,
           })
         : Promise.resolve(null),

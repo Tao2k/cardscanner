@@ -663,7 +663,7 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
     const match = (t: string) => latinMatch(index, truth, t);
     const opts = { match, noLatinBelow: NO_LATIN_BELOW, name: p.cardName };
     const full = await detectLanguage(async (sc) => (sc === 'latin' ? latin : hanText()), p.texts ?? {}, languages, undefined, opts);
-    const slow = await detectLanguage(async (sc) => (sc === 'latin' ? latin : ''), p.texts ?? {}, languages, undefined, { ...opts, hanUnavailable: () => true });
+    const slow = await detectLanguage(async (sc) => (sc === 'latin' ? latin : ''), p.texts ?? {}, languages, undefined, opts);
     const key = truthLang.startsWith('zh') ? 'zh' : 'en';
     const st = lang.ok.get(key) ?? { n: 0, right: 0, slowRight: 0, noLatin: 0, unclear: 0 };
     st.n++;
@@ -796,7 +796,7 @@ async function evalAppLanguage(file: CatalogFile, names: string, perLang: number
       const match = (t: string) => latinMatch(index, truth, t);
       const opts = { match, noLatinBelow: NO_LATIN_BELOW, name: p.cardName };
       const full = await detectLanguage(read, p.texts ?? {}, languages, undefined, opts);
-      const slow = await detectLanguage(async (sc) => (sc === 'latin' ? read('latin') : ''), p.texts ?? {}, languages, undefined, { ...opts, hanUnavailable: () => true });
+      const slow = await detectLanguage(async (sc) => (sc === 'latin' ? read('latin') : ''), p.texts ?? {}, languages, undefined, opts);
       const key = `${lang.startsWith('zh') ? 'zh' : 'en'}${landscape ? ' quer' : ''}`;
       const st = stats.get(key) ?? { n: 0, full: 0, slow: 0, wrongZh: 0, slowWrongZh: 0, matches: [] };
       st.n++;
