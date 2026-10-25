@@ -85,6 +85,15 @@ export function showsName(ocrText: string, name: string): boolean {
 }
 
 /**
+ * Sprachkürzel in der Infozeile neuerer Drucke, direkt hinter der Sammlernummer, z. B. „159/166 · EN“ oder
+ * „RAD · R06 · EN“. Das ist auch auf Runen lesbar, die sonst kaum Text haben.
+ */
+export function printedLanguageCode(ocrText: string): string | null {
+  const m = ocrText.match(/(?:\d{1,3}[a-z*]?\s*\/\s*\d{2,3}|\b[A-Z]{3}\s*\W\s*R\d{2})\s*[^\p{L}\d\s]{0,3}\s*(EN|FR)\b/u);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
  * Bereich der Karte mit Name und Regeltext (Anteile von Breite/Höhe). Nur dieser Teil wird gelesen;
  * auf dem Artwork liefert die OCR nur Rauschen.
  */
@@ -211,7 +220,8 @@ export async function detectLanguage(
   let hanText = '';
   // Englischer Regeltext oder Name dieser Karte im gelesenen Text: Ausschlusskriterium für Chinesisch
   const showsEnglish = (text: string) =>
-    !!latin && (latin.match(text) >= (latin.latinProof ?? LATIN_PROOF) || (!!latin.name && showsName(text, latin.name)));
+    printedLanguageCode(text) !== null ||
+    (!!latin && (latin.match(text) >= (latin.latinProof ?? LATIN_PROOF) || (!!latin.name && showsName(text, latin.name))));
 
   if (latinLangs.length) {
     latinText = await read('latin');
@@ -223,7 +233,9 @@ export async function detectLanguage(
     if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores, reason: only ? 'only' : 'words' };
     // Englischer Regeltext dieser Karte gelesen: kein chinesischer Druck, egal was die Han-OCR meint
     if (han && latin && showsEnglish(latinText)) {
-      return { lang: pickLatin(scores, latinLangs, 1) ?? latinLangs[0], scores, reason: 'words' };
+      const code = printedLanguageCode(latinText);
+      const lang = code && latinLangs.includes(code) ? code : (pickLatin(scores, latinLangs, 1) ?? latinLangs[0]);
+      return { lang, scores, reason: 'words' };
     }
   }
   if (han) {

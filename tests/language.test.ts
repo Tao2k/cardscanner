@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLanguage, hanChars, latinWords, scoreHan, showsName, textViews } from '../src/core/language';
+import { detectLanguage, hanChars, latinWords, printedLanguageCode, scoreHan, showsName, textViews } from '../src/core/language';
 
 const LANGS = ['en', 'fr', 'zh-CN'];
 const texts = {
@@ -88,6 +88,15 @@ describe('Spracherkennung', () => {
     expect((await detectLanguage(reader(latin, '多 者 于 全 大 玉').read, { en: 'Playful Phantom [Deflect]' }, LANGS, undefined, opts)).lang).toBe('en');
     expect(showsName('Play ful Phan tom', 'Playful Phantom')).toBe(true);
     expect(showsName('the unit', 'Vi')).toBe(false);
+  });
+
+  it('liest das Sprachkürzel in der Infozeile (auch auf Runen)', async () => {
+    expect(printedLanguageCode('bé ) | ®) BRUNE La (SR e | RAD - R06 - EN »/ Greg Ghielmetti')).toBe('en');
+    expect(printedLanguageCode('VEN » 159/166 + EN # Grafit Studio')).toBe('en');
+    expect(printedLanguageCode('OGN - 049/298 / Six More Vodka')).toBeNull();
+    expect(printedLanguageCode('Deal 3 damage. ENEMY')).toBeNull();
+    const r = reader('bé ) | ®) BRUNE La | RAD - R06 - EN »/ Greg', '了 RUMNE 人');
+    expect((await detectLanguage(r.read, { en: 'Order Rune' }, LANGS, undefined, { match: () => 0, noLatinBelow: 0.08 })).lang).toBe('en');
   });
 
   it('liest Querformat-Karten gedreht in beide Richtungen', () => {
