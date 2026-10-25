@@ -7,6 +7,7 @@ import { downloadBlob, printingCode } from './format';
 import { nameIn } from '../core/catalog';
 import { collectionValue, formatAsOf, formatEur, itemPrice } from '../core/prices';
 import type { CollectionSort, Prefs } from './prefs';
+import { moverKey, type MoverLookup } from '../core/priceHistory';
 
 interface Props {
   items: CollectionItem[];
@@ -14,6 +15,8 @@ interface Props {
   service: CollectionService;
   prefs: Prefs;
   setPrefs(patch: Partial<Prefs>): void;
+  /** Stark gestiegene oder gefallene Drucke (Zeitraum wie im Tab „Preise“). */
+  movers: MoverLookup;
   onChange(): void;
 }
 
@@ -25,7 +28,7 @@ const SORTS: { value: CollectionSort; label: string }[] = [
   { value: 'price', label: 'Preis, teuerste zuerst' },
 ];
 
-export function CollectionView({ items, catalogs, service, prefs, setPrefs, onChange }: Props) {
+export function CollectionView({ items, catalogs, service, prefs, setPrefs, movers, onChange }: Props) {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,6 +159,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
           const languages = catalogs.languages.get(item.gameId) ?? [];
           const language = languages.find((l) => l.code === item.language)?.label;
           const expanded = open === item.itemId;
+          const mover = movers.get(moverKey(item));
           return (
             <li key={item.itemId}>
               <div class="main">
@@ -173,6 +177,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, onCh
                   {price !== undefined && (
                     <span class="price">
                       {formatEur(price)}
+                      {mover && (
+                        <em class={`move ${mover.delta > 0 ? 'up' : 'down'}`} title={mover.delta > 0 ? 'stark gestiegen' : 'stark gefallen'}>
+                          {mover.delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(mover.pct * 100))} %
+                        </em>
+                      )}
                       {item.quantity > 1 && <small> · zusammen {formatEur(price * item.quantity)}</small>}
                     </span>
                   )}

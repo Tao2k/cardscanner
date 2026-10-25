@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
 import { loadPrices, type PriceEntry, type PriceFile } from '../core/prices';
+import { collectionMovers, loadPriceHistory, moverKey, type PriceHistoryFile } from '../core/priceHistory';
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
 import { LearningService } from '../core/learning';
@@ -10,6 +11,7 @@ import { Recognizer, type Learned } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
+import { PriceView } from './PriceView';
 import { updates, useUpdatePending } from './updates';
 
 const BASE = import.meta.env.BASE_URL;
@@ -30,7 +32,7 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'review';
+type Tab = 'scan' | 'collection' | 'prices' | 'review';
 
 export function App() {
   const service = useMemo(() => new CollectionService(new IndexedDbStore()), []);
@@ -43,6 +45,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [tab, setTab] = useState<Tab>('scan');
+  /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
+  const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
 
   const setPrefs = (patch: Partial<Prefs>) => {
@@ -98,6 +102,9 @@ export function App() {
           compareRefs: (gameId, id) => compare.get(gameId)?.get(id) ?? [],
         });
         if (!games.some((g) => g.gameId === prefs.gameId) && games[0]) setPrefs({ gameId: games[0].gameId });
+        Promise.all(games.map(async (g) => [g.gameId, await loadPriceHistory(BASE, g.gameId)] as const)).then((loaded) =>
+          setHistories(new Map(loaded.filter((e): e is [string, PriceHistoryFile] => !!e[1]))),
+        );
         const r = new Recognizer(BASE, games.map((g) => g.gameId), setStatus);
         setRecognizer(r);
         await r.ready;
@@ -112,6 +119,13 @@ export function App() {
 
   const toReview = items.filter((i) => !i.confirmed).length;
   const total = items.reduce((n, i) => n + i.quantity, 0);
+  const movers = useMemo(
+    () =>
+      catalogs
+        ? new Map(collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod).filter((m) => m.strong).map((m) => [moverKey(m), m]))
+        : new Map(),
+    [items, histories, catalogs, prefs.pricePeriod],
+  );
 
   return (
     <div class="app">
@@ -143,7 +157,10 @@ export function App() {
           />
         )}
         {tab === 'collection' && catalogs && (
-          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} onChange={refresh} />
+          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} movers={movers} onChange={refresh} />
+        )}
+        {tab === 'prices' && catalogs && (
+          <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} />
         )}
         {tab === 'review' && catalogs && (
           <ReviewView
@@ -166,6 +183,10 @@ export function App() {
         <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
           {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
           Sammlung <span class="count" key={total}>{total}</span>
+        </button>
+        <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>
+          {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
+          Preise {movers.size > 0 && <span class="count accent">{movers.size}</span>}
         </button>
         <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
           {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}

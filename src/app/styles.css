@@ -175,7 +175,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Navigation unten */
-.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
   background: var(--bg); box-shadow: 0 -1px 0 var(--border); }
 .tabs button { flex-direction: column; gap: 2px; background: transparent; min-height: 56px; padding: 6px 4px; border-radius: 18px;
   font-size: 0.75rem; font-weight: 600; color: var(--muted); position: relative; }
@@ -183,10 +183,11 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .tabs button.active { color: var(--text); }
 .tabs button.active svg { color: var(--accent-text); }
 .tabs button.active .tab-icon { background: var(--accent-soft); }
-.tab-icon { display: inline-flex; padding: 2px 16px; border-radius: 999px; transition: background-color 0.2s; }
+.tab-icon { display: inline-flex; padding: 2px 14px; border-radius: 999px; transition: background-color 0.2s; }
 .count { position: absolute; top: 4px; left: calc(50% + 10px); font-size: 0.7rem; line-height: 1; background: var(--text); color: var(--bg);
   border-radius: 999px; padding: 3px 6px; font-weight: 700; }
 .count.warn { background: var(--warn); color: #fff; }
+.count.accent { background: var(--accent); color: var(--on-accent); }
 
 /* Sammlung und Prüfen */
 .collection header, .review h1 { margin-top: 4px; }
@@ -208,3 +209,32 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
   .tabs .count, .recent li:first-child { animation: none; }
 }
 .collection .value { margin: 2px 0 0; }
+
+/* Preise: Steigen in Logo-Grün, Fallen in Rot, sonst neutral */
+:root { --down: var(--error); --down-soft: #fbe9e7; }
+@media (prefers-color-scheme: dark) { :root { --down: #ff7b6b; --down-soft: #3a1c19; } }
+.prices header p { margin: 4px 0 0; }
+.prices h2 { margin-top: 8px; }
+.value-card { background: var(--surface); border-radius: 24px; padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+.value-card .total { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.value-card .empty { margin: 8px 0 4px; }
+.change, .delta { font-weight: 650; font-variant-numeric: tabular-nums; }
+.up { color: var(--success-text); }
+.down { color: var(--down); }
+.flat { color: var(--muted); }
+.chart { margin: 10px 0 0; }
+.chart svg { width: 100%; height: 140px; display: block; overflow: visible; }
+.chart.small { margin: 0; }
+.chart.small svg { height: 64px; }
+.chart .line { fill: none; stroke: var(--accent-text); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { fill: var(--accent-text); opacity: 0.12; }
+.chart figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 0.75rem; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.movers .delta { flex: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; background: var(--raised); }
+.movers li.strong-up { box-shadow: inset 0 0 0 2px var(--success); }
+.movers li.strong-down { box-shadow: inset 0 0 0 2px var(--down); }
+.movers li.strong-up .delta { background: var(--success-soft); }
+.movers li.strong-down .delta { background: var(--down-soft); }
+.prices .none, .prices .rule { margin: 0; font-size: 0.85rem; }
+.items .price em.move { font-style: normal; font-size: 0.8rem; font-weight: 700; margin-left: 6px; padding: 1px 8px; border-radius: 999px; }
+.items .price em.move.up { background: var(--success-soft); }
+.items .price em.move.down { background: var(--down-soft); }
