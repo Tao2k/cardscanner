@@ -63,15 +63,32 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
 
   return (
     <section class="review">
-      <h1>Prüfen</h1>
-      {!open.length && <p class="muted">Keine unsicheren Treffer. Alles bestätigt.</p>}
-      {open.length > 0 && <p class="muted">Bei diesen Karten war die Erkennung knapp. Tippe auf die richtige Karte, daraus lernt die Erkennung.</p>}
+      <header>
+        <h1>Prüfen</h1>
+        {open.length > 0 && <p class="muted">Bei diesen Karten war die Erkennung knapp. Tippe auf die richtige Karte, daraus lernt die Erkennung.</p>}
+      </header>
+      {!open.length && (
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5" />
+          </svg>
+          <strong>Alles bestätigt</strong>
+          <p>Keine unsicheren Treffer. Knappe Erkennungen landen hier.</p>
+        </div>
+      )}
       {open.map((item) => {
         const candidates = [item.printingId, ...(item.alternatives ?? [])]
           .map((id) => catalogs.lookup(item.gameId, id))
           .filter((p) => !!p);
         return (
           <div class="review-item" key={item.itemId}>
+            <div class="head">
+              <strong>{candidates[0]?.cardName ?? item.printingId}</strong>
+              <small>
+                {item.matchScore ? `${Math.round(item.matchScore * 100)} % sicher` : ''}
+                {item.quantity > 1 ? ` · ×${item.quantity}` : ''}
+              </small>
+            </div>
             <div class="candidates">{candidates.map((p, i) => candidateButton(item, p, i === 0))}</div>
             {searching === item.itemId && (
               <>
@@ -86,9 +103,17 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
               </>
             )}
             <div class="row">
-              <small class="muted">×{item.quantity}{item.matchScore ? ` · ${Math.round(item.matchScore * 100)} %` : ''}</small>
-              {searching !== item.itemId && <button onClick={() => { setSearching(item.itemId); setQuery(''); }}>Andere Karte suchen</button>}
-              <button onClick={() => remove(item)}>Löschen</button>
+              {searching !== item.itemId ? (
+                <button onClick={() => { setSearching(item.itemId); setQuery(''); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                  Andere Karte suchen
+                </button>
+              ) : (
+                <span />
+              )}
+              <button class="danger" onClick={() => remove(item)}>Löschen</button>
             </div>
           </div>
         );

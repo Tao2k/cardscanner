@@ -111,25 +111,36 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
     <section class="collection">
       <header>
         <h1>Sammlung</h1>
-        <p class="muted">{total} Karten in {items.length} Einträgen</p>
-        {priceSources.length > 0 && items.length > 0 && (
-          <p class="value">
-            Wert: <strong>{formatEur(value.total)}</strong>
-            <small class="muted">
-              {' '}laut Cardmarket{value.unpriced ? `, ${value.unpriced} Karten ohne Preis` : ''}
-            </small>
-          </p>
-        )}
       </header>
+      <div class="stats-row">
+        <div class="stat">
+          <span>Karten</span>
+          <strong>{total}</strong>
+        </div>
+        <div class="stat">
+          <span>Einträge</span>
+          <strong>{items.length}</strong>
+        </div>
+        <div class="stat accent">
+          <span>Wert</span>
+          <strong>{priceSources.length > 0 ? formatEur(value.total) : '–'}</strong>
+          {value.unpriced > 0 && priceSources.length > 0 && <small>{value.unpriced} ohne Preis</small>}
+        </div>
+      </div>
       {exportDue && items.length > 0 && (
         <p class="banner">
-          Die Sammlung liegt nur auf diesem Gerät. Exportiere sie regelmäßig als Excel, damit nichts verloren geht.
+          {infoIcon}
+          <span>Die Sammlung liegt nur auf diesem Gerät. Exportiere sie regelmäßig als Excel, damit nichts verloren geht.</span>
         </p>
       )}
       <div class="actions">
-        <button class="primary" disabled={busy || !items.length} onClick={doExport}>Als Excel exportieren</button>
+        <button class="primary" disabled={busy || !items.length} onClick={doExport}>
+          {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
+          Excel-Export
+        </button>
         <label class={`button ${busy ? 'disabled' : ''}`}>
-          Excel importieren
+          {icon('M12 15V4M7 9l5-5 5 5M5 20h14')}
+          Excel-Import
           <input
             type="file"
             accept=".xlsx"
@@ -144,15 +155,26 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
         </label>
       </div>
       {message && <p class="banner">{message}</p>}
-      <div class="find">
-        <input type="search" placeholder="Suchen (Name, Set, Nummer)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      {items.length > 0 && (
+        <div class="find">
+          <input type="search" placeholder="Suchen (Name, Set, Nummer)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+          <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Sortieren
+          </button>
+        </div>
+      )}
+      {!items.length && (
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
           </svg>
-          Sortieren
-        </button>
-      </div>
+          <strong>Noch keine Karten</strong>
+          <p>Scanne deine erste Karte oder importiere eine Excel-Datei.</p>
+        </div>
+      )}
       <ul class="items">
         {rows.slice(0, 300).map(({ item, printing, price }) => {
           const url = catalogs.price(item.gameId, item.printingId)?.url;
@@ -169,22 +191,20 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
                   <small>
                     {printing ? `${printingCode(printing)} · ` : ''}
                     {language ? `${language} · ` : ''}
-                    {item.finish === 'foil' ? 'Foil · ' : ''}
                     {item.condition}
                     {item.location ? ` · ${item.location}` : ''}
-                    {!item.confirmed ? ' · ungeprüft' : ''}
                   </small>
-                  {price !== undefined && (
-                    <span class="price">
-                      {formatEur(price)}
-                      {mover && (
-                        <em class={`move ${mover.delta > 0 ? 'up' : 'down'}`} title={mover.delta > 0 ? 'stark gestiegen' : 'stark gefallen'}>
-                          {mover.delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(mover.pct * 100))} %
-                        </em>
-                      )}
-                      {item.quantity > 1 && <small> · zusammen {formatEur(price * item.quantity)}</small>}
-                    </span>
-                  )}
+                  <span class="line">
+                    {price !== undefined && <span class="price">{formatEur(price)}</span>}
+                    {mover && (
+                      <em class={`tag move ${mover.delta > 0 ? 'up' : 'down'}`} title={mover.delta > 0 ? 'stark gestiegen' : 'stark gefallen'}>
+                        {mover.delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(mover.pct * 100))} %
+                      </em>
+                    )}
+                    {item.finish === 'foil' && <em class="tag foil">Foil</em>}
+                    {!item.confirmed && <em class="tag warn">ungeprüft</em>}
+                  </span>
+                  {price !== undefined && item.quantity > 1 && <small>zusammen {formatEur(price * item.quantity)}</small>}
                 </button>
                 <div class="qty">
                   <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
@@ -210,7 +230,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
                   )}
                   {url && (
                     <a href={url} target="_blank" rel="noopener">
-                      Bei Cardmarket ansehen
+                      Bei Cardmarket ansehen ↗
                     </a>
                   )}
                 </div>
@@ -258,3 +278,17 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
     </section>
   );
 }
+
+function icon(d: string) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path d={d} fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  );
+}
+
+const infoIcon = (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  </svg>
+);

@@ -182,7 +182,7 @@ export function App() {
         </button>
         <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
           {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
-          Sammlung <span class="count" key={total}>{total}</span>
+          Sammlung {total > 0 && <span class="count" key={total}>{total}</span>}
         </button>
         <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>
           {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
