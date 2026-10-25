@@ -12,8 +12,8 @@ import { finishesOf, learnFoilShare } from '../core/foil';
 import { conditionFeedback, foilFeedback, languageFeedback } from './feedback';
 import { learnThreshold } from '../core/thresholds';
 import { analyzeCanvas, type CardAnalysis } from './analyze';
-import { detectLanguage, IMAGE_LANGUAGE_MARGIN, isHanLanguage, languageFromImage, NO_LATIN_BELOW, type LanguageGuess } from '../core/language';
-import { cropTextRegion, readText, warmUpOcr, type Script } from './ocr';
+import { detectLanguage, IMAGE_LANGUAGE_MARGIN, isHanLanguage, languageFromImage, NO_LATIN_BELOW, textViews, type LanguageGuess, type TextView } from '../core/language';
+import { cropTextRegion, cropView, readText, warmUpOcr, type Script } from './ocr';
 import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
@@ -89,8 +89,10 @@ interface Captured {
   vector: Float32Array | null;
   imageLanguage: string | null;
   region: HTMLCanvasElement | null;
-  /** Gelesener Text je Schrift, einmal gelesen für Erkennung und Sprache. */
-  ocr: Map<Script, Promise<string>>;
+  /** Die ganze Karte in OCR-Auflösung, für andere Ansichten (z. B. gedrehte Querformat-Karten). */
+  card: HTMLCanvasElement | null;
+  /** Gelesener Text je Schrift (und Ansicht), einmal gelesen für Erkennung und Sprache. */
+  ocr: Map<string, Promise<string>>;
   /** Schriften, deren Texterkennung zu lange gebraucht hat. */
   timedOut: Set<Script>;
   shot: { ctx: CanvasRenderingContext2D; guide: { x: number; y: number; width: number; height: number } } | null;
@@ -106,20 +108,41 @@ interface Question {
   reason: 'unsure' | 'conflict' | 'variant';
 }
 
-/** Text einmal lesen, danach aus dem Zwischenspeicher. onStart meldet, dass jetzt wirklich gelesen wird. */
-function readOnce(captured: Captured, script: Script, onStart?: (script: Script | null) => void): Promise<string> {
-  if (!captured.region) return Promise.resolve('');
-  let text = captured.ocr.get(script);
+/**
+ * Text einmal lesen, danach aus dem Zwischenspeicher. onStart meldet, dass jetzt wirklich gelesen wird.
+ * Ohne view das Textfeld, mit view die so gedrehte und ausgeschnittene Karte.
+ */
+function readOnce(captured: Captured, script: Script, onStart?: (script: Script | null) => void, view?: TextView): Promise<string> {
+  const key = view && view.rotate !== 0 ? `${script}@${view.rotate}` : script;
+  const image = key === script ? captured.region : captured.card && view ? cropView(captured.card, view) : null;
+  if (!image) return Promise.resolve('');
+  let text = captured.ocr.get(key);
   if (!text) {
     onStart?.(script);
-    text = readText(captured.region, script).then((r) => {
+    text = readText(image, script).then((r) => {
       if (r.timedOut) captured.timedOut.add(script);
       onStart?.(null);
       return r.text;
     });
-    captured.ocr.set(script, text);
+    captured.ocr.set(key, text);
   }
   return text;
+}
+
+function copyCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+  const copy = document.createElement('canvas');
+  copy.width = source.width;
+  copy.height = source.height;
+  copy.getContext('2d')!.drawImage(source, 0, 0);
+  return copy;
+}
+
+/** Für die Sprache: alle Ansichten des Drucks lesen (Querformat in beiden Drehrichtungen) und den Text aneinanderhängen. */
+async function readForLanguage(captured: Captured, printing: Printing, script: Script, onStart?: (script: Script | null) => void): Promise<string> {
+  const texts: string[] = [];
+  // Nacheinander: Die Texterkennung arbeitet ohnehin ein Bild nach dem anderen ab
+  for (const view of textViews(printing)) texts.push(await readOnce(captured, script, onStart, view));
+  return texts.join('\n');
 }
 
 /** Kurzer Hinweis, woran die Sprache erkannt wurde (oder warum nicht). */
@@ -300,9 +323,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     const matchLatin = (text: string) => (printingIndex >= 0 ? latinMatch(index, printingIndex, text) : 1);
     const [languageGuess, analysis] = await Promise.all([
       autoLanguage && region
-        ? detectLanguage((script) => readOnce(captured, script, setReading), printing.texts ?? {}, languages, undefined, {
+        ? detectLanguage((script) => readForLanguage(captured, printing, script, setReading), printing.texts ?? {}, languages, undefined, {
             match: matchLatin,
             noLatinBelow: noLatinRef.current,
+            name: printing.cardName,
           })
         : Promise.resolve(null),
       shot
@@ -313,7 +337,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     ]);
     setAnalyzing(false);
     // Für das Lernen der Sprache: Passte der lateinisch gelesene Text zum englischen Kartentext?
-    const latinText = captured.ocr.has('latin') ? await readOnce(captured, 'latin') : null;
+    const latinText = captured.ocr.has('latin') ? await readForLanguage(captured, printing, 'latin') : null;
     const latinScore = latinText !== null && languages.some(isHanLanguage) ? matchLatin(latinText) : undefined;
     let language = p.language;
     let languageNote: string | undefined;
@@ -456,6 +480,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             vector,
             imageLanguage: languageFromImage(averaged, IMAGE_LANGUAGE_MARGIN),
             region: ocrCtx ? cropTextRegion(ocrCanvasRef.current!, document.createElement('canvas')) : null,
+            card: ocrCtx ? copyCanvas(ocrCanvasRef.current!) : null,
             ocr: new Map(),
             timedOut: new Set(),
             shot,

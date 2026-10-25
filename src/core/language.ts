@@ -36,6 +36,14 @@ export const DEFAULT_DETECT: DetectOptions = { minHan: 4, minWords: 2 };
 export const NO_LATIN_BELOW = 0.08;
 
 /**
+ * Ausschlusskriterium für Chinesisch: Passt der lateinisch gelesene Text mindestens so gut zum englischen
+ * Kartentext, ist englischer Regeltext zu sehen, und den tragen chinesische Drucke nicht. Dann zählt die
+ * chinesische Texterkennung nicht mehr (die erfindet auf Bildern gern Han-Zeichen). Kalibriert mit
+ * `npm run eval -- --langcheck` (Oktober 2026), siehe PR „Falsche Chinesisch-Erkennung“.
+ */
+export const LATIN_PROOF = 0.2;
+
+/**
  * Sprache aus dem Kartenbild: Gibt es für den Druck eigene Bilder je Sprache (Riot hat z. B. für
  * chinesische Drucke eigene Scans), gewinnt die Sprache, deren Bild dem Foto klar am ähnlichsten ist.
  * Liefert null, wenn es nur ein Bild gibt oder der Abstand zu klein ist.
@@ -66,10 +74,62 @@ export function looksHan(ocrText: string, minDistinct = 8): boolean {
 }
 
 /**
+ * Steht der englische Kartenname im gelesenen Text (auch zusammengeschrieben, z. B. „PlayfulPhantom“)?
+ * Chinesische Drucke tragen den chinesischen Namen, das ist also ebenfalls ein Ausschlusskriterium.
+ * Erst ab 6 Buchstaben, kürzere Namen kommen zu leicht zufällig vor.
+ */
+export function showsName(ocrText: string, name: string): boolean {
+  const letters = (t: string) => t.normalize('NFC').toLowerCase().replace(/[^\p{Script=Latin}]/gu, '');
+  const n = letters(name);
+  return n.length >= 6 && letters(ocrText).includes(n);
+}
+
+/**
+ * Sprachkürzel in der Infozeile neuerer Drucke, direkt hinter der Sammlernummer, z. B. „159/166 · EN“ oder
+ * „RAD · R06 · EN“. Das ist auch auf Runen lesbar, die sonst kaum Text haben.
+ */
+export function printedLanguageCode(ocrText: string): string | null {
+  const m = ocrText.match(/(?:\d{1,3}[a-z*]?\s*\/\s*\d{2,3}|\b[A-Z]{3}\s*\W\s*R\d{2})\s*[^\p{L}\d\s]{0,3}\s*(EN|FR)\b/u);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
  * Bereich der Karte mit Name und Regeltext (Anteile von Breite/Höhe). Nur dieser Teil wird gelesen;
  * auf dem Artwork liefert die OCR nur Rauschen.
  */
 export const TEXT_REGION = { left: 0.04, top: 0.5, right: 0.96, bottom: 0.97 };
+
+/** Ganze Karte ohne den äußersten Rand. */
+export const FULL_REGION = { left: 0.03, top: 0.03, right: 0.97, bottom: 0.97 };
+
+/**
+ * Wie das Kamerabild für die Texterkennung gelesen wird: erst um `rotate` Grad im Uhrzeigersinn drehen,
+ * dann `region` ausschneiden.
+ */
+export interface TextView {
+  rotate: 0 | 90 | 270;
+  region: typeof TEXT_REGION;
+}
+
+/** Querformat-Karten wie Battlefields (Riot: orientation ≠ portrait). */
+export function isLandscape(printing: { attributes?: Record<string, unknown> }): boolean {
+  const o = printing.attributes?.orientation;
+  return typeof o === 'string' && o !== '' && o !== 'portrait';
+}
+
+/**
+ * Ansichten für die Spracherkennung. Querformat-Karten liegen hochkant im Zielrahmen, ihr Text läuft also
+ * senkrecht; so gelesen liefert die OCR nur Zeichensalat (früher als „kein englischer Text“ → Chinesisch
+ * gewertet). Deshalb zurückdrehen, in beide Richtungen, weil die Karte mal so, mal andersherum liegt, und die
+ * ganze Karte lesen. Der Text beider Ansichten wird aneinandergehängt; die falsch gedrehte trägt nur Rauschen bei.
+ */
+export function textViews(printing: { attributes?: Record<string, unknown> }): TextView[] {
+  if (!isLandscape(printing)) return [{ rotate: 0, region: TEXT_REGION }];
+  return [
+    { rotate: 270, region: FULL_REGION },
+    { rotate: 90, region: FULL_REGION },
+  ];
+}
 
 /**
  * Typische Wörter je Sprache auf Kartentexten. Wichtig für Französisch: Riots Galerie zeigt auch
@@ -137,6 +197,16 @@ function pickLatin(scores: Record<string, number>, latin: string[], minWords: nu
 }
 
 /**
+ * Trägt die Karte genug englischen Text, dass sein Fehlen etwas bedeutet? Runen haben nur ihren Namen,
+ * den die OCR oft gar nicht liest; „kein englischer Text“ hieße dort nichts.
+ */
+export const MIN_TEXT_WORDS = 6;
+function hasReadableText(texts: Record<string, string>): boolean {
+  const latin = Object.entries(texts).filter(([l]) => !isHanLanguage(l)).map(([, t]) => t);
+  return latin.some((t) => latinWords(t).size >= MIN_TEXT_WORDS);
+}
+
+/**
  * Zweistufig: erst mit Latin-OCR lesen (schnell, deckt die meisten Karten ab), nur wenn das nicht
  * eindeutig ist, mit chinesischer OCR nachlesen.
  * @param read  liest das Textfeld mit 'latin'- oder 'han'-Modell
@@ -147,13 +217,21 @@ export async function detectLanguage(
   texts: Record<string, string>,
   languages: string[],
   options: DetectOptions = DEFAULT_DETECT,
-  /** Wie gut der lateinisch gelesene Text zum englischen Text der Karte passt (siehe textmatch.latinMatch). */
-  latin?: { match: (text: string) => number; noLatinBelow: number },
+  /**
+   * Wie gut der lateinisch gelesene Text zum englischen Text der Karte passt (siehe textmatch.latinMatch).
+   * name: englischer Kartenname (siehe showsName).
+   */
+  latin?: { match: (text: string) => number; noLatinBelow: number; latinProof?: number; name?: string },
 ): Promise<LanguageGuess> {
   const latinLangs = languages.filter((l) => !isHanLanguage(l));
   const han = languages.find(isHanLanguage);
   let scores: Record<string, number> = {};
   let latinText = '';
+  let hanText = '';
+  // Englischer Regeltext oder Name dieser Karte im gelesenen Text: Ausschlusskriterium für Chinesisch
+  const showsEnglish = (text: string) =>
+    printedLanguageCode(text) !== null ||
+    (!!latin && (latin.match(text) >= (latin.latinProof ?? LATIN_PROOF) || (!!latin.name && showsName(text, latin.name))));
 
   if (latinLangs.length) {
     latinText = await read('latin');
@@ -163,18 +241,30 @@ export async function detectLanguage(
     // Chinesischer Text ergibt mit dem Latin-Modell Zeichensalat, der zufällig kurze englische Wörter
     // treffen kann. Knappe Latin-Ergebnisse daher nur annehmen, wenn es keine Han-Sprache gibt.
     if (lang && (!han || (scores[lang] ?? 0) >= options.minWords + 2)) return { lang, scores, reason: only ? 'only' : 'words' };
+    // Englischer Regeltext dieser Karte gelesen: kein chinesischer Druck, egal was die Han-OCR meint
+    if (han && latin && showsEnglish(latinText)) {
+      const code = printedLanguageCode(latinText);
+      const lang = code && latinLangs.includes(code) ? code : (pickLatin(scores, latinLangs, 1) ?? latinLangs[0]);
+      return { lang, scores, reason: 'words' };
+    }
   }
   if (han) {
-    const text = await read('han');
+    const text = (hanText = await read('han'));
     scores[han] = scoreHan(text, texts[han]);
-    if (scores[han] >= options.minHan || looksHan(text)) return { lang: han, scores, reason: 'han' };
+    // Karten mit kaum Text (Runen: nur der Name): dann reicht die Hälfte der chinesischen Zeichen, mindestens 2
+    const minHan = Math.max(2, Math.min(options.minHan, Math.ceil(hanChars(texts[han] ?? '').size / 2)));
+    // Ohne Vergleichstext reichen viele Han-Zeichen; mit Vergleichstext müssen auch ein paar davon passen,
+    // sonst ist es Zeichensalat (z. B. von Artwork oder gedrehtem Text).
+    const enoughHan = looksHan(text) && (!texts[han] || scores[han] >= 2);
+    if (scores[han] >= minHan || enoughHan) return { lang: han, scores, reason: 'han' };
   }
   if (latinLangs.length) {
     const lang = pickLatin(scores, latinLangs, options.minWords);
     if (lang) return { lang, scores, reason: 'words' };
   }
-  // Kein englischer Text zu sehen, obwohl die Karte feststeht: chinesischer Druck
-  if (han && latin && latinLangs.every((l) => (scores[l] ?? 0) < options.minWords) && latin.match(latinText) < latin.noLatinBelow) {
+  // Kein englischer Text zu sehen, obwohl die Karte feststeht: chinesischer Druck. Außer die chinesische
+  // Texterkennung hat englischen Text gelesen (sie liest auch Lateinisch, manchmal besser als das Latin-Modell).
+  if (han && latin && hasReadableText(texts) && !showsEnglish(hanText) && latinLangs.every((l) => (scores[l] ?? 0) < options.minWords) && latin.match(latinText) < latin.noLatinBelow) {
     return { lang: han, scores, reason: 'no-latin' };
   }
   return { lang: null, scores };

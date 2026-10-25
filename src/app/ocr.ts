@@ -1,5 +1,5 @@
 import type { Worker } from 'tesseract.js';
-import { TEXT_REGION } from '../core/language';
+import { TEXT_REGION, type TextView } from '../core/language';
 
 /**
  * Texterkennung für die Spracherkennung, ein Modell je Schrift: Französisch (liest auch Englisch,
@@ -33,6 +33,26 @@ export function cropTextRegion(card: HTMLCanvasElement, target: HTMLCanvasElemen
   target.width = Math.round(card.width * (TEXT_REGION.right - TEXT_REGION.left));
   target.height = Math.round(card.height * (TEXT_REGION.bottom - TEXT_REGION.top));
   target.getContext('2d')!.drawImage(card, x, y, target.width, target.height, 0, 0, target.width, target.height);
+  return target;
+}
+
+/** Dreht das Kartenbild wie in der Ansicht angegeben (im Uhrzeigersinn) und schneidet deren Bereich aus. */
+export function cropView(card: HTMLCanvasElement, view: TextView): HTMLCanvasElement {
+  const turned = document.createElement('canvas');
+  const sideways = view.rotate === 90 || view.rotate === 270;
+  turned.width = sideways ? card.height : card.width;
+  turned.height = sideways ? card.width : card.height;
+  const ctx = turned.getContext('2d')!;
+  ctx.translate(turned.width / 2, turned.height / 2);
+  ctx.rotate((view.rotate * Math.PI) / 180);
+  ctx.drawImage(card, -card.width / 2, -card.height / 2);
+  const { region } = view;
+  const target = document.createElement('canvas');
+  const x = Math.round(turned.width * region.left);
+  const y = Math.round(turned.height * region.top);
+  target.width = Math.round(turned.width * (region.right - region.left));
+  target.height = Math.round(turned.height * (region.bottom - region.top));
+  target.getContext('2d')!.drawImage(turned, x, y, target.width, target.height, 0, 0, target.width, target.height);
   return target;
 }
 

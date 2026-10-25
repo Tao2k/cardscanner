@@ -15,7 +15,7 @@ import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { averageMatches, DEFAULT_STABILIZER, isConfident } from '../src/core/stabilizer';
 import type { Match } from '../src/core/matcher';
-import { detectLanguage, languageFromImage, NO_LATIN_BELOW, TEXT_REGION } from '../src/core/language';
+import { detectLanguage, languageFromImage, NO_LATIN_BELOW, TEXT_REGION, textViews } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
@@ -39,6 +39,8 @@ const conditionSamples = option('--condition', 40);
 const foilSamples = option('--foil', 60);
 const textSamples = option('--text', 200);
 const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
+/** Sprache wie in der App prüfen: Karten, deren Name oder Typ das enthält (z. B. "Battlefield"), plus Stichprobe. */
+const langCheck = args.includes('--langcheck') ? args[args.indexOf('--langcheck') + 1] : '';
 
 // Deterministischer Zufall, damit Läufe vergleichbar sind
 let seed = 42;
@@ -203,6 +205,7 @@ async function main() {
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
   if (textSamples) await evalText(file, textSamples, embeddings, embedder);
   if (ocrSamples || cardName) await evalLanguage(file, ocrSamples, embeddings, embedder);
+  if (langCheck) await evalAppLanguage(file, langCheck, Math.max(ocrSamples, 20));
 }
 
 /**
@@ -570,13 +573,17 @@ async function fullImage(p: CatalogFile['printings'][number], lang: string): Pro
 }
 
 async function textRegion(card: Buffer): Promise<Buffer> {
+  return regionOf(card, TEXT_REGION);
+}
+
+async function regionOf(card: Buffer, region: typeof TEXT_REGION): Promise<Buffer> {
   const meta = await sharp(card).metadata();
   return sharp(card)
     .extract({
-      left: Math.round(meta.width! * TEXT_REGION.left),
-      top: Math.round(meta.height! * TEXT_REGION.top),
-      width: Math.round(meta.width! * (TEXT_REGION.right - TEXT_REGION.left)),
-      height: Math.round(meta.height! * (TEXT_REGION.bottom - TEXT_REGION.top)),
+      left: Math.round(meta.width! * region.left),
+      top: Math.round(meta.height! * region.top),
+      width: Math.round(meta.width! * (region.right - region.left)),
+      height: Math.round(meta.height! * (region.bottom - region.top)),
     })
     .png()
     .toBuffer();
@@ -654,7 +661,7 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
     // langsamen Handy ohne (Zeitüberschreitung), dann nur mit der Regel „kein englischer Text“
     const hanText = async () => han || (han = (await workers.han.recognize(region)).data.text);
     const match = (t: string) => latinMatch(index, truth, t);
-    const opts = { match, noLatinBelow: NO_LATIN_BELOW };
+    const opts = { match, noLatinBelow: NO_LATIN_BELOW, name: p.cardName };
     const full = await detectLanguage(async (sc) => (sc === 'latin' ? latin : hanText()), p.texts ?? {}, languages, undefined, opts);
     const slow = await detectLanguage(async (sc) => (sc === 'latin' ? latin : ''), p.texts ?? {}, languages, undefined, opts);
     const key = truthLang.startsWith('zh') ? 'zh' : 'en';
@@ -738,3 +745,90 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+/**
+ * Spracherkennung wie in der App, mit dem Kamerabild statt des Originals: Querformat-Karten (Battlefields)
+ * liegen hochkant im Zielrahmen, also um 90° gedreht (beide Richtungen). Geprüft werden die genannten
+ * Karten (Name oder Typ enthält `names`, mehrere mit „|“) und eine Stichprobe englischer und chinesischer Drucke.
+ * Je Bild: mit chinesischer Texterkennung und wie auf einem langsamen Handy ohne (Zeitüberschreitung).
+ */
+async function evalAppLanguage(file: CatalogFile, names: string, perLang: number) {
+  const { createWorker } = await import('tesseract.js');
+  const workers = { latin: await createWorker(OCR_MODELS.latin, 1), han: await createWorker(OCR_MODELS.han, 1) };
+  const index = buildTextIndex(file.printings);
+  const languages = file.meta.languages.map((l) => l.code);
+  const wanted = names.toLowerCase().split('|').map((n) => n.trim()).filter(Boolean);
+  const isWanted = (p: CatalogFile['printings'][number]) => wanted.some((n) => p.cardName.toLowerCase().includes(n) || (p.type ?? '').toLowerCase().includes(n));
+  const shuffled = [...file.refs.keys()].sort(() => rand() - 0.5);
+  const groups: [string, number[]][] = [
+    [`gesucht (${names})`, shuffled.filter((r) => isWanted(file.printings[file.refs[r].p]))],
+    ['Stichprobe', [...shuffled.filter((r) => file.refs[r].lang === 'en').slice(0, perLang), ...shuffled.filter((r) => file.refs[r].lang.startsWith('zh')).slice(0, perLang)]],
+  ];
+  const orientations = new Map<string, number>();
+  for (const p of file.printings) {
+    const o = String(p.attributes?.orientation ?? '-');
+    orientations.set(o, (orientations.get(o) ?? 0) + 1);
+  }
+  console.log(`\n=== Sprache wie in der App (Ausrichtungen im Katalog: ${JSON.stringify(Object.fromEntries(orientations))})`);
+  for (const [name, rows] of groups) {
+    const stats = new Map<string, { n: number; full: number; slow: number; wrongZh: number; slowWrongZh: number; matches: number[] }>();
+    let shown = 0;
+    for (const r of rows) {
+      const { p: truth, lang } = file.refs[r];
+      const p = file.printings[truth];
+      const original = await fullImage(p, lang);
+      if (!original) continue;
+      const meta = await sharp(original).metadata();
+      const landscape = meta.width! > meta.height!;
+      // Kamera: Querformat liegt hochkant im Rahmen, mal so, mal andersherum
+      const turned = landscape ? await sharp(original).rotate(rand() < 0.5 ? 90 : 270).png().toBuffer() : original;
+      const card = await (await distortTo(turned, 1100)).png().toBuffer();
+      const texts: string[] = [];
+      const cache = new Map<string, Promise<string>>();
+      const read = (script: 'latin' | 'han') => {
+        let t = cache.get(script);
+        if (!t) {
+          t = readCardForLanguage(card, p, script, workers);
+          cache.set(script, t);
+        }
+        return t;
+      };
+      const match = (t: string) => latinMatch(index, truth, t);
+      const opts = { match, noLatinBelow: NO_LATIN_BELOW, name: p.cardName };
+      const full = await detectLanguage(read, p.texts ?? {}, languages, undefined, opts);
+      const slow = await detectLanguage(async (sc) => (sc === 'latin' ? read('latin') : ''), p.texts ?? {}, languages, undefined, opts);
+      const key = `${lang.startsWith('zh') ? 'zh' : 'en'}${landscape ? ' quer' : ''}`;
+      const st = stats.get(key) ?? { n: 0, full: 0, slow: 0, wrongZh: 0, slowWrongZh: 0, matches: [] };
+      st.n++;
+      st.matches.push(match(await read('latin')));
+      if (full.lang === lang) st.full++;
+      if (slow.lang === lang) st.slow++;
+      if (!lang.startsWith('zh') && full.lang?.startsWith('zh')) st.wrongZh++;
+      if (!lang.startsWith('zh') && slow.lang?.startsWith('zh')) st.slowWrongZh++;
+      stats.set(key, st);
+      if (full.lang !== lang && shown++ < 12) {
+        texts.push(`latin: ${(await read('latin')).replace(/\s+/g, ' ').slice(0, 140)}`);
+        if (cache.has('han')) texts.push(`han: ${(await read('han')).replace(/\s+/g, ' ').slice(0, 100)}`);
+        console.log(`  [${lang}] ${p.printingId} „${p.cardName}“ (${p.type}, ${String(p.attributes?.orientation ?? '-')}) → ${full.lang ?? 'unklar'} (${full.reason ?? '-'}), ohne Han → ${slow.lang ?? 'unklar'} (${slow.reason ?? '-'}), Passung EN ${match(await read('latin')).toFixed(2)}, ${JSON.stringify(full.scores)}\n    ${texts.join('\n    ')}`);
+      }
+    }
+    console.log(`${name}:`);
+    for (const [k, st] of stats) {
+      const m = [...st.matches].sort((a, b) => a - b);
+      const q = (f: number) => m[Math.floor(f * (m.length - 1))]?.toFixed(3) ?? '-';
+      console.log(`  ${k}: ${st.n} Bilder, richtig ${st.full} (fälschlich chinesisch ${st.wrongZh}) · ohne chinesische Texterkennung richtig ${st.slow} (fälschlich chinesisch ${st.slowWrongZh}) · Passung EN min ${q(0)}, 10 % ${q(0.1)}, Median ${q(0.5)}, max ${q(1)}`);
+    }
+  }
+  await workers.latin.terminate();
+  await workers.han.terminate();
+}
+
+/** Liest das Kamerabild der Karte wie die App für die Spracherkennung. */
+async function readCardForLanguage(card: Buffer, p: CatalogFile['printings'][number], script: 'latin' | 'han', workers: Record<'latin' | 'han', import('tesseract.js').Worker>): Promise<string> {
+  const texts: string[] = [];
+  for (const view of textViews(p)) {
+    const turned = await sharp(card).rotate(view.rotate).png().toBuffer();
+    texts.push((await workers[script].recognize(await regionOf(turned, view.region))).data.text);
+  }
+  return texts.join('\n');
+}
