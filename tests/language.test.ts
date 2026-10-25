@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLanguage, hanChars, latinWords, scoreHan } from '../src/core/language';
+import { detectLanguage, hanChars, latinWords, scoreHan, textViews } from '../src/core/language';
 
 const LANGS = ['en', 'fr', 'zh-CN'];
 const texts = {
@@ -66,6 +66,25 @@ describe('Spracherkennung', () => {
 
   it('gibt bei unlesbarem Text keine Sprache zurück', async () => {
     expect((await detectLanguage(reader('~~ ## 12 /// ..').read, texts, LANGS)).lang).toBeNull();
+  });
+
+  it('glaubt der Han-OCR nicht, wenn englischer Regeltext der Karte zu lesen ist', async () => {
+    // Wenige englische Wörter, dazu Han-Zeichensalat vom Artwork
+    const r = reader('Abandon Counter spell', '山水火木金土日月星云雨');
+    const guess = await detectLanguage(r.read, texts, LANGS, undefined, { match: () => 0.3, noLatinBelow: 0.08 });
+    expect(guess.lang).toBe('en');
+    expect(r.calls).toEqual(['latin']);
+  });
+
+  it('nimmt Han-Zeichensalat ohne Bezug zum chinesischen Kartentext nicht als Chinesisch', async () => {
+    const r = reader('~~ ##', '山水火木金土日月星云雨');
+    expect((await detectLanguage(r.read, texts, LANGS)).lang).toBeNull();
+  });
+
+  it('liest Querformat-Karten gedreht in beide Richtungen', () => {
+    expect(textViews({ attributes: { orientation: 'portrait' } }).map((v) => v.rotate)).toEqual([0]);
+    expect(textViews({}).map((v) => v.rotate)).toEqual([0]);
+    expect(textViews({ attributes: { orientation: 'landscape' } }).map((v) => v.rotate)).toEqual([270, 90]);
   });
 
   it('zählt Han-Zeichen und Latin-Wörter', () => {

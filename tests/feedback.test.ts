@@ -24,8 +24,14 @@ describe('Lernen aus Korrekturen', () => {
     expect((await detectLanguage(read, texts, langs)).lang).toBeNull();
     const guess = await detectLanguage(read, texts, langs, undefined, { match: () => 0.01, noLatinBelow: 0.08 });
     expect(guess).toMatchObject({ lang: 'zh-CN', reason: 'no-latin' });
-    // Englischer Text passt zur Karte: nicht chinesisch
-    expect((await detectLanguage(read, texts, langs, undefined, { match: () => 0.4, noLatinBelow: 0.08 })).lang).toBeNull();
+    // Englischer Text passt zur Karte: nicht chinesisch, sondern Englisch
+    expect((await detectLanguage(read, texts, langs, undefined, { match: () => 0.4, noLatinBelow: 0.08 })).lang).toBe('en');
+    // Hat die chinesische Erkennung gelesen und nichts Chinesisches gefunden, ist es nicht automatisch Chinesisch
+    const readBoth = async (script: 'latin' | 'han') => (script === 'latin' ? 'ii ~ zx 7 qq' : 'ii 7 zx');
+    expect((await detectLanguage(readBoth, texts, langs, undefined, { match: () => 0.01, noLatinBelow: 0.08 })).lang).toBeNull();
+    // Zeitüberschreitung: dann doch
+    const timedOut = { match: () => 0.01, noLatinBelow: 0.08, hanUnavailable: () => true };
+    expect((await detectLanguage(readBoth, texts, langs, undefined, timedOut)).reason).toBe('no-latin');
   });
 
   it('zählt jeden Scan einmal, eine falsche Karte ersetzt kleinere Fehler', () => {

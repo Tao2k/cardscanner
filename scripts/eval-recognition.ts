@@ -15,7 +15,7 @@ import { collapseToPrintings, topK } from '../src/core/matcher';
 import { imageIn } from '../src/core/catalog';
 import { averageMatches, DEFAULT_STABILIZER, isConfident } from '../src/core/stabilizer';
 import type { Match } from '../src/core/matcher';
-import { detectLanguage, languageFromImage, NO_LATIN_BELOW, TEXT_REGION } from '../src/core/language';
+import { detectLanguage, languageFromImage, NO_LATIN_BELOW, TEXT_REGION, textViews } from '../src/core/language';
 import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
@@ -573,13 +573,17 @@ async function fullImage(p: CatalogFile['printings'][number], lang: string): Pro
 }
 
 async function textRegion(card: Buffer): Promise<Buffer> {
+  return regionOf(card, TEXT_REGION);
+}
+
+async function regionOf(card: Buffer, region: typeof TEXT_REGION): Promise<Buffer> {
   const meta = await sharp(card).metadata();
   return sharp(card)
     .extract({
-      left: Math.round(meta.width! * TEXT_REGION.left),
-      top: Math.round(meta.height! * TEXT_REGION.top),
-      width: Math.round(meta.width! * (TEXT_REGION.right - TEXT_REGION.left)),
-      height: Math.round(meta.height! * (TEXT_REGION.bottom - TEXT_REGION.top)),
+      left: Math.round(meta.width! * region.left),
+      top: Math.round(meta.height! * region.top),
+      width: Math.round(meta.width! * (region.right - region.left)),
+      height: Math.round(meta.height! * (region.bottom - region.top)),
     })
     .png()
     .toBuffer();
@@ -659,7 +663,7 @@ async function evalText(file: CatalogFile, n: number, embeddings: Float32Array, 
     const match = (t: string) => latinMatch(index, truth, t);
     const opts = { match, noLatinBelow: NO_LATIN_BELOW };
     const full = await detectLanguage(async (sc) => (sc === 'latin' ? latin : hanText()), p.texts ?? {}, languages, undefined, opts);
-    const slow = await detectLanguage(async (sc) => (sc === 'latin' ? latin : ''), p.texts ?? {}, languages, undefined, opts);
+    const slow = await detectLanguage(async (sc) => (sc === 'latin' ? latin : ''), p.texts ?? {}, languages, undefined, { ...opts, hanUnavailable: () => true });
     const key = truthLang.startsWith('zh') ? 'zh' : 'en';
     const st = lang.ok.get(key) ?? { n: 0, right: 0, slowRight: 0, noLatin: 0, unclear: 0 };
     st.n++;
@@ -767,7 +771,7 @@ async function evalAppLanguage(file: CatalogFile, names: string, perLang: number
   }
   console.log(`\n=== Sprache wie in der App (Ausrichtungen im Katalog: ${JSON.stringify(Object.fromEntries(orientations))})`);
   for (const [name, rows] of groups) {
-    const stats = new Map<string, { n: number; full: number; slow: number; wrongZh: number; slowWrongZh: number }>();
+    const stats = new Map<string, { n: number; full: number; slow: number; wrongZh: number; slowWrongZh: number; matches: number[] }>();
     let shown = 0;
     for (const r of rows) {
       const { p: truth, lang } = file.refs[r];
@@ -793,8 +797,9 @@ async function evalAppLanguage(file: CatalogFile, names: string, perLang: number
       const full = await detectLanguage(read, p.texts ?? {}, languages, undefined, { match, noLatinBelow: NO_LATIN_BELOW });
       const slow = await detectLanguage(async (sc) => (sc === 'latin' ? read('latin') : ''), p.texts ?? {}, languages, undefined, { match, noLatinBelow: NO_LATIN_BELOW, hanUnavailable: () => true });
       const key = `${lang.startsWith('zh') ? 'zh' : 'en'}${landscape ? ' quer' : ''}`;
-      const st = stats.get(key) ?? { n: 0, full: 0, slow: 0, wrongZh: 0, slowWrongZh: 0 };
+      const st = stats.get(key) ?? { n: 0, full: 0, slow: 0, wrongZh: 0, slowWrongZh: 0, matches: [] };
       st.n++;
+      st.matches.push(match(await read('latin')));
       if (full.lang === lang) st.full++;
       if (slow.lang === lang) st.slow++;
       if (!lang.startsWith('zh') && full.lang?.startsWith('zh')) st.wrongZh++;
@@ -807,13 +812,22 @@ async function evalAppLanguage(file: CatalogFile, names: string, perLang: number
       }
     }
     console.log(`${name}:`);
-    for (const [k, st] of stats) console.log(`  ${k}: ${st.n} Bilder, richtig ${st.full} (fälschlich chinesisch ${st.wrongZh}) · ohne chinesische Texterkennung richtig ${st.slow} (fälschlich chinesisch ${st.slowWrongZh})`);
+    for (const [k, st] of stats) {
+      const m = [...st.matches].sort((a, b) => a - b);
+      const q = (f: number) => m[Math.floor(f * (m.length - 1))]?.toFixed(3) ?? '-';
+      console.log(`  ${k}: ${st.n} Bilder, richtig ${st.full} (fälschlich chinesisch ${st.wrongZh}) · ohne chinesische Texterkennung richtig ${st.slow} (fälschlich chinesisch ${st.slowWrongZh}) · Passung EN min ${q(0)}, 10 % ${q(0.1)}, Median ${q(0.5)}, max ${q(1)}`);
+    }
   }
   await workers.latin.terminate();
   await workers.han.terminate();
 }
 
 /** Liest das Kamerabild der Karte wie die App für die Spracherkennung. */
-async function readCardForLanguage(card: Buffer, _p: CatalogFile['printings'][number], script: 'latin' | 'han', workers: Record<'latin' | 'han', import('tesseract.js').Worker>): Promise<string> {
-  return (await workers[script].recognize(await textRegion(card))).data.text;
+async function readCardForLanguage(card: Buffer, p: CatalogFile['printings'][number], script: 'latin' | 'han', workers: Record<'latin' | 'han', import('tesseract.js').Worker>): Promise<string> {
+  const texts: string[] = [];
+  for (const view of textViews(p)) {
+    const turned = await sharp(card).rotate(view.rotate).png().toBuffer();
+    texts.push((await workers[script].recognize(await regionOf(turned, view.region))).data.text);
+  }
+  return texts.join('\n');
 }
