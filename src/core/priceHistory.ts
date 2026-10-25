@@ -21,9 +21,9 @@ export interface PriceHistoryFile {
 /** Tage mit täglichem Preisstand; ältere Tage werden auf einen pro Woche ausgedünnt, damit die Datei klein bleibt. */
 export const DAILY_DAYS = 90;
 
-/** „Stark“ gestiegen oder gefallen: mindestens 20 % und 0,50 € je Karte, oder 10 € je Karte unabhängig vom Anteil. */
+/** „Stark“ gestiegen oder gefallen: mindestens 20 % und 0,10 € je Karte, oder 10 € je Karte unabhängig vom Anteil. */
 export const STRONG_PCT = 0.2;
-export const STRONG_MIN_EUR = 0.5;
+export const STRONG_MIN_EUR = 0.1;
 export const STRONG_EUR = 10;
 
 /** Kalendertag in Berlin, z. B. „2026-10-25“. */
@@ -183,7 +183,7 @@ export interface Mover {
 }
 
 export function isStrong(from: number, to: number): boolean {
-  const delta = Math.abs(to - from);
+  const delta = Math.round(Math.abs(to - from) * 100) / 100; // in ganzen Cent, sonst ist 0,50 − 0,40 kleiner als 0,10
   if (delta >= STRONG_EUR) return true;
   return from > 0 && delta / from >= STRONG_PCT && delta >= STRONG_MIN_EUR;
 }

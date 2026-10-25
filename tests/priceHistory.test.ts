@@ -99,7 +99,8 @@ describe('Preisverlauf', () => {
   });
 
   it('markiert nur deutliche Änderungen als stark', () => {
-    expect(isStrong(0.1, 0.3)).toBe(false); // +200 %, aber nur 0,20 €
+    expect(isStrong(0.1, 0.15)).toBe(false); // +50 %, aber nur 0,05 €
+    expect(isStrong(0.4, 0.5)).toBe(true); // +25 %, 0,10 €
     expect(isStrong(2, 2.5)).toBe(true); // +25 %, 0,50 €
     expect(isStrong(2, 2.3)).toBe(false); // +15 %
     expect(isStrong(100, 88)).toBe(true); // −12 %, aber −12 €
