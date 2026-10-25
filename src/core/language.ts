@@ -86,11 +86,12 @@ export function showsName(ocrText: string, name: string): boolean {
 
 /**
  * Sprachkürzel in der Infozeile neuerer Drucke, direkt hinter der Sammlernummer, z. B. „159/166 · EN“ oder
- * „RAD · R06 · EN“. Das ist auch auf Runen lesbar, die sonst kaum Text haben.
+ * „RAD · R06 · EN“; chinesische Drucke tragen „SC“ (vereinfachtes Chinesisch). Das ist auch auf Runen lesbar,
+ * die sonst kaum Text haben.
  */
 export function printedLanguageCode(ocrText: string): string | null {
-  const m = ocrText.match(/(?:\d{1,3}[a-z*]?\s*\/\s*\d{2,3}|\b[A-Z]{3}\s*\W\s*R\d{2})\s*[^\p{L}\d\s]{0,3}\s*(EN|FR)\b/u);
-  return m ? m[1].toLowerCase() : null;
+  const m = ocrText.match(/(?:\d{1,3}[a-z*]?\s*\/\s*\d{2,3}|\b[A-Z]{3}\s*\W\s*R[\dO]\d[a-z*]?)\s*[^\p{L}\d\s]{0,3}\s*(EN|FR|SC)\b/u);
+  return m ? (m[1] === 'SC' ? 'zh-CN' : m[1].toLowerCase()) : null;
 }
 
 /**
@@ -230,12 +231,14 @@ export async function detectLanguage(
   let hanText = '';
   // Englischer Regeltext oder Name dieser Karte im gelesenen Text: Ausschlusskriterium für Chinesisch
   const showsEnglish = (text: string) =>
-    printedLanguageCode(text) !== null ||
+    ['en', 'fr'].includes(printedLanguageCode(text) ?? '') ||
     (!!latin && (latin.match(text) >= (latin.latinProof ?? LATIN_PROOF) || (!!latin.name && showsName(text, latin.name))));
 
   if (latinLangs.length) {
     latinText = await read('latin');
     scores = scoreLatin(latinText, texts, latinLangs);
+    // Aufgedrucktes „SC“ hinter der Sammlernummer: chinesischer Druck, ein positiver Beleg wie echte Han-Zeichen
+    if (han && printedLanguageCode(latinText) === 'zh-CN') return { lang: han, scores, reason: 'han' };
     const only = latinLangs.length === 1 && !han;
     const lang = only ? latinLangs[0] : pickLatin(scores, latinLangs, options.minWords);
     // Chinesischer Text ergibt mit dem Latin-Modell Zeichensalat, der zufällig kurze englische Wörter
@@ -251,6 +254,7 @@ export async function detectLanguage(
   if (han) {
     const text = (hanText = await read('han'));
     scores[han] = scoreHan(text, texts[han]);
+    if (printedLanguageCode(text) === 'zh-CN') return { lang: han, scores, reason: 'han' };
     // Karten mit kaum Text (Runen: nur der Name): dann reicht die Hälfte der chinesischen Zeichen, mindestens 2
     const minHan = Math.max(2, Math.min(options.minHan, Math.ceil(hanChars(texts[han] ?? '').size / 2)));
     // Ohne Vergleichstext reichen viele Han-Zeichen; mit Vergleichstext müssen auch ein paar davon passen,

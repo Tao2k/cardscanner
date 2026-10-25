@@ -95,6 +95,11 @@ describe('Spracherkennung', () => {
     expect(printedLanguageCode('VEN » 159/166 + EN # Grafit Studio')).toBe('en');
     expect(printedLanguageCode('OGN - 049/298 / Six More Vodka')).toBeNull();
     expect(printedLanguageCode('Deal 3 damage. ENEMY')).toBeNull();
+    // Chinesische Rune: „SC“ = vereinfachtes Chinesisch
+    expect(printedLanguageCode('- à v ef ; / RAD + RO4a + SC = Veon Art Studio')).toBe('zh-CN');
+    expect(printedLanguageCode('一 总 ea RAD。R04a。SC .Yeon Art Studio')).toBe('zh-CN');
+    const zhRune = reader('ii', '一 总 ea RAD。R04a。SC .Yeon Art Studio');
+    expect((await detectLanguage(zhRune.read, { en: 'Body Rune' }, LANGS, undefined, { match: () => 0, noLatinBelow: 0.08 })).lang).toBe('zh-CN');
     const r = reader('bé ) | ®) BRUNE La | RAD - R06 - EN »/ Greg', '了 RUMNE 人');
     expect((await detectLanguage(r.read, { en: 'Order Rune' }, LANGS, undefined, { match: () => 0, noLatinBelow: 0.08 })).lang).toBe('en');
   });
