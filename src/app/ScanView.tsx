@@ -34,6 +34,8 @@ interface Props {
   service: CollectionService;
   learning: LearningService;
   onChange(): void;
+  /** Ein Exemplar wurde per Scan hinzugefügt (+1) oder rückgängig gemacht (−1), für den Hinweis am Tab „Sammlung“. */
+  onAdded(delta: number): void;
   /** Eigene Scans haben sich geändert; die Erkennung soll sie neu einlesen. */
   onLearn(): void;
 }
@@ -154,7 +156,7 @@ function languageReason(guess: LanguageGuess | null, label: string): string | un
   return undefined;
 }
 
-export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onLearn }: Props) {
+export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onAdded, onLearn }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stabilizer = useRef(new Stabilizer());
@@ -391,6 +393,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       alternatives: [stable.index, ...stable.alternatives].map((i) => printings[i].printingId).filter((id) => id !== printing.printingId),
     };
     const result = await service.addScan(input);
+    onAdded(1);
     // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
     const sample = vector
       ? await learning
@@ -509,6 +512,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   const undo = async (saved: Saved) => {
     await service.undo(saved.result);
+    onAdded(-1);
     if (saved.sample) await learning.forget(saved.sample.sampleId);
     setRecent((r) => r.filter((s) => s !== saved));
     stabilizer.current.reset();

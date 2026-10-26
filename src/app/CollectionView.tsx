@@ -5,7 +5,7 @@ import type { CollectionItem, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingCode } from './format';
 import { nameIn } from '../core/catalog';
-import { collectionValue, formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
+import { formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
 import type { CollectionSort, Prefs } from './prefs';
 import { collectionMovers, moverKey, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
@@ -118,8 +118,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const sets = groupBySet(rows, (r) => ({ gameId: r.gameId, code: r.printing?.setCode ?? '' }), catalogs.sets);
   for (const g of sets) g.rows.sort(order[prefs.collectionSort] ?? byNumber);
   const collapsed = new Set(prefs.collectionCollapsed);
-  const total = items.reduce((n, i) => n + i.quantity, 0);
-  const value = collectionValue(items, catalogs.price, catalogs.lookup);
   const priceSources = [...new Set(items.map((i) => i.gameId))].map((g) => catalogs.prices.get(g)).filter((f) => !!f);
 
   const lastExport = prefs.lastExportAt ? new Date(prefs.lastExportAt) : null;
@@ -252,21 +250,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
       <header>
         <h1>Sammlung</h1>
       </header>
-      <div class="stats-row">
-        <div class="stat">
-          <span>Karten</span>
-          <strong>{total}</strong>
-        </div>
-        <div class="stat">
-          <span>Einträge</span>
-          <strong>{items.length}</strong>
-        </div>
-        <div class="stat accent">
-          <span>Wert</span>
-          <strong>{priceSources.length > 0 ? formatEur(value.total) : '–'}</strong>
-          {value.unpriced > 0 && priceSources.length > 0 && <small>{value.unpriced} ohne Preis</small>}
-        </div>
-      </div>
       {exportDue && items.length > 0 && (
         <p class="banner">
           {infoIcon}

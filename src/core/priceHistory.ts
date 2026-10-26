@@ -315,3 +315,14 @@ export function collectionMovers(
 /** Für die Markierung in der Sammlung: stark bewegte Drucke, Schlüssel „gameId|printingId|finish“. */
 export type MoverLookup = Map<string, Mover>;
 export const moverKey = (item: Pick<CollectionItem, 'gameId' | 'printingId' | 'finish'>) => `${item.gameId}|${item.printingId}|${item.finish}`;
+
+/**
+ * Preiswarnungen: Drucke, deren Preis deutlich gestiegen ist (isStrong), gemessen am zuletzt gemeldeten Preis
+ * (`seen`, Schlüssel moverKey) bzw., solange noch keine Warnung kam, am Vergleichspreis des Zeitraums.
+ */
+export function priceAlerts(movers: Mover[], seen: Record<string, number>): Mover[] {
+  return movers.filter((m) => {
+    const base = seen[moverKey(m)] ?? m.from;
+    return m.to > base && isStrong(base, m.to);
+  });
+}

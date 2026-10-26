@@ -291,9 +291,9 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .chart.small.down { color: var(--down); }
 .chart.small svg { width: 100%; height: 64px; display: block; overflow: visible; }
 .chart .line, .value-chart .line { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
-.value-chart { margin: 10px 0 4px; color: var(--accent-text); display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; }
-.value-chart.up { color: var(--success-text); }
-.value-chart.down { color: var(--down); }
+.value-chart { --chart: var(--accent-text); margin: 10px 0 4px; color: var(--chart); display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; }
+.value-chart.up { --chart: var(--success-text); }
+.value-chart.down { --chart: var(--down); }
 .value-chart .plot { position: relative; touch-action: pan-y; cursor: crosshair; user-select: none; -webkit-user-select: none; }
 .value-chart svg { width: 100%; height: 170px; display: block; overflow: visible; }
 .value-chart .grid { stroke: var(--border); stroke-width: 1; }
@@ -302,7 +302,10 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .value-chart .y-axis, .value-chart .x-axis { position: relative; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .value-chart .y-axis { min-width: 32px; }
 .value-chart .y-axis span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
-.value-chart .y-axis .size { display: block; visibility: hidden; height: 0; overflow: hidden; font-style: normal; white-space: nowrap; }
+.value-chart .y-axis .now { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; background: var(--chart); border-radius: 6px; padding: 2px 6px; font-weight: 700; }
+.value-chart .y-axis .now span { position: static; transform: none; color: var(--bg); }
+.tag.new { background: var(--accent); color: var(--on-accent); margin-left: 6px; vertical-align: 2px; }
+.value-chart .y-axis .size { display: block; visibility: hidden; height: 0; overflow: hidden; font-style: normal; font-weight: 700; white-space: nowrap; padding: 0 6px; }
 .value-chart .x-axis { height: 18px; margin-top: 6px; }
 .value-chart .x-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .value-chart .x-axis span.first { transform: none; }

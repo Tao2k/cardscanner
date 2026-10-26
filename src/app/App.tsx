@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
 import { loadPrices, type PriceEntry, type PriceFile } from '../core/prices';
-import { collectionMovers, loadPriceHistory, moverKey, type PriceHistoryFile } from '../core/priceHistory';
+import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHistoryFile } from '../core/priceHistory';
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
 import { LearningService } from '../core/learning';
@@ -118,14 +118,36 @@ export function App() {
   }, []);
 
   const toReview = items.filter((i) => !i.confirmed).length;
-  const total = items.reduce((n, i) => n + i.quantity, 0);
   const movers = useMemo(
-    () =>
-      catalogs
-        ? new Map(collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod, catalogs.price).filter((m) => m.strong).map((m) => [moverKey(m), m]))
-        : new Map(),
+    () => (catalogs ? collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod, catalogs.price) : []),
     [items, histories, catalogs, prefs.pricePeriod],
   );
+  // Preiswarnungen: deutlich gestiegene eigene Karten, seit der letzten Warnung zu dieser Karte
+  const [seenPrices, setSeenPrices] = useState<Record<string, number>>(loadSeenPrices);
+  const alerts = useMemo(() => priceAlerts(movers, seenPrices), [movers, seenPrices]);
+  /** Warnungen, die beim Öffnen von „Preise“ neu waren; dort als „Neu“ markiert, bis man den Tab verlässt. */
+  const [freshAlerts, setFreshAlerts] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (tab === 'collection' && prefs.newScans) setPrefs({ newScans: 0 });
+    if (tab !== 'prices') {
+      if (freshAlerts.size) setFreshAlerts(new Set());
+      return;
+    }
+    if (!alerts.length) return;
+    setFreshAlerts((fresh) => new Set([...fresh, ...alerts.map(moverKey)]));
+    const next = { ...seenPrices, ...Object.fromEntries(alerts.map((m) => [moverKey(m), m.to])) };
+    setSeenPrices(next);
+    saveSeenPrices(next);
+  }, [tab, alerts, prefs.newScans]);
+
+  /** Gescannt oder rückgängig gemacht: Zähler am Tab „Sammlung“ (funktional, weil mehrere Scans schnell folgen können). */
+  const countScan = (delta: number) =>
+    setPrefsState((p) => {
+      const next = { ...p, newScans: Math.max(0, p.newScans + delta) };
+      savePrefs(next);
+      return next;
+    });
 
   return (
     <div class="app">
@@ -153,6 +175,7 @@ export function App() {
             service={service}
             learning={learning}
             onChange={refresh}
+            onAdded={countScan}
             onLearn={relearn}
           />
         )}
@@ -160,7 +183,7 @@ export function App() {
           <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} />
         )}
         {tab === 'prices' && catalogs && (
-          <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} />
+          <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} fresh={freshAlerts} />
         )}
         {tab === 'review' && catalogs && (
           <ReviewView
@@ -182,11 +205,11 @@ export function App() {
         </button>
         <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
           {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
-          Sammlung {total > 0 && <span class="count" key={total}>{total}</span>}
+          Sammlung {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
         </button>
         <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>
           {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
-          Preise {movers.size > 0 && <span class="count accent">{movers.size}</span>}
+          Preise {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
         </button>
         <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
           {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
@@ -206,4 +229,23 @@ function tabIcon(d: string) {
       </svg>
     </span>
   );
+}
+
+const SEEN_KEY = 'cardscanner.priceSeen';
+
+/** Zuletzt gemeldeter Preis je Druck und Ausführung (Schlüssel moverKey). */
+function loadSeenPrices(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveSeenPrices(seen: Record<string, number>) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+  } catch {
+    /* ohne Speicher kommen die Warnungen beim nächsten Start erneut */
+  }
 }
