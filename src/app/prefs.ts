@@ -18,12 +18,14 @@ export interface Prefs {
   lastExportAt: string | null;
   /** Reihenfolge der Sammlung: zuletzt geändert, nach Set und Sammlernummer oder nach Preis. */
   collectionSort: CollectionSort;
+  /** Zeitraum im Tab „Preise“ in Tagen; null = gesamter Verlauf. */
+  pricePeriod: number | null;
 }
 
 export type CollectionSort = 'recent' | 'set' | 'price';
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent' };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', pricePeriod: 30 };
 
 export function loadPrefs(): Prefs {
   try {

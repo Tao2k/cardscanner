@@ -837,10 +837,22 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         )}
         {!running && (
           <div class="overlay">
+            <div class="frame" aria-hidden="true">
+              <svg viewBox="0 0 63 88" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 18V8a6 6 0 0 1 6-6h10M45 2h10a6 6 0 0 1 6 6v10M61 70v10a6 6 0 0 1-6 6H45M18 86H8a6 6 0 0 1-6-6V70" />
+              </svg>
+              {ready && <span />}
+            </div>
             {camError && <p class="banner error">{camError}</p>}
             <button class="primary big" disabled={!ready} onClick={() => { setCamError(null); setRunning(true); }}>
-              {ready ? 'Scannen starten' : status || 'Lade …'}
+              Scannen starten
             </button>
+            {!ready && (
+              <p class={`status${status.startsWith('Fehler') ? ' error' : ''}`} role="status">
+                {!status.startsWith('Fehler') && <span class="spinner" />}
+                {status || 'Lade …'}
+              </p>
+            )}
           </div>
         )}
         {running && (
@@ -897,8 +909,20 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       {fixing && fixed && renderFix(fixed, fixing.kind)}
       {settingsOpen && renderSettings()}
 
-      {recent.length === 0 && <p class="muted hint">Halte eine Karte in den Rahmen. Erkannte Karten landen automatisch in deiner Sammlung.</p>}
+      {recent.length === 0 && (
+        <ol class="steps" aria-label="So geht's">
+          <li><b>1</b>Karte in den Rahmen halten</li>
+          <li><b>2</b>Wird erkannt und gespeichert</li>
+          <li><b>3</b>Unsichere Treffer unter „Prüfen“</li>
+        </ol>
+      )}
 
+      {recent.length > 0 && (
+        <div class="section-title">
+          <h2>Zuletzt gescannt</h2>
+          <small class="muted">{recent.reduce((n, s) => n + s.result.item.quantity, 0)} Karten</small>
+        </div>
+      )}
       {recent.length > 0 && (
         <ul class="recent">
           {recent.map((s) => {
@@ -914,12 +938,16 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                   <span class="info">
                     <strong>{s.printing.cardName}</strong>
                     <small>
-                      {printingCode(s.printing)} · {language}
-                      {item.finish === 'foil' ? ' · Foil' : ''} · ×{item.quantity}
+                      {printingCode(s.printing)} · {language} · ×{item.quantity}
                     </small>
-                    {!item.confirmed && <em class="warn">Liegt unter „Prüfen“</em>}
-                    {s.verified && <em class="ok">✓ bestätigt</em>}
-                    {!s.verified && s.languageNote?.startsWith('Sprache nicht sicher') && <em class="warn">Sprache unsicher</em>}
+                    {(item.finish === 'foil' || !item.confirmed || s.verified || s.languageNote?.startsWith('Sprache nicht sicher')) && (
+                      <span class="line">
+                        {item.finish === 'foil' && <em class="tag foil">Foil</em>}
+                        {!item.confirmed && <em class="tag warn">Liegt unter „Prüfen“</em>}
+                        {s.verified && <em class="tag up">✓ bestätigt</em>}
+                        {!s.verified && s.languageNote?.startsWith('Sprache nicht sicher') && <em class="tag warn">Sprache unsicher</em>}
+                      </span>
+                    )}
                   </span>
                   {priceOf(item, s.printing) && <span class="price">{priceOf(item, s.printing)}</span>}
                   <button class={`icon${open ? ' open' : ''}`} aria-label="Details" aria-expanded={open} onClick={() => setDetails(open ? null : s.key)}>

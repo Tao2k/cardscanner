@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # write: Preisverlauf im Zweig price-history fortschreiben
+  contents: write
   pages: write
   id-token: write
 
@@ -42,6 +43,25 @@ jobs:
         # Fällt die Preisquelle aus, erscheint die App trotzdem, nur ohne Preise.
         continue-on-error: true
         run: npm run prices -- riftbound
+      - name: Preisverlauf fortschreiben
+        # Cardmarket kennt nur den heutigen Preis; der Verlauf liegt dauerhaft im Zweig price-history.
+        continue-on-error: true
+        run: |
+          if git ls-remote --exit-code --heads origin price-history > /dev/null; then
+            git fetch --depth=1 origin price-history:price-history
+            git worktree add .history price-history
+          else
+            [ $? -eq 2 ] || exit 1  # Zweig fehlt wirklich (nicht nur Netzfehler)
+            git worktree add --detach .history
+            git -C .history checkout --orphan price-history
+            git -C .history rm -rf -q --ignore-unmatch .
+          fi
+          npm run price-history -- riftbound --history .history
+          cd .history
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898273+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Preisstand $(date -u +%F)" || exit 0
+          git push origin price-history
       - name: App bauen
         run: npm run build
         env:

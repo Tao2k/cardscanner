@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "catalog": "tsx scripts/build-catalog.ts",
     "prices": "tsx scripts/build-prices.ts",
+    "price-history": "tsx scripts/build-price-history.ts",
     "eval": "tsx scripts/eval-recognition.ts"
   },
   "dependencies": {
