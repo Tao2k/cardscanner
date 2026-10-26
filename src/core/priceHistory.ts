@@ -156,6 +156,11 @@ export function collectionSeries(
   return dates.map((date, i) => ({ date, value: Math.round(totals[i] * 100) / 100 }));
 }
 
+/** Tag `days` Tage vor `day`, z. B. shiftDay('2026-10-26', -30). */
+export function shiftDay(day: string, days: number): string {
+  return new Date((dayNumber(day) + days) * 86_400_000).toISOString().slice(0, 10);
+}
+
 /** Index des Vergleichstags: letzter Tag, der mindestens `days` vor dem neuesten liegt, sonst der erste. */
 export function startIndex(dates: string[], days: number | null): number {
   if (!dates.length || days === null) return 0;
@@ -180,6 +185,54 @@ export function basisFor(history: PriceHistoryFile | undefined, days: number | n
     if (span >= Math.min(days ?? Infinity, 30)) return { kind: 'history', since: dates[startIndex(dates, days)] };
   }
   return { kind: 'average', days: days === 7 ? 7 : 30 };
+}
+
+/** Punkt im Wertverlauf; `average` = Wert zu Cardmarkets Durchschnitt der letzten 7 bzw. 30 Tage statt eines Tagespreises. */
+export interface ChartPoint {
+  date: string;
+  value: number;
+  average?: 7 | 30;
+}
+
+/**
+ * Wert der Sammlung zu Cardmarkets Durchschnittspreis der letzten `days` Tage. Karten ohne Durchschnitt zählen mit
+ * dem heutigen Preis, Karten ganz ohne Preis gar nicht (wie beim Gesamtwert). undefined, wenn es keine Durchschnitte gibt.
+ */
+export function averageValue(
+  items: CollectionItem[],
+  prices: PriceLookup,
+  lookup: (gameId: string, printingId: string) => Printing | undefined,
+  days: 7 | 30,
+): number | undefined {
+  let total = 0;
+  let found = false;
+  for (const item of items) {
+    const entry = prices(item.gameId, item.printingId);
+    const printing = lookup(item.gameId, item.printingId);
+    const now = priceFor(entry, item.finish, printing);
+    if (now === undefined) continue;
+    const average = priceFor(days === 7 ? { n: entry?.a7, f: entry?.a7f } : { n: entry?.a30, f: entry?.a30f }, item.finish, printing);
+    if (average !== undefined) found = true;
+    total += (average ?? now) * item.quantity;
+  }
+  return found ? Math.round(total * 100) / 100 : undefined;
+}
+
+/**
+ * Wertverlauf für den Zeitraum, endend mit dem heutigen Wert. Solange der eigene Verlauf den Zeitraum nicht abdeckt,
+ * beginnt er mit dem Wert zu Cardmarkets 30- bzw. 7-Tage-Durchschnitt am Anfang des jeweiligen Fensters; das ist
+ * derselbe Vergleich wie bei den einzelnen Karten (basisFor).
+ */
+export function valueChart(series: ValuePoint[], today: ValuePoint, days: number | null, averages: Partial<Record<7 | 30, number>>): ChartPoint[] {
+  const all: ChartPoint[] = [...series.filter((p) => p.date < today.date), today];
+  const points = all.slice(startIndex(all.map((p) => p.date), days));
+  const estimates: ChartPoint[] = [];
+  for (const w of [30, 7] as const) {
+    const value = averages[w];
+    const date = shiftDay(today.date, -w);
+    if (value !== undefined && (days === null || w <= days) && date < points[0].date) estimates.push({ date, value, average: w });
+  }
+  return [...estimates, ...points];
 }
 
 export interface Mover {

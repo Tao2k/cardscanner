@@ -20,12 +20,17 @@ export interface Prefs {
   collectionSort: CollectionSort;
   /** Zeitraum im Tab „Preise“ in Tagen; null = gesamter Verlauf. */
   pricePeriod: number | null;
+  /** Reihenfolge der Karten im Tab „Preise“ (innerhalb eines Sets). */
+  priceSort: PriceSort;
+  /** Eingeklappte Sets im Tab „Preise“, Schlüssel „gameId|setCode“. */
+  priceCollapsed: string[];
 }
 
 export type CollectionSort = 'recent' | 'set' | 'price';
+export type PriceSort = 'value' | 'gain' | 'loss' | 'change' | 'number';
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', pricePeriod: 30 };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
