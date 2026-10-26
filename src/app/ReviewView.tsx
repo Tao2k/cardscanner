@@ -65,7 +65,6 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
     <section class="review">
       <header>
         <h1>Prüfen</h1>
-        {open.length > 0 && <p class="muted">Bei diesen Karten war die Erkennung knapp. Tippe auf die richtige Karte, daraus lernt die Erkennung.</p>}
       </header>
       {!open.length && (
         <div class="empty-state">
@@ -73,7 +72,6 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
             <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5" />
           </svg>
           <strong>Alles bestätigt</strong>
-          <p>Keine unsicheren Treffer. Knappe Erkennungen landen hier.</p>
         </div>
       )}
       {open.map((item) => {
@@ -94,7 +92,7 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
               <>
                 <input
                   type="search"
-                  placeholder="Name oder Nummer, z. B. OGN-042"
+                  placeholder="Name oder Nummer"
                   value={query}
                   autoFocus
                   onInput={(e) => setQuery(e.currentTarget.value)}
@@ -120,10 +118,8 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
       })}
       {learned && (
         <p class="muted learned">
-          {learned.userSamples
-            ? `Die Erkennung hat ${learned.userSamples} ${learned.userSamples === 1 ? 'Foto' : 'Fotos'} von dir gelernt`
-            : 'Die Erkennung hat noch keine Fotos von dir gelernt'}
-          {learned.shiftSamples >= 5 ? ' und passt sich an deine Kamera an.' : '.'}
+          Gelernt: {learned.userSamples} {learned.userSamples === 1 ? 'Foto' : 'Fotos'}
+          {learned.shiftSamples >= 5 ? ' · an deine Kamera angepasst' : ''}
           {learned.userSamples + learned.shiftSamples > 0 && <button class="link" onClick={reset}>Zurücksetzen</button>}
         </p>
       )}

@@ -55,8 +55,9 @@ describe('Cardmarket-Zuordnung', () => {
   });
 
   it('nimmt den Trendpreis, sonst Durchschnitte, nie den Tiefstpreis', () => {
-    expect(guideEntry({ idProduct: 1, trend: 2.5, avg7: 3, low: 0.1, 'trend-foil': 0, 'avg7-foil': 4 })).toEqual({ n: 2.5, f: 4 });
-    expect(guideEntry({ idProduct: 1, trend: null, avg7: null, avg30: 1.2 })).toEqual({ n: 1.2 });
+    expect(guideEntry({ idProduct: 1, trend: 2.5, avg7: 3, low: 0.1, 'trend-foil': 0, 'avg7-foil': 4 })).toEqual({ n: 2.5, f: 4, a7: 3, a7f: 4 });
+    expect(guideEntry({ idProduct: 1, trend: null, avg7: null, avg30: 1.2 })).toEqual({ n: 1.2, a30: 1.2 });
+    expect(guideEntry({ idProduct: 1, trend: 2, avg7: 1.8, avg30: 1.5, 'avg30-foil': 9 })).toEqual({ n: 2, f: 9, a7: 1.8, a30: 1.5, a30f: 9 });
     expect(guideEntry({ idProduct: 1, low: 0.5 })).toBeUndefined();
   });
 

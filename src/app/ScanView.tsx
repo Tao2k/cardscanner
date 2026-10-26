@@ -346,8 +346,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       const detected = languageGuess?.lang ?? imageLanguage;
       language = detected ?? lastLanguage.current ?? languages[0];
       if (!detected) {
-        const slow = captured.timedOut.has('han') ? ' (chinesische Texterkennung zu langsam)' : '';
-        languageNote = `Sprache nicht sicher erkannt${slow}, angenommen: ${labelOf(gameId, language)}. Falsch? „Falsch“ antippen.`;
+        const slow = captured.timedOut.has('han') ? ' (Texterkennung zu langsam)' : '';
+        languageNote = `Sprache unsicher${slow}, angenommen: ${labelOf(gameId, language)}`;
       } else {
         languageNote = languageGuess?.lang ? languageReason(languageGuess, labelOf(gameId, language)) : `Sprache ${labelOf(gameId, language)}: am Kartenbild erkannt`;
       }
@@ -360,7 +360,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       ? undefined
       : conditionGuess?.condition
         ? 'Zustand geschätzt'
-        : `Zustand nicht geschätzt (${conditionGuess?.reason ?? 'unbekannt'}), Standard ${p.condition}`;
+        : `Zustand nicht geschätzt, Standard ${p.condition}`;
     // Foil: gibt es den Druck nur in einer Ausführung, steht sie fest; sonst entscheidet das Foto
     let finish = p.finish;
     let finishNote: string | undefined;
@@ -370,13 +370,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       const foil = analysis?.foil;
       if (finishes.length === 1) {
         finish = finishes[0];
-        finishNote = finish === 'foil' ? 'Foil (gibt es nur als Foil)' : undefined;
+        finishNote = finish === 'foil' ? 'Nur als Foil gedruckt' : undefined;
       } else if (foil && foil.foil !== null) {
         finish = foil.foil ? 'foil' : 'normal';
-        finishNote = `${foil.foil ? 'Foil erkannt' : 'Kein Foil erkannt'} (Schimmer ${Math.round(foil.score * 100)} %, Foil ab ${Math.round(foilShareRef.current * 100)} %). Falsch? „Falsch“ antippen, daraus lernt die Erkennung.`;
+        finishNote = `${foil.foil ? 'Foil' : 'Kein Foil'} (Schimmer ${Math.round(foil.score * 100)} %, Grenze ${Math.round(foilShareRef.current * 100)} %)`;
         foilScore = foil.score;
       } else {
-        finishNote = `Foil nicht geprüft, Karte nicht sicher gefunden; Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
+        finishNote = `Foil nicht geprüft, Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
       }
     }
     const input: ScanInput = {
@@ -687,14 +687,14 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       'Was war falsch?',
       <>
         <h2>Was war falsch?</h2>
-        <p class="muted">{printingLabel(s.printing)}. Daraus lernt die Erkennung.</p>
+        <p class="muted">{printingLabel(s.printing)}</p>
         {chips('Was war falsch', kinds, kind ?? ('' as FixKind), (k) => setFixing({ key: s.key, kind: k }))}
         {kind === 'card' && (
           <>
             {alternatives.length > 0 && candidateButtons(alternatives, (p) => correctCard(s, p))}
-            <input type="search" placeholder="Name oder Nummer suchen" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
+            <input type="search" placeholder="Name oder Nummer" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
             {candidateButtons(searchCatalog(s.input.gameId, fixQuery), (p) => correctCard(s, p))}
-            <button onClick={() => flag(s)}>Weiß ich gerade nicht, unter „Prüfen“ ablegen</button>
+            <button onClick={() => flag(s)}>Später prüfen</button>
           </>
         )}
         {kind === 'variant' && candidateButtons(variants, (p) => correctCard(s, p))}
@@ -728,7 +728,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       'Einstellungen',
       <>
         <h2>Einstellungen</h2>
-        <p class="muted">Normalerweise erkennt die App das selbst. Lege es nur fest, wenn du einen ganzen Stapel gleicher Art scannst.</p>
         {catalogs && catalogs.games.length > 1 && (
           <label class="field">
             <span>Spiel</span>
@@ -765,8 +764,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         </div>
         {accuracy && (
           <p class="muted stats">
-            Genauigkeit bisher: {accuracy}. Nachgefragt: {stats.asked}×.
-            {extraMargin > 0 && ' Wegen gemeldeter Fehler fragt der Scanner jetzt öfter nach.'}
+            Genauigkeit: {accuracy} · Nachgefragt: {stats.asked}×
           </p>
         )}
         <p class="muted stats version">
@@ -868,9 +866,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                 ✓ {added} hinzugefügt{addedPrice && <b> · {addedPrice}</b>}
               </span>
             ) : holding ? (
-              <span>Gespeichert. Nächste Karte in den Rahmen legen.</span>
+              <span>Gespeichert. Nächste Karte.</span>
             ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (
-              <span>Noch unsicher, Karte ruhig halten …</span>
+              <span>Karte ruhig halten …</span>
             ) : guess ? (
               <span>
                 {guess.printing.cardName} · {Math.round(guess.score * 100)} %
@@ -893,14 +891,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             <h2>Welche Karte ist es?</h2>
             <p class="muted">
               {question.reason === 'conflict'
-                ? 'Bild und Kartentext passen nicht zur selben Karte.'
+                ? 'Bild und Text passen nicht zusammen'
                 : question.reason === 'variant'
-                  ? 'Karte am Text erkannt, aber nicht welche Variante.'
-                  : `Nur zu etwa ${Math.round(question.captured.stable.confidence * 100)} % sicher.`}{' '}
-              Tippe auf die richtige, daraus lernt die Erkennung.
+                  ? 'Variante unklar'
+                  : `${Math.round(question.captured.stable.confidence * 100)} % sicher`}
             </p>
             {candidateButtons(question.candidates, (p) => answer(p))}
-            <input type="search" placeholder="Keine davon? Name oder Nummer suchen" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
+            <input type="search" placeholder="Name oder Nummer" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
             {searchResults.length > 0 && candidateButtons(searchResults, (p) => answer(p))}
             <button class="ghost" onClick={() => answer(null)}>Nicht speichern, neu scannen</button>
           </>,
@@ -908,14 +905,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
       {fixing && fixed && renderFix(fixed, fixing.kind)}
       {settingsOpen && renderSettings()}
-
-      {recent.length === 0 && (
-        <ol class="steps" aria-label="So geht's">
-          <li><b>1</b>Karte in den Rahmen halten</li>
-          <li><b>2</b>Wird erkannt und gespeichert</li>
-          <li><b>3</b>Unsichere Treffer unter „Prüfen“</li>
-        </ol>
-      )}
 
       {recent.length > 0 && (
         <div class="section-title">
@@ -940,12 +929,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     <small>
                       {printingCode(s.printing)} · {language} · ×{item.quantity}
                     </small>
-                    {(item.finish === 'foil' || !item.confirmed || s.verified || s.languageNote?.startsWith('Sprache nicht sicher')) && (
+                    {(item.finish === 'foil' || !item.confirmed || s.verified || s.languageNote?.startsWith('Sprache unsicher')) && (
                       <span class="line">
                         {item.finish === 'foil' && <em class="tag foil">Foil</em>}
                         {!item.confirmed && <em class="tag warn">Liegt unter „Prüfen“</em>}
                         {s.verified && <em class="tag up">✓ bestätigt</em>}
-                        {!s.verified && s.languageNote?.startsWith('Sprache nicht sicher') && <em class="tag warn">Sprache unsicher</em>}
+                        {!s.verified && s.languageNote?.startsWith('Sprache unsicher') && <em class="tag warn">Sprache unsicher</em>}
                       </span>
                     )}
                   </span>

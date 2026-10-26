@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendSnapshot, collectionMovers, collectionSeries, isStrong, startIndex, type PriceHistoryFile } from '../src/core/priceHistory';
+import { appendSnapshot, basisFor, collectionMovers, collectionSeries, isStrong, startIndex, type PriceHistoryFile } from '../src/core/priceHistory';
 import type { PriceFile, PriceEntry } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
@@ -96,6 +96,34 @@ describe('Preisverlauf', () => {
     expect(movers).toHaveLength(1);
     expect(movers[0]).toMatchObject({ quantity: 3, from: 2, to: 3, strong: true });
     expect(movers[0].series).toEqual([2, 3]);
+  });
+
+  it('vergleicht mit Cardmarkets Durchschnitt, solange der eigene Verlauf zu kurz ist', () => {
+    const h = build([['2026-10-26', { a: { n: 3, a7: 2.4, a30: 2 } }]]);
+    const histories = new Map([['riftbound', h]]);
+    const prices = (_g: string, id: string): PriceEntry | undefined => (id === 'a' ? { n: 3, a7: 2.4, a30: 2 } : id === 'b' ? { n: 1 } : undefined);
+    const [week] = collectionMovers([item('a')], histories, lookup, 7, prices);
+    expect(week).toMatchObject({ from: 2.4, to: 3, basis: { kind: 'average', days: 7 }, strong: true });
+    expect(week.pct).toBeCloseTo(0.25);
+    const [month] = collectionMovers([item('a')], histories, lookup, 30, prices);
+    expect(month).toMatchObject({ from: 2, to: 3, basis: { kind: 'average', days: 30 } });
+    expect(collectionMovers([item('a')], histories, lookup, null, prices)[0].basis).toEqual({ kind: 'average', days: 30 });
+    // ohne Durchschnitt und ohne Verlauf keine Aussage
+    expect(collectionMovers([item('b')], histories, lookup, 7, prices)).toHaveLength(0);
+  });
+
+  it('nimmt den eigenen Verlauf, sobald er den Zeitraum abdeckt', () => {
+    const h = build([
+      ['2026-10-01', { a: { n: 1 } }],
+      ['2026-10-20', { a: { n: 2 } }],
+      ['2026-10-31', { a: { n: 4 } }],
+    ]);
+    expect(basisFor(h, 7)).toEqual({ kind: 'history', since: '2026-10-20' });
+    expect(basisFor(h, 30)).toEqual({ kind: 'history', since: '2026-10-01' });
+    expect(basisFor(h, 365)).toEqual({ kind: 'history', since: '2026-10-01' });
+    expect(basisFor(build([['2026-10-20', {}], ['2026-10-31', {}]]), 30)).toEqual({ kind: 'average', days: 30 });
+    const [m] = collectionMovers([item('a')], new Map([['riftbound', h]]), lookup, 30, () => ({ n: 4, a30: 3.9 }));
+    expect(m).toMatchObject({ from: 1, to: 4, basis: { kind: 'history', since: '2026-10-01' } });
   });
 
   it('markiert nur deutliche Änderungen als stark', () => {
