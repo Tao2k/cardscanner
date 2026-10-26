@@ -1,13 +1,14 @@
-import { useState } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import type { CollectionService } from '../core/collection';
-import { exportOrder, exportWorkbook, importWorkbook } from '../core/excel';
-import type { CollectionItem } from '../core/types';
+import { compareCollectorNumbers, exportOrder, exportWorkbook, importWorkbook } from '../core/excel';
+import type { CollectionItem, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingCode } from './format';
 import { nameIn } from '../core/catalog';
-import { collectionValue, formatAsOf, formatEur, itemPrice } from '../core/prices';
+import { collectionValue, formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
 import type { CollectionSort, Prefs } from './prefs';
-import { moverKey, type MoverLookup } from '../core/priceHistory';
+import { collectionMovers, moverKey, type Mover, type PriceHistoryFile } from '../core/priceHistory';
+import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
 
 interface Props {
   items: CollectionItem[];
@@ -15,10 +16,26 @@ interface Props {
   service: CollectionService;
   prefs: Prefs;
   setPrefs(patch: Partial<Prefs>): void;
-  /** Stark gestiegene oder gefallene Drucke (Zeitraum wie im Tab „Preise“). */
-  movers: MoverLookup;
+  /** Preisverlauf je Spiel, für die Preisentwicklung wie im Tab „Preise“. */
+  histories: Map<string, PriceHistoryFile>;
   onChange(): void;
 }
+
+/** Zeile der Liste: ein Eintrag der Sammlung oder ein Druck, den man (noch) nicht hat. */
+interface Row {
+  key: string;
+  gameId: string;
+  printingId: string;
+  printing?: Printing;
+  item?: CollectionItem;
+  finish: Finish;
+  price?: number;
+}
+
+/** Ausführung, mit der ein fehlender Druck verglichen wird: Foil nur bei reinen Foil-Drucken. */
+const defaultFinish = (p: Printing): Finish => (p.finishes?.length === 1 && p.finishes[0] === 'foil' ? 'foil' : 'normal');
+const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
+const basisLabel = (m: Mover) => (m.basis.kind === 'history' ? `seit ${day(m.basis.since)}` : `ggü. Ø ${m.basis.days} Tage`);
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const EXPORT_REMINDER_DAYS = 7;
@@ -28,7 +45,7 @@ const SORTS: { value: CollectionSort; label: string }[] = [
   { value: 'price', label: 'Preis, teuerste zuerst' },
 ];
 
-export function CollectionView({ items, catalogs, service, prefs, setPrefs, movers, onChange }: Props) {
+export function CollectionView({ items, catalogs, service, prefs, setPrefs, histories, onChange }: Props) {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,19 +53,71 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
   /** Eintrag, dessen Sprache und Marktplatz-Link aufgeklappt sind. */
   const [open, setOpen] = useState<string | null>(null);
 
+  // Alle Drucke der Spiele in der Sammlung (und des gewählten Spiels), auch die, die man nicht hat
+  const catalogRows = useMemo(() => {
+    const games = new Set([prefs.gameId, ...items.map((i) => i.gameId)]);
+    const owned = new Set(items.map((i) => `${i.gameId}|${i.printingId}`));
+    const rows: Row[] = [];
+    for (const gameId of games) {
+      for (const printing of catalogs.byGame.get(gameId)?.values() ?? []) {
+        if (owned.has(`${gameId}|${printing.printingId}`)) continue;
+        const finish = defaultFinish(printing);
+        const price = priceFor(catalogs.price(gameId, printing.printingId), finish, printing);
+        rows.push({ key: `missing|${gameId}|${printing.printingId}`, gameId, printingId: printing.printingId, printing, finish, price });
+      }
+    }
+    return rows;
+  }, [items, catalogs, prefs.gameId]);
+
+  // Preisentwicklung wie im Tab „Preise“, für eigene und fehlende Karten
+  const movers = useMemo(() => {
+    const missing = catalogRows.map(
+      (r): CollectionItem => ({ itemId: r.key, gameId: r.gameId, printingId: r.printingId, language: '', quantity: 1, condition: 'NM', finish: r.finish, location: '', notes: '', confirmed: true, addedAt: '', updatedAt: '' }),
+    );
+    return new Map(collectionMovers([...items, ...missing], histories, catalogs.lookup, prefs.pricePeriod, catalogs.price).map((m) => [moverKey(m), m]));
+  }, [items, catalogRows, histories, catalogs, prefs.pricePeriod]);
+
   const q = query.trim().toLowerCase();
-  const rows = items
-    .map((item) => ({ item, printing: catalogs.lookup(item.gameId, item.printingId) }))
-    .filter(({ item, printing }) => !q || `${printing?.cardName} ${printing ? nameIn(printing, item.language) : ''} ${printing?.setCode} ${printing?.collectorNumber} ${item.location}`.toLowerCase().includes(q))
-    .map((row) => ({ ...row, price: itemPrice(row.item, catalogs.price, row.printing) }));
-  const bySet = exportOrder(catalogs.lookup, catalogs.sets);
-  rows.sort(
-    prefs.collectionSort === 'set'
-      ? (a, b) => bySet(a.item, b.item)
-      : prefs.collectionSort === 'price'
-        ? (a, b) => (b.price ?? -1) - (a.price ?? -1) || bySet(a.item, b.item)
-        : (a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt),
-  );
+  const matches = (printing: Printing | undefined, extra = '') =>
+    !q || `${printing?.cardName} ${printing?.setCode} ${printing?.collectorNumber} ${extra}`.toLowerCase().includes(q);
+  const ownedRows: Row[] = items
+    .map((item) => {
+      const printing = catalogs.lookup(item.gameId, item.printingId);
+      return { key: item.itemId, gameId: item.gameId, printingId: item.printingId, printing, item, finish: item.finish, price: itemPrice(item, catalogs.price, printing) };
+    })
+    .filter((r) => matches(r.printing, `${r.printing ? nameIn(r.printing, r.item.language) : ''} ${r.item.location}`));
+  const rows = [...ownedRows, ...(prefs.collectionOwnedOnly ? [] : catalogRows.filter((r) => matches(r.printing)))];
+
+  // Je Set: wie viele verschiedene Drucke man hat, von wie vielen, und ihr Wert
+  const setStats = new Map<string, { owned: Set<string>; total: number; value: number }>();
+  const statsOf = (gameId: string, code: string) => {
+    const key = `${gameId}|${code}`;
+    let stats = setStats.get(key);
+    if (!stats) setStats.set(key, (stats = { owned: new Set(), total: 0, value: 0 }));
+    return stats;
+  };
+  for (const r of catalogRows) statsOf(r.gameId, r.printing?.setCode ?? '').total++;
+  for (const item of items) {
+    const printing = catalogs.lookup(item.gameId, item.printingId);
+    const stats = statsOf(item.gameId, printing?.setCode ?? '');
+    if (!stats.owned.has(item.printingId)) stats.total++;
+    stats.owned.add(item.printingId);
+    stats.value += (itemPrice(item, catalogs.price, printing) ?? 0) * item.quantity;
+  }
+
+  const bySetOrder = exportOrder(catalogs.lookup, catalogs.sets);
+  const byNumber = (a: Row, b: Row) =>
+    compareCollectorNumbers(a.printing?.collectorNumber ?? '', b.printing?.collectorNumber ?? '') ||
+    (a.printing?.cardName ?? '').localeCompare(b.printing?.cardName ?? '') ||
+    (a.item && b.item ? bySetOrder(a.item, b.item) : a.item ? -1 : b.item ? 1 : 0);
+  const order: Record<CollectionSort, (a: Row, b: Row) => number> = {
+    set: byNumber,
+    price: (a, b) => (b.price ?? -1) - (a.price ?? -1) || byNumber(a, b),
+    recent: (a, b) => (b.item?.updatedAt ?? '').localeCompare(a.item?.updatedAt ?? '') || byNumber(a, b),
+  };
+  const sets = groupBySet(rows, (r) => ({ gameId: r.gameId, code: r.printing?.setCode ?? '' }), catalogs.sets);
+  for (const g of sets) g.rows.sort(order[prefs.collectionSort] ?? byNumber);
+  const collapsed = new Set(prefs.collectionCollapsed);
   const total = items.reduce((n, i) => n + i.quantity, 0);
   const value = collectionValue(items, catalogs.price, catalogs.lookup);
   const priceSources = [...new Set(items.map((i) => i.gameId))].map((g) => catalogs.prices.get(g)).filter((f) => !!f);
@@ -107,6 +176,77 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
     service.update(item.itemId, { quantity: item.quantity + delta }).then(onChange);
   };
 
+  const row = (r: Row) => {
+    const { item, printing } = r;
+    const mover = movers.get(`${r.gameId}|${r.printingId}|${r.finish}`);
+    const url = catalogs.price(r.gameId, r.printingId)?.url;
+    const languages = catalogs.languages.get(r.gameId) ?? [];
+    const language = item && languages.find((l) => l.code === item.language)?.label;
+    const expanded = open === r.key;
+    return (
+      <li key={r.key} class={[item ? '' : 'missing', mover?.strong ? `strong-${trend(mover.delta)}` : ''].join(' ').trim()}>
+        <div class="main">
+          {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
+          <button class="info" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.key)}>
+            <strong>{printing?.cardName ?? r.printingId}</strong>
+            <small>
+              {printing ? printingCode(printing) : ''}
+              {item && language ? ` · ${language}` : ''}
+              {item ? ` · ${item.condition}` : ''}
+              {item && item.quantity > 1 ? ` · ${item.quantity}×` : ''}
+              {item?.location ? ` · ${item.location}` : ''}
+            </small>
+            <span class="line">
+              {r.price !== undefined && <span class="price">{formatEur(r.price)}</span>}
+              {item?.finish === 'foil' && <em class="tag foil">Foil</em>}
+              {item && !item.confirmed && <em class="tag warn">ungeprüft</em>}
+            </span>
+          </button>
+          <MoveCol mover={mover} />
+        </div>
+        {expanded && (
+          <div class="details">
+            {item && (
+              <div class="qty-row">
+                <span>Anzahl</span>
+                <div class="qty">
+                  <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
+                  <span>{item.quantity}</span>
+                  <button onClick={() => changeQty(item, 1)} aria-label="mehr">+</button>
+                </div>
+                {r.price !== undefined && item.quantity > 1 && <small>zusammen {formatEur(r.price * item.quantity)}</small>}
+              </div>
+            )}
+            {item && languages.length > 1 && (
+              <div class="chips" role="radiogroup" aria-label="Sprache">
+                {languages.map((l) => (
+                  <button
+                    role="radio"
+                    aria-checked={item.language === l.code}
+                    class={item.language === l.code ? 'active' : ''}
+                    onClick={() => service.update(item.itemId, { language: l.code }).then(onChange)}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {mover && (
+              <small>
+                {SIGNED_EUR.format(mover.delta)} je Karte · {basisLabel(mover)}
+              </small>
+            )}
+            {url && (
+              <a href={url} target="_blank" rel="noopener">
+                Bei Cardmarket ansehen ↗
+              </a>
+            )}
+          </div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <section class="collection">
       <header>
@@ -155,18 +295,20 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
         </label>
       </div>
       {message && <p class="banner">{message}</p>}
-      {items.length > 0 && (
-        <div class="find">
-          <input type="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
-          <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            Sortieren
-          </button>
-        </div>
-      )}
-      {!items.length && (
+      <div class="find">
+        <input type="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+        <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Sortieren
+        </button>
+      </div>
+      <label class="check">
+        <input type="checkbox" checked={prefs.collectionOwnedOnly} onChange={(e) => setPrefs({ collectionOwnedOnly: e.currentTarget.checked })} />
+        Nur meine Karten
+      </label>
+      {!items.length && prefs.collectionOwnedOnly && (
         <div class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
@@ -174,71 +316,27 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
           <strong>Noch keine Karten</strong>
         </div>
       )}
-      <ul class="items">
-        {rows.slice(0, 300).map(({ item, printing, price }) => {
-          const url = catalogs.price(item.gameId, item.printingId)?.url;
-          const languages = catalogs.languages.get(item.gameId) ?? [];
-          const language = languages.find((l) => l.code === item.language)?.label;
-          const expanded = open === item.itemId;
-          const mover = movers.get(moverKey(item));
+      {q && !rows.length && <p class="muted none">Keine Karte</p>}
+      <div class="set-list">
+        {sets.map((g) => {
+          const stats = setStats.get(g.key);
+          const ownedMovers = [...new Map(g.rows.filter((r) => r.item).map((r) => [moverKey(r.item!), movers.get(moverKey(r.item!))])).values()].filter(
+            (m): m is Mover => !!m,
+          );
           return (
-            <li key={item.itemId}>
-              <div class="main">
-                {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
-                <button class="info" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : item.itemId)}>
-                  <strong>{printing?.cardName ?? item.printingId}</strong>
-                  <small>
-                    {printing ? `${printingCode(printing)} · ` : ''}
-                    {language ? `${language} · ` : ''}
-                    {item.condition}
-                    {item.location ? ` · ${item.location}` : ''}
-                  </small>
-                  <span class="line">
-                    {price !== undefined && <span class="price">{formatEur(price)}</span>}
-                    {mover && (
-                      <em class={`tag move ${mover.delta > 0 ? 'up' : 'down'}`} title={mover.delta > 0 ? 'stark gestiegen' : 'stark gefallen'}>
-                        {mover.delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(mover.pct * 100))} %
-                      </em>
-                    )}
-                    {item.finish === 'foil' && <em class="tag foil">Foil</em>}
-                    {!item.confirmed && <em class="tag warn">ungeprüft</em>}
-                  </span>
-                  {price !== undefined && item.quantity > 1 && <small>zusammen {formatEur(price * item.quantity)}</small>}
-                </button>
-                <div class="qty">
-                  <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
-                  <span>{item.quantity}</span>
-                  <button onClick={() => changeQty(item, 1)} aria-label="mehr">+</button>
-                </div>
-              </div>
-              {expanded && (
-                <div class="details">
-                  {languages.length > 1 && (
-                    <div class="chips" role="radiogroup" aria-label="Sprache">
-                      {languages.map((l) => (
-                        <button
-                          role="radio"
-                          aria-checked={item.language === l.code}
-                          class={item.language === l.code ? 'active' : ''}
-                          onClick={() => service.update(item.itemId, { language: l.code }).then(onChange)}
-                        >
-                          {l.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {url && (
-                    <a href={url} target="_blank" rel="noopener">
-                      Bei Cardmarket ansehen ↗
-                    </a>
-                  )}
-                </div>
-              )}
-            </li>
+            <SetSection
+              key={g.key}
+              name={g.name}
+              detail={`${stats?.owned.size ?? 0} von ${stats?.total ?? 0}${stats?.value ? ` · ${formatEur(stats.value)}` : ''}`}
+              change={groupChange(ownedMovers)}
+              open={!collapsed.has(g.key)}
+              onToggle={() => setPrefs({ collectionCollapsed: toggled(prefs.collectionCollapsed, g.key) })}
+            >
+              {g.rows.map(row)}
+            </SetSection>
           );
         })}
-      </ul>
-      {rows.length > 300 && <p class="muted">300 von {rows.length} angezeigt</p>}
+      </div>
       {sorting && (
         <>
           <div class="backdrop" onClick={() => setSorting(false)} />
