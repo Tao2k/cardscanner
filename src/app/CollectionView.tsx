@@ -88,7 +88,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
         return;
       }
       const ok = confirm(
-        `${imported.length} Einträge aus „${file.name}“ übernehmen? Die aktuelle Sammlung auf diesem Gerät wird dabei ersetzt.` +
+        `${imported.length} Einträge aus „${file.name}“ übernehmen? Die aktuelle Sammlung wird ersetzt.` +
           (errors.length ? `\n\n${errors.length} Zeilen werden übersprungen.` : ''),
       );
       if (!ok) return;
@@ -130,7 +130,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
       {exportDue && items.length > 0 && (
         <p class="banner">
           {infoIcon}
-          <span>Die Sammlung liegt nur auf diesem Gerät. Exportiere sie regelmäßig als Excel, damit nichts verloren geht.</span>
+          <span>{lastExport ? `Letzter Excel-Export: ${lastExport.toLocaleDateString('de-DE')}` : 'Noch nicht als Excel gesichert'}</span>
         </p>
       )}
       <div class="actions">
@@ -157,7 +157,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
       {message && <p class="banner">{message}</p>}
       {items.length > 0 && (
         <div class="find">
-          <input type="search" placeholder="Suchen (Name, Set, Nummer)" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+          <input type="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
           <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -172,7 +172,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
             <path d="M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
           </svg>
           <strong>Noch keine Karten</strong>
-          <p>Scanne deine erste Karte oder importiere eine Excel-Datei.</p>
         </div>
       )}
       <ul class="items">
@@ -239,7 +238,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, move
           );
         })}
       </ul>
-      {rows.length > 300 && <p class="muted">Es werden die ersten 300 Einträge angezeigt. Suche nutzen, um weitere zu finden.</p>}
+      {rows.length > 300 && <p class="muted">300 von {rows.length} angezeigt</p>}
       {sorting && (
         <>
           <div class="backdrop" onClick={() => setSorting(false)} />

@@ -10,6 +10,12 @@ export interface PriceEntry {
   n?: number;
   /** Preis der Foil-Ausführung. */
   f?: number;
+  /** Durchschnittlicher Verkaufspreis der letzten 7 bzw. 30 Tage (normal), Vergleich, solange der eigene Verlauf zu kurz ist. */
+  a7?: number;
+  a30?: number;
+  /** Dasselbe für Foil. */
+  a7f?: number;
+  a30f?: number;
   /** Produktseite beim Marktplatz. */
   url?: string;
 }

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { collectionMovers, collectionSeries, startIndex, STRONG_EUR, STRONG_MIN_EUR, STRONG_PCT, type Mover, type PriceHistoryFile } from '../core/priceHistory';
+import { basisFor, collectionMovers, collectionSeries, startIndex, type Basis, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { collectionValue, formatAsOf, formatEur } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
@@ -20,35 +20,47 @@ const PERIODS: { days: number | null; label: string }[] = [
   { days: 365, label: '1 Jahr' },
   { days: null, label: 'Alles' },
 ];
-const TOP = 5;
-const LIST_LIMIT = 150;
+const PAGE = 100;
+
+type Filter = 'all' | 'up' | 'down';
 
 const PCT = new Intl.NumberFormat('de-DE', { style: 'percent', maximumFractionDigits: 1, signDisplay: 'exceptZero' });
 const SIGNED_EUR = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', signDisplay: 'exceptZero' });
 const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
 const trend = (delta: number) => (delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat');
+const arrow = (delta: number) => (delta > 0 ? '▲' : delta < 0 ? '▼' : '');
+const basisLabel = (b: Basis) => (b.kind === 'history' ? `seit ${day(b.since)}` : `ggü. Ø ${b.days} Tage`);
 
 export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props) {
   const [open, setOpen] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [lowestFirst, setLowestFirst] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
   const days = prefs.pricePeriod;
 
   const series = collectionSeries(items, histories, catalogs.lookup);
-  const dates = series.map((p) => p.date);
-  const shown = series.slice(startIndex(dates, days));
-  const first = shown[0];
-  const last = shown[shown.length - 1];
+  const shown = series.slice(startIndex(series.map((p) => p.date), days));
   const now = collectionValue(items, catalogs.price, catalogs.lookup);
-  const change = first && last ? last.value - first.value : 0;
 
-  const movers = collectionMovers(items, histories, catalogs.lookup, days);
-  const strong = movers.filter((m) => m.strong);
-  const risers = strong.filter((m) => m.delta > 0).sort((a, b) => b.pct - a.pct).slice(0, TOP);
-  const fallers = strong.filter((m) => m.delta < 0).sort((a, b) => a.pct - b.pct).slice(0, TOP);
-  const all = [...movers].sort((a, b) => Math.abs(b.delta * b.quantity) - Math.abs(a.delta * a.quantity) || b.to - a.to);
+  const movers = collectionMovers(items, histories, catalogs.lookup, days, catalogs.price);
+  const basis = movers[0]?.basis ?? basisFor(histories.get(items[0]?.gameId ?? ''), days);
+  const fromTotal = movers.reduce((n, m) => n + m.from * m.quantity, 0);
+  const toTotal = movers.reduce((n, m) => n + m.to * m.quantity, 0);
+  const change = toTotal - fromTotal;
+  const ups = movers.filter((m) => m.strong && m.delta > 0).length;
+  const downs = movers.filter((m) => m.strong && m.delta < 0).length;
+  const list = movers
+    .filter((m) => filter === 'all' || (m.strong && (filter === 'up' ? m.delta > 0 : m.delta < 0)))
+    .sort((a, b) => (lowestFirst ? a.pct - b.pct : b.pct - a.pct) || Math.abs(b.delta * b.quantity) - Math.abs(a.delta * a.quantity) || b.to - a.to);
 
-  const row = (m: Mover, list: string) => {
+  const pick = (f: Filter) => {
+    setFilter(f);
+    setLimit(PAGE);
+  };
+
+  const row = (m: Mover) => {
     const printing = catalogs.lookup(m.gameId, m.printingId);
-    const key = `${list}|${m.gameId}|${m.printingId}|${m.finish}`;
+    const key = `${m.gameId}|${m.printingId}|${m.finish}`;
     const expanded = open === key;
     const url = catalogs.price(m.gameId, m.printingId)?.url;
     return (
@@ -64,24 +76,27 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
             </small>
             <span class="price">
               {formatEur(m.to)}
-              <small class="muted"> statt {formatEur(m.from)}</small>
+              <small class="muted"> vorher {formatEur(m.from)}</small>
             </span>
           </button>
-          <span class={`delta ${trend(m.delta)}`} title={`${SIGNED_EUR.format(m.delta)} je Karte`}>
-            {m.strong && (m.delta > 0 ? '▲ ' : '▼ ')}
-            {PCT.format(m.pct)}
+          <span class="move-col">
+            <span class={`delta ${trend(m.delta)}${m.strong ? ' strong' : ''}`}>
+              {m.strong && `${arrow(m.delta)} `}
+              {PCT.format(m.pct)}
+            </span>
+            <small class={trend(m.delta)}>{SIGNED_EUR.format(m.delta)}</small>
           </span>
         </div>
         {expanded && (
           <div class="details">
-            <Chart values={m.series} label={`Preisverlauf ${printing?.cardName ?? ''}`} small />
+            {m.series.length > 1 && <Chart values={m.series} label={`Preisverlauf ${printing?.cardName ?? ''}`} small />}
             <small>
               {SIGNED_EUR.format(m.delta)} je Karte
-              {m.quantity > 1 ? `, ${SIGNED_EUR.format(m.delta * m.quantity)} für alle ${m.quantity}` : ''}
+              {m.quantity > 1 ? ` · ${SIGNED_EUR.format(m.delta * m.quantity)} für ${m.quantity}` : ''} · {basisLabel(m.basis)}
             </small>
             {url && (
               <a href={url} target="_blank" rel="noopener">
-                Bei Cardmarket ansehen ↗
+                Cardmarket ↗
               </a>
             )}
           </div>
@@ -94,11 +109,18 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
     <section class="prices">
       <header>
         <h1>Preise</h1>
-        <p class="muted">Wie sich der Wert deiner Sammlung laut Cardmarket entwickelt</p>
       </header>
       <div class="segmented" role="radiogroup" aria-label="Zeitraum">
         {PERIODS.map((p) => (
-          <button role="radio" aria-checked={days === p.days} class={days === p.days ? 'active' : ''} onClick={() => setPrefs({ pricePeriod: p.days })}>
+          <button
+            role="radio"
+            aria-checked={days === p.days}
+            class={days === p.days ? 'active' : ''}
+            onClick={() => {
+              setPrefs({ pricePeriod: p.days });
+              setLimit(PAGE);
+            }}
+          >
             {p.label}
           </button>
         ))}
@@ -110,47 +132,63 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
             <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />
           </svg>
           <strong>Noch keine Karten</strong>
-          <p>Sobald deine Sammlung Karten enthält, siehst du hier, wie sich ihr Wert entwickelt.</p>
         </div>
       ) : (
-        <div class="value-card">
-          <span class="muted">Wert deiner Sammlung</span>
-          <strong class="total">{formatEur(now.total)}</strong>
-          {shown.length > 1 && (
-            <span class={`change ${trend(change)}`}>
-              {change > 0 ? '▲' : change < 0 ? '▼' : ''} {SIGNED_EUR.format(change)} ({PCT.format(first.value > 0 ? change / first.value : 0)}) seit {day(first.date)}
-            </span>
-          )}
-          {shown.length > 1 ? (
-            <Chart values={shown.map((p) => p.value)} label="Wert der Sammlung" from={day(first.date)} to={day(last.date)} />
-          ) : (
-            <p class="muted empty">
-              {series.length
-                ? `Der Verlauf beginnt am ${day(series[0].date)}. Jeden Tag kommt ein neuer Preisstand dazu.`
-                : 'Noch kein Preisverlauf vorhanden. Ab dem nächsten täglichen Preisstand wird er aufgezeichnet.'}
-            </p>
-          )}
-          {now.unpriced > 0 && <small class="muted">{now.unpriced} Karten ohne Preis zählen nicht mit.</small>}
-        </div>
-      )}
-
-      {items.length > 0 && dates.length > 1 && (
         <>
-          <h2>
-            Stark gestiegen {risers.length > 0 && <em class="tag up">{strong.filter((m) => m.delta > 0).length}</em>}
-          </h2>
-          {risers.length ? <ul class="items movers">{risers.map((m) => row(m, 'up'))}</ul> : <p class="muted none">Keine Karte im Zeitraum.</p>}
-          <h2>
-            Stark gefallen {fallers.length > 0 && <em class="tag down">{strong.filter((m) => m.delta < 0).length}</em>}
-          </h2>
-          {fallers.length ? <ul class="items movers">{fallers.map((m) => row(m, 'down'))}</ul> : <p class="muted none">Keine Karte im Zeitraum.</p>}
-          <p class="muted rule">
-            Stark heißt: mindestens {Math.round(STRONG_PCT * 100)} % und {formatEur(STRONG_MIN_EUR)} je Karte, oder {formatEur(STRONG_EUR)} je Karte
-            unabhängig vom Anteil.
-          </p>
-          <h2>Alle Karten</h2>
-          <ul class="items movers">{all.slice(0, LIST_LIMIT).map((m) => row(m, 'all'))}</ul>
-          {all.length > LIST_LIMIT && <p class="muted">Es werden die {LIST_LIMIT} größten Änderungen angezeigt.</p>}
+          <div class="value-card">
+            <span class="muted">Sammlung</span>
+            <strong class="total">{formatEur(now.total)}</strong>
+            {movers.length > 0 && (
+              <span class="change-row">
+                <span class={`change ${trend(change)}`}>
+                  {arrow(change)} {SIGNED_EUR.format(change)} · {PCT.format(fromTotal > 0 ? change / fromTotal : 0)}
+                </span>
+                <small class="muted">{basisLabel(basis)}</small>
+              </span>
+            )}
+            {shown.length > 1 && <Chart values={shown.map((p) => p.value)} label="Wert der Sammlung" from={day(shown[0].date)} to={day(shown[shown.length - 1].date)} />}
+            {now.unpriced > 0 && <small class="muted">{now.unpriced} ohne Preis</small>}
+          </div>
+
+          <div class="list-head">
+            <h2>Deine Karten</h2>
+            <button class="small sort-dir" aria-label={lowestFirst ? 'Höchste zuerst' : 'Niedrigste zuerst'} onClick={() => setLowestFirst(!lowestFirst)}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path
+                  d={lowestFirst ? 'M12 19V5M6 11l6-6 6 6' : 'M12 5v14M6 13l6 6 6-6'}
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              {lowestFirst ? 'Niedrigste %' : 'Höchste %'}
+            </button>
+          </div>
+          <div class="chips filters" role="radiogroup" aria-label="Filter">
+            {(
+              [
+                ['all', `Alle ${movers.length}`],
+                ['up', `▲ Gewinner ${ups}`],
+                ['down', `▼ Verlierer ${downs}`],
+              ] as [Filter, string][]
+            ).map(([value, label]) => (
+              <button role="radio" aria-checked={filter === value} class={`${filter === value ? 'active' : ''} ${value}`} onClick={() => pick(value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {list.length ? (
+            <ol class="items movers">{list.slice(0, limit).map(row)}</ol>
+          ) : (
+            <p class="muted none">{movers.length ? 'Keine Karte' : 'Noch keine Vergleichspreise'}</p>
+          )}
+          {list.length > limit && (
+            <button class="more" onClick={() => setLimit(limit + PAGE)}>
+              Mehr anzeigen ({list.length - limit})
+            </button>
+          )}
         </>
       )}
     </section>

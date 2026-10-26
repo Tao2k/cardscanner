@@ -1,4 +1,4 @@
-import { priceFor, type PriceFile } from './prices';
+import { priceFor, type PriceFile, type PriceLookup } from './prices';
 import type { CollectionItem, Finish, Printing } from './types';
 
 /**
@@ -167,6 +167,21 @@ export function startIndex(dates: string[], days: number | null): number {
   return at;
 }
 
+/**
+ * Woran die Entwicklung gemessen wird: am eigenen Verlauf, sobald er den Zeitraum abdeckt (bei 1 Jahr und
+ * „Alles“ reichen 30 Tage), sonst an Cardmarkets Durchschnittspreis der letzten 7 bzw. 30 Tage.
+ */
+export type Basis = { kind: 'history'; since: string } | { kind: 'average'; days: 7 | 30 };
+
+export function basisFor(history: PriceHistoryFile | undefined, days: number | null): Basis {
+  const dates = history?.dates ?? [];
+  if (dates.length > 1) {
+    const span = dayNumber(dates[dates.length - 1]) - dayNumber(dates[0]);
+    if (span >= Math.min(days ?? Infinity, 30)) return { kind: 'history', since: dates[startIndex(dates, days)] };
+  }
+  return { kind: 'average', days: days === 7 ? 7 : 30 };
+}
+
 export interface Mover {
   gameId: string;
   printingId: string;
@@ -179,6 +194,8 @@ export interface Mover {
   /** Änderung als Anteil (0,25 = +25 %). */
   pct: number;
   strong: boolean;
+  basis: Basis;
+  /** Preise im Zeitraum laut eigenem Verlauf (leer, solange es keinen gibt). */
   series: number[];
 }
 
@@ -190,29 +207,41 @@ export function isStrong(from: number, to: number): boolean {
 
 /**
  * Preisänderung je Druck und Ausführung der Sammlung seit `days` Tagen (null = seit Beginn des Verlaufs).
- * Gleiche Drucke in verschiedenen Sprachen oder Zuständen werden zusammengefasst.
+ * Gleiche Drucke in verschiedenen Sprachen oder Zuständen werden zusammengefasst. Ohne ausreichenden Verlauf
+ * vergleicht sie den heutigen Preis aus `prices` mit Cardmarkets Durchschnitt (siehe basisFor).
  */
 export function collectionMovers(
   items: CollectionItem[],
   histories: Map<string, PriceHistoryFile>,
   lookup: (gameId: string, printingId: string) => Printing | undefined,
   days: number | null,
+  prices?: PriceLookup,
 ): Mover[] {
   const grouped = new Map<string, Mover>();
   for (const item of items) {
-    const key = `${item.gameId}|${item.printingId}|${item.finish}`;
+    const key = moverKey(item);
     const known = grouped.get(key);
     if (known) {
       known.quantity += item.quantity;
       continue;
     }
+    const printing = lookup(item.gameId, item.printingId);
     const h = histories.get(item.gameId);
-    if (!h?.dates.length) continue;
-    const series = itemSeries(h, item, lookup(item.gameId, item.printingId));
-    const start = startIndex(h.dates, days);
-    const from = series[start];
-    const to = series[series.length - 1];
-    if (from === undefined || to === undefined) continue;
+    const full = h && h.dates.length > 1 ? itemSeries(h, item, printing) : [];
+    const start = h ? startIndex(h.dates, days) : 0;
+    const fromHistory = () => (full.length ? { from: full[start], to: full[full.length - 1], basis: { kind: 'history', since: h!.dates[start] } as Basis } : undefined);
+    let basis = basisFor(h, days);
+    let pair: { from?: number; to?: number; basis: Basis } | undefined;
+    if (basis.kind === 'history') pair = fromHistory();
+    else {
+      const entry = prices?.(item.gameId, item.printingId);
+      const average = basis.days === 7 ? { n: entry?.a7, f: entry?.a7f } : { n: entry?.a30, f: entry?.a30f };
+      pair = { from: priceFor(average, item.finish, printing), to: priceFor(entry, item.finish, printing), basis };
+      if (pair.from === undefined || pair.to === undefined) pair = fromHistory();
+    }
+    if (pair?.from === undefined || pair.to === undefined) continue;
+    const { from, to } = pair;
+    basis = pair.basis;
     grouped.set(key, {
       gameId: item.gameId,
       printingId: item.printingId,
@@ -223,7 +252,8 @@ export function collectionMovers(
       delta: Math.round((to - from) * 100) / 100,
       pct: from > 0 ? (to - from) / from : 0,
       strong: isStrong(from, to),
-      series: series.slice(start).map((v) => v ?? 0),
+      basis,
+      series: full.slice(start).map((v) => v ?? 0),
     });
   }
   return [...grouped.values()];

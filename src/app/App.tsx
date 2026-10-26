@@ -122,7 +122,7 @@ export function App() {
   const movers = useMemo(
     () =>
       catalogs
-        ? new Map(collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod).filter((m) => m.strong).map((m) => [moverKey(m), m]))
+        ? new Map(collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod, catalogs.price).filter((m) => m.strong).map((m) => [moverKey(m), m]))
         : new Map(),
     [items, histories, catalogs, prefs.pricePeriod],
   );

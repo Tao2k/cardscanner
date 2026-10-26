@@ -126,7 +126,21 @@ export function guideEntry(row: GuideRow | undefined): Omit<PriceEntry, 'url'> |
   const n = pickPrice(row, NORMAL_FIELDS);
   const f = pickPrice(row, FOIL_FIELDS);
   if (n === undefined && f === undefined) return undefined;
-  return { ...(n !== undefined ? { n } : {}), ...(f !== undefined ? { f } : {}) };
+  // Durchschnitte nur zur Ausführung mit Preis, als Vergleich für die Preisentwicklung
+  const averages: Partial<PriceEntry> = {};
+  if (n !== undefined) {
+    const a7 = pickPrice(row, ['avg7']);
+    const a30 = pickPrice(row, ['avg30']);
+    if (a7 !== undefined) averages.a7 = a7;
+    if (a30 !== undefined) averages.a30 = a30;
+  }
+  if (f !== undefined) {
+    const a7f = pickPrice(row, ['avg7-foil']);
+    const a30f = pickPrice(row, ['avg30-foil']);
+    if (a7f !== undefined) averages.a7f = a7f;
+    if (a30f !== undefined) averages.a30f = a30f;
+  }
+  return { ...(n !== undefined ? { n } : {}), ...(f !== undefined ? { f } : {}), ...averages };
 }
 
 /** Cardmarket schreibt „2026-10-21T02:48:35+0200“; Date braucht den Doppelpunkt im Versatz. */
