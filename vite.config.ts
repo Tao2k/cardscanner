@@ -55,6 +55,12 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {
+            // Preise ändern sich täglich und sind klein: immer erst frisch laden, offline aus dem Cache.
+            urlPattern: ({ url }) => /\/data\/.+\/price(s|-history)\.json$/.test(url.pathname),
+            handler: 'NetworkFirst',
+            options: { cacheName: 'prices', networkTimeoutSeconds: 5 },
+          },
+          {
             urlPattern: ({ url }) => url.pathname.includes('/data/'),
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'catalog' },
