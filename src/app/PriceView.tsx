@@ -1,11 +1,12 @@
 import { useId, useState } from 'preact/hooks';
-import { compareCollectorNumbers, setRanks } from '../core/excel';
+import { compareCollectorNumbers } from '../core/excel';
 import { averageValue, collectionMovers, collectionSeries, dayOf, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { collectionValue, formatAsOf, formatEur } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { printingCode } from './format';
 import type { Prefs, PriceSort } from './prefs';
+import { arrow, groupBySet, groupChange, MoveCol, PCT, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
 
 interface Props {
   items: CollectionItem[];
@@ -31,22 +32,9 @@ const SORTS: { value: PriceSort; label: string }[] = [
 
 type Filter = 'all' | 'up' | 'down';
 
-const PCT = new Intl.NumberFormat('de-DE', { style: 'percent', maximumFractionDigits: 1, signDisplay: 'exceptZero' });
-const SIGNED_EUR = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', signDisplay: 'exceptZero' });
 const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
-const trend = (delta: number) => (delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat');
-const arrow = (delta: number) => (delta > 0 ? '▲' : delta < 0 ? '▼' : '');
-const pointLabel = (p: ChartPoint) => (p.average ? `Ø ${p.average} Tage` : day(p.date));
 const sinceLabel = (p: ChartPoint) => (p.average ? `ggü. Ø ${p.average} Tage` : `seit ${day(p.date)}`);
 const cardCount = (n: number) => (n === 1 ? '1 Karte' : `${n} Karten`);
-
-interface SetGroup {
-  key: string;
-  gameId: string;
-  code: string;
-  name: string;
-  movers: Mover[];
-}
 
 export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props) {
   const [open, setOpen] = useState<string | null>(null);
@@ -89,28 +77,9 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
   };
 
   // Sets wie in der Sammlung und im Export: nach Erscheinen, die Karten darin nach der gewählten Sortierung
-  const ranks = new Map([...catalogs.sets].map(([gameId, sets]) => [gameId, setRanks(sets)]));
-  const groups = new Map<string, SetGroup>();
-  for (const m of list) {
-    const code = catalogs.lookup(m.gameId, m.printingId)?.setCode ?? '';
-    const key = `${m.gameId}|${code}`;
-    let group = groups.get(key);
-    if (!group) {
-      const name = catalogs.sets.get(m.gameId)?.find((s) => s.code === code)?.name ?? (code || 'Ohne Set');
-      groups.set(key, (group = { key, gameId: m.gameId, code, name, movers: [] }));
-    }
-    group.movers.push(m);
-  }
-  const rankOf = (g: SetGroup) => ranks.get(g.gameId)?.get(g.code) ?? Number.MAX_SAFE_INTEGER;
-  const sets = [...groups.values()].sort((a, b) => a.gameId.localeCompare(b.gameId) || rankOf(a) - rankOf(b) || a.code.localeCompare(b.code));
-  for (const g of sets) g.movers.sort(order[prefs.priceSort] ?? byValue);
-
+  const sets = groupBySet(list, (m) => ({ gameId: m.gameId, code: catalogs.lookup(m.gameId, m.printingId)?.setCode ?? '' }), catalogs.sets);
+  for (const g of sets) g.rows.sort(order[prefs.priceSort] ?? byValue);
   const collapsed = new Set(prefs.priceCollapsed);
-  const toggleSet = (key: string) => {
-    const next = new Set(collapsed);
-    if (!next.delete(key)) next.add(key);
-    setPrefs({ priceCollapsed: [...next] });
-  };
 
   const row = (m: Mover) => {
     const printing = catalogs.lookup(m.gameId, m.printingId);
@@ -133,13 +102,7 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
               <small class="muted"> vorher {formatEur(m.from)}</small>
             </span>
           </button>
-          <span class="move-col">
-            <span class={`delta ${trend(m.delta)}${m.strong ? ' strong' : ''}`}>
-              {m.strong && `${arrow(m.delta)} `}
-              {PCT.format(m.pct)}
-            </span>
-            <small class={trend(m.delta)}>{SIGNED_EUR.format(m.delta)}</small>
-          </span>
+          <MoveCol mover={m} />
         </div>
         {expanded && (
           <div class="details">
@@ -160,27 +123,6 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
     );
   };
 
-  const setHead = (g: SetGroup) => {
-    const from = g.movers.reduce((n, m) => n + m.from * m.quantity, 0);
-    const to = g.movers.reduce((n, m) => n + m.to * m.quantity, 0);
-    const delta = Math.round((to - from) * 100) / 100;
-    const isOpen = !collapsed.has(g.key);
-    return (
-      <button class="set-head" aria-expanded={isOpen} onClick={() => toggleSet(g.key)}>
-        <svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        <span class="set-name">
-          <strong>{g.name}</strong>
-          <small class="muted">
-            {cardCount(g.movers.reduce((n, m) => n + m.quantity, 0))} · {formatEur(to)}
-          </small>
-        </span>
-        <span class={`set-change ${trend(delta)}`}>{PCT.format(from > 0 ? delta / from : 0)}</span>
-      </button>
-    );
-  };
-
   return (
     <section class="prices">
       <header>
@@ -197,7 +139,7 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
       ) : (
         <>
           <div class="value-card">
-            <span class="muted">{scrub !== null && shown ? pointLabel(shown) : 'Sammlung'}</span>
+            <span class="muted">{scrub !== null && shown ? day(shown.date) : 'Sammlung'}</span>
             <strong class="total">{formatEur(shown?.value ?? now.total)}</strong>
             {hasChart && first && (
               <span class="change-row">
@@ -251,10 +193,16 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
           {sets.length ? (
             <div class="set-list">
               {sets.map((g) => (
-                <div class="set-group" key={g.key}>
-                  {setHead(g)}
-                  {!collapsed.has(g.key) && <ol class="items movers">{g.movers.map(row)}</ol>}
-                </div>
+                <SetSection
+                  key={g.key}
+                  name={g.name}
+                  detail={`${cardCount(g.rows.reduce((n, m) => n + m.quantity, 0))} · ${formatEur(g.rows.reduce((n, m) => n + m.to * m.quantity, 0))}`}
+                  change={groupChange(g.rows)}
+                  open={!collapsed.has(g.key)}
+                  onToggle={() => setPrefs({ priceCollapsed: toggled(prefs.priceCollapsed, g.key) })}
+                >
+                  {g.rows.map(row)}
+                </SetSection>
               ))}
             </div>
           ) : (
@@ -294,29 +242,66 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
 
 const dayIndex = (date: string) => Math.round(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
 
+/** Runder Skalenschritt (1, 2, 2,5 oder 5 × 10ⁿ) für etwa `count` Abschnitte. */
+function niceStep(span: number, count: number): number {
+  const raw = span / count;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const m = raw / power;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * power;
+}
+
+/** Werteskala rechts: Grenzen und Teilstriche auf runden Beträgen. */
+function valueScale(values: number[]) {
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (hi - lo < 0.01) {
+    const pad = Math.max(0.5, hi * 0.05);
+    lo -= pad;
+    hi += pad;
+  }
+  const step = niceStep(hi - lo, 3);
+  const min = Math.floor(lo / step) * step;
+  const max = Math.ceil(hi / step) * step;
+  const ticks: number[] = [];
+  for (let v = min; v <= max + step / 2; v += step) ticks.push(Math.round(v * 100) / 100);
+  const digits = step >= 1 ? 0 : 2;
+  const format = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return { min, max: Math.max(max, min + step), ticks, label: (v: number) => format.format(v) };
+}
+
+/** Datumsachse unten: bis zu vier Tage gleichmäßig verteilt, erster und letzter Tag immer dabei. */
+function dateTicks(first: number, last: number): number[] {
+  const span = last - first;
+  const n = Math.min(4, span + 1);
+  return [...new Set(Array.from({ length: n }, (_, i) => first + Math.round((span * i) / Math.max(1, n - 1))))];
+}
+
+function shortDate(dayNo: number, span: number): string {
+  const d = new Date(dayNo * 86_400_000);
+  return span > 180
+    ? d.toLocaleDateString('de-DE', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+    : `${d.getUTCDate()}.${d.getUTCMonth() + 1}.`;
+}
+
 /**
- * Wertverlauf wie ein Kurschart: grün bei Gewinn, rot bei Verlust, gestrichelt, solange er auf Durchschnittspreisen
- * beruht. Antippen und Ziehen (bzw. Maus darüber) zeigt den Wert an diesem Tag.
+ * Wertverlauf wie ein Kurschart: grün bei Gewinn, rot bei Verlust, unten Datum, rechts Werteskala.
+ * Antippen und Ziehen (bzw. Maus darüber) zeigt den Wert an diesem Tag.
  */
 function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active: number | null; onScrub(i: number | null): void }) {
   const id = useId();
   const w = 320;
   const h = 170;
-  const x0 = dayIndex(points[0].date);
-  const xSpan = dayIndex(points[points.length - 1].date) - x0 || 1;
-  const values = points.map((p) => p.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const ySpan = max - min || Math.max(1, max * 0.1);
-  const x = (i: number) => ((dayIndex(points[i].date) - x0) / xSpan) * w;
-  const y = (v: number) => 10 + (1 - (v - min) / ySpan) * (h - 20);
-  const path = (from: number, to: number) =>
-    points
-      .slice(from, to + 1)
-      .map((p, k) => `${k ? 'L' : 'M'}${x(from + k).toFixed(1)},${y(p.value).toFixed(1)}`)
-      .join('');
+  const pad = 6;
   const last = points.length - 1;
-  const firstReal = Math.max(0, points.findIndex((p) => !p.average));
+  const x0 = dayIndex(points[0].date);
+  const x1 = dayIndex(points[last].date);
+  const xSpan = x1 - x0 || 1;
+  const values = points.map((p) => p.value);
+  const scale = valueScale(values);
+  const xOf = (dayNo: number) => ((dayNo - x0) / xSpan) * w;
+  const x = (i: number) => xOf(dayIndex(points[i].date));
+  const y = (v: number) => pad + (1 - (v - scale.min) / (scale.max - scale.min)) * (h - 2 * pad);
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join('');
   const direction = trend(values[last] - values[0]);
 
   const pick = (e: PointerEvent) => {
@@ -349,10 +334,11 @@ function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active:
               <stop offset="1" stop-color="currentColor" stop-opacity="0" />
             </linearGradient>
           </defs>
-          <path d={`${path(0, last)}L${w},${h}L0,${h}Z`} fill={`url(#${id})`} />
-          <line class="base" x1="0" x2={w} y1={y(values[0])} y2={y(values[0])} vector-effect="non-scaling-stroke" />
-          {firstReal > 0 && <path d={path(0, firstReal)} class="line estimate" vector-effect="non-scaling-stroke" />}
-          {firstReal < last && <path d={path(firstReal, last)} class="line" vector-effect="non-scaling-stroke" />}
+          {scale.ticks.map((v) => (
+            <line class="grid" x1="0" x2={w} y1={y(v)} y2={y(v)} vector-effect="non-scaling-stroke" />
+          ))}
+          <path d={`${line}L${w},${h}L0,${h}Z`} fill={`url(#${id})`} />
+          <path d={line} class="line" vector-effect="non-scaling-stroke" />
         </svg>
         {active !== null && points[active] && (
           <>
@@ -361,13 +347,19 @@ function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active:
           </>
         )}
       </div>
-      <figcaption>
-        <span>{pointLabel(points[0])}</span>
-        <span>
-          {formatEur(min)} – {formatEur(max)}
-        </span>
-        <span>{day(points[last].date)}</span>
-      </figcaption>
+      <div class="y-axis" aria-hidden="true">
+        <i class="size">{scale.ticks.map(scale.label).reduce((a, b) => (b.length > a.length ? b : a), '')}</i>
+        {scale.ticks.map((v) => (
+          <span style={{ top: `${(y(v) / h) * 100}%` }}>{scale.label(v)}</span>
+        ))}
+      </div>
+      <div class="x-axis" aria-hidden="true">
+        {dateTicks(x0, x1).map((d, i, all) => (
+          <span class={i === 0 ? 'first' : i === all.length - 1 ? 'last' : ''} style={{ left: `${(xOf(d) / w) * 100}%` }}>
+            {shortDate(d, xSpan)}
+          </span>
+        ))}
+      </div>
     </figure>
   );
 }

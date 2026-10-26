@@ -157,7 +157,7 @@ export function App() {
           />
         )}
         {tab === 'collection' && catalogs && (
-          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} movers={movers} onChange={refresh} />
+          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} />
         )}
         {tab === 'prices' && catalogs && (
           <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} />
