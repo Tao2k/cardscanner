@@ -18,6 +18,8 @@ export interface Prefs {
   lastExportAt: string | null;
   /** Reihenfolge der Sammlung: zuletzt geändert, nach Set und Sammlernummer oder nach Preis. */
   collectionSort: CollectionSort;
+  /** Seit dem letzten Öffnen der Sammlung gescannte Exemplare (Hinweis am Tab). */
+  newScans: number;
   /** Sammlung: nur Karten zeigen, die man hat (sonst alle Karten des Katalogs). */
   collectionOwnedOnly: boolean;
   /** Eingeklappte Sets in der Sammlung, Schlüssel „gameId|setCode“. */
@@ -34,7 +36,7 @@ export type CollectionSort = 'recent' | 'set' | 'price';
 export type PriceSort = 'value' | 'gain' | 'loss' | 'change' | 'number';
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', collectionOwnedOnly: false, collectionCollapsed: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {

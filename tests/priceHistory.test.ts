@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendSnapshot, averageValue, basisFor, collectionMovers, collectionSeries, isStrong, shiftDay, startIndex, valueChart, type PriceHistoryFile } from '../src/core/priceHistory';
+import { appendSnapshot, averageValue, basisFor, collectionMovers, collectionSeries, isStrong, priceAlerts, shiftDay, startIndex, valueChart, type Mover, type PriceHistoryFile } from '../src/core/priceHistory';
 import type { PriceFile, PriceEntry } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
@@ -165,5 +165,15 @@ describe('Preisverlauf', () => {
     const long = [{ date: '2026-09-20', value: 90 }, ...tenDays];
     expect(valueChart(long, today, null, averages)).toEqual([...long, today]);
     expect(valueChart(long, today, 30, averages)).toEqual([...long, today]);
+  });
+
+  it('warnt bei deutlichen Anstiegen, je Karte nur einmal bis zum nächsten deutlichen Anstieg', () => {
+    const mover = (printingId: string, from: number, to: number) => ({ gameId: 'riftbound', printingId, finish: 'normal', from, to }) as Mover;
+    const movers = [mover('billig', 0.1, 0.5), mover('mittel', 20, 25), mover('teuer', 50, 52), mover('faellt', 10, 5)];
+    expect(priceAlerts(movers, {}).map((m) => m.printingId)).toEqual(['billig', 'mittel']);
+    // gemeldet: erst wieder bei einem deutlichen Anstieg gegenüber dem gemeldeten Preis
+    const seen = { 'riftbound|billig|normal': 0.5, 'riftbound|mittel|normal': 25 };
+    expect(priceAlerts(movers, seen)).toEqual([]);
+    expect(priceAlerts([mover('mittel', 20, 31)], seen).map((m) => m.to)).toEqual([31]);
   });
 });

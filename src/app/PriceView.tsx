@@ -14,6 +14,8 @@ interface Props {
   histories: Map<string, PriceHistoryFile>;
   prefs: Prefs;
   setPrefs(patch: Partial<Prefs>): void;
+  /** Neue Preiswarnungen (Schlüssel moverKey), als „Neu“ markiert. */
+  fresh: Set<string>;
 }
 
 const PERIODS: { days: number | null; label: string }[] = [
@@ -36,7 +38,7 @@ const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
 const sinceLabel = (p: ChartPoint) => (p.average ? `ggü. Ø ${p.average} Tage` : `seit ${day(p.date)}`);
 const cardCount = (n: number) => (n === 1 ? '1 Karte' : `${n} Karten`);
 
-export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props) {
+export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [sorting, setSorting] = useState(false);
@@ -100,6 +102,7 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs }: Props
             <span class="price">
               {formatEur(m.to)}
               <small class="muted"> vorher {formatEur(m.from)}</small>
+              {fresh.has(key) && <em class="tag new">Neu</em>}
             </span>
           </button>
           <MoveCol mover={m} />
@@ -348,10 +351,15 @@ function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active:
         )}
       </div>
       <div class="y-axis" aria-hidden="true">
-        <i class="size">{scale.ticks.map(scale.label).reduce((a, b) => (b.length > a.length ? b : a), '')}</i>
-        {scale.ticks.map((v) => (
-          <span style={{ top: `${(y(v) / h) * 100}%` }}>{scale.label(v)}</span>
-        ))}
+        <i class="size">{[...scale.ticks.map(scale.label), formatEur(values[last])].reduce((a, b) => (b.length > a.length ? b : a), '')}</i>
+        {scale.ticks
+          .filter((v) => Math.abs(y(v) - y(values[last])) > 14)
+          .map((v) => (
+            <span style={{ top: `${(y(v) / h) * 100}%` }}>{scale.label(v)}</span>
+          ))}
+        <b class="now" style={{ top: `${(y(values[last]) / h) * 100}%` }}>
+          <span>{formatEur(values[last])}</span>
+        </b>
       </div>
       <div class="x-axis" aria-hidden="true">
         {dateTicks(x0, x1).map((d, i, all) => (
