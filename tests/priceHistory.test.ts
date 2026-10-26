@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendSnapshot, basisFor, collectionMovers, collectionSeries, isStrong, startIndex, type PriceHistoryFile } from '../src/core/priceHistory';
+import { appendSnapshot, averageValue, basisFor, collectionMovers, collectionSeries, isStrong, shiftDay, startIndex, valueChart, type PriceHistoryFile } from '../src/core/priceHistory';
 import type { PriceFile, PriceEntry } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
@@ -133,5 +133,37 @@ describe('Preisverlauf', () => {
     expect(isStrong(2, 2.3)).toBe(false); // +15 %
     expect(isStrong(100, 88)).toBe(true); // −12 %, aber −12 €
     expect(isStrong(5, 3)).toBe(true);
+  });
+
+  it('schätzt den Wert zum Durchschnittspreis, Karten ohne Durchschnitt mit dem heutigen Preis', () => {
+    const prices = (_g: string, id: string): PriceEntry | undefined =>
+      ({ a: { n: 4, a30: 2, a7: 3 }, b: { n: 1 }, epic: { n: 10, a30: 8 } } as Record<string, PriceEntry>)[id];
+    const items = [item('a', 2), item('b'), item('epic', 1, { finish: 'foil' }), item('ohne')];
+    expect(averageValue(items, prices, lookup, 30)).toBe(2 * 2 + 1 + 8);
+    expect(averageValue(items, prices, lookup, 7)).toBe(2 * 3 + 1 + 10);
+    expect(averageValue([item('b')], prices, lookup, 30)).toBeUndefined();
+  });
+
+  it('beginnt den Wertverlauf mit dem Durchschnitt, bis der eigene Verlauf den Zeitraum abdeckt', () => {
+    const today = { date: '2026-10-26', value: 120 };
+    const averages = { 30: 100, 7: 110 };
+    expect(shiftDay('2026-10-26', -30)).toBe('2026-09-26');
+    // nur heute: Ø 30 → Ø 7 → heute
+    expect(valueChart([{ date: '2026-10-26', value: 119 }], today, 30, averages)).toEqual([
+      { date: '2026-09-26', value: 100, average: 30 },
+      { date: '2026-10-19', value: 110, average: 7 },
+      { date: '2026-10-26', value: 120 },
+    ]);
+    // 7 Tage: nur Ø 7
+    expect(valueChart([], today, 7, averages).map((p) => p.average)).toEqual([7, undefined]);
+    // 10 Tage Verlauf: Ø 7 fällt weg, Ø 30 bleibt
+    const tenDays = [{ date: '2026-10-16', value: 105 }, { date: '2026-10-20', value: 112 }];
+    expect(valueChart(tenDays, today, 30, averages)).toEqual([{ date: '2026-09-26', value: 100, average: 30 }, ...tenDays, today]);
+    // 7 Tage mit 10 Tagen Verlauf: echter Verlauf ab dem Vergleichstag
+    expect(valueChart(tenDays, today, 7, averages)).toEqual([...tenDays, today]);
+    // Verlauf deckt 30 Tage ab: keine Schätzung mehr, auch nicht bei „Alles“
+    const long = [{ date: '2026-09-20', value: 90 }, ...tenDays];
+    expect(valueChart(long, today, null, averages)).toEqual([...long, today]);
+    expect(valueChart(long, today, 30, averages)).toEqual([...long, today]);
   });
 });
