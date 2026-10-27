@@ -21,6 +21,7 @@
   --on-down: #ffffff;
   --shadow: 0 10px 30px rgba(22, 19, 26, 0.12);
   --shadow-soft: 0 1px 2px rgba(22, 19, 26, 0.06);
+  --gutter: rgba(22, 19, 26, 0.07);
   --bar: rgba(255, 255, 255, 0.86);
   --r-card: 24px;
   --r-row: 18px;
@@ -49,6 +50,7 @@
     --on-down: #2b0905;
     --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     --shadow-soft: none;
+    --gutter: rgba(0, 0, 0, 0.35);
     --bar: rgba(15, 13, 18, 0.86);
   }
 }
@@ -384,10 +386,14 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .binder::-webkit-scrollbar { display: none; }
 .binder-page { flex: 0 0 100%; padding: 0 16px; scroll-snap-align: start; }
 .pockets { list-style: none; margin: 0 auto; max-width: 460px; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  padding: 12px 12px 12px 30px; background: var(--surface); border-radius: var(--r-card); }
-/* Lochung am Rand wie bei einer Ordnerseite */
+  padding: 12px 12px 12px 30px; background: linear-gradient(90deg, var(--gutter), transparent 40px) var(--surface); border-radius: 8px var(--r-card) var(--r-card) 8px; }
+/* Lochung im Bund wie bei einer Ordnerseite */
 .pockets::before { content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px; width: 12px;
   background: radial-gradient(circle, var(--bg) 0 4px, var(--border) 4.5px 5px, transparent 5.5px) center / 12px calc(100% / 3) repeat-y; }
+/* Bund wie im echten Ordner abwechselnd: Seite 1, 3, … liegt rechts im Ordner (Bund links), Seite 2, 4, … links (Bund rechts) */
+.binder-page:nth-child(even) .pockets { padding: 12px 30px 12px 12px; background: linear-gradient(270deg, var(--gutter), transparent 40px) var(--surface);
+  border-radius: var(--r-card) 8px 8px var(--r-card); }
+.binder-page:nth-child(even) .pockets::before { left: auto; right: 9px; }
 .pocket { aspect-ratio: 63 / 88; min-width: 0; }
 .pocket button { position: relative; display: block; width: 100%; height: 100%; padding: 0; min-height: 0; border-radius: 8px; overflow: hidden; background: var(--raised); }
 .pocket img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; }
