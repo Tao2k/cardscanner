@@ -366,3 +366,67 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .collection .set-group > .items > li { content-visibility: auto; contain-intrinsic-size: auto 80px; }
 .qty-row { display: flex; align-items: center; gap: 12px; }
 .qty-row > span { font-weight: 600; font-size: 0.9rem; }
+
+/* Binder: je Set ein Ordner mit festen Plätzen, 3 × 3 je Seite; fehlende Karten blass mit Nummer */
+.collection > header.title-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.view-switch { flex: none; }
+.view-switch button { padding: 6px 14px; }
+.binder-view { display: flex; flex-direction: column; gap: 10px; }
+.binder-sets { margin-bottom: 2px; }
+.binder-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.binder-head > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.binder-head strong { font-size: 1.05rem; font-weight: 750; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.binder-head small { font-size: 0.8rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.binder-pct { flex: none; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.binder-progress { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; }
+.binder-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.4s ease; }
+.binder { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; margin: 0 -16px; scrollbar-width: none; }
+.binder::-webkit-scrollbar { display: none; }
+.binder-page { flex: 0 0 100%; padding: 0 16px; scroll-snap-align: start; }
+.pockets { list-style: none; margin: 0 auto; max-width: 460px; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  padding: 12px 12px 12px 30px; background: var(--surface); border-radius: var(--r-card); }
+/* Lochung am Rand wie bei einer Ordnerseite */
+.pockets::before { content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px; width: 12px;
+  background: radial-gradient(circle, var(--bg) 0 4px, var(--border) 4.5px 5px, transparent 5.5px) center / 12px calc(100% / 3) repeat-y; }
+.pocket { aspect-ratio: 63 / 88; min-width: 0; }
+.pocket button { position: relative; display: block; width: 100%; height: 100%; padding: 0; min-height: 0; border-radius: 8px; overflow: hidden; background: var(--raised); }
+.pocket img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; }
+.pocket.filled button { box-shadow: 0 1px 3px rgba(22, 19, 26, 0.18); }
+/* Glanz der Klarsichthülle */
+.pocket.filled button::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 36%); }
+.pocket.foil button::after { mix-blend-mode: overlay;
+  background: linear-gradient(115deg, transparent 15%, rgba(255, 110, 220, 0.55) 35%, rgba(110, 220, 255, 0.55) 52%, rgba(170, 255, 110, 0.5) 68%, transparent 88%); }
+.pocket.empty button { box-shadow: inset 0 0 0 1.5px var(--border); }
+.pocket.empty img { opacity: 0.13; filter: grayscale(1); }
+.pocket .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem;
+  color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.pocket-qty { position: absolute; right: 4px; bottom: 4px; z-index: 2; padding: 3px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; line-height: 1;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.pocket.fresh button { animation: pocket-glow 2.4s ease-out; }
+.pocket.fresh button::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; transform: translateX(-120%);
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.8) 50%, transparent 70%); animation: pocket-shine 0.9s 0.05s ease-out forwards; }
+@keyframes pocket-glow {
+  0%, 35% { box-shadow: 0 0 0 3px var(--success), 0 0 18px color-mix(in srgb, var(--success) 60%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 1px 3px rgba(22, 19, 26, 0.18); }
+}
+@keyframes pocket-shine { to { transform: translateX(120%); } }
+.binder-nav { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.binder-nav span { font-size: 0.88rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: center; }
+.binder-nav button.icon { background: var(--surface); color: var(--text); min-width: 44px; min-height: 44px; }
+.binder-skip { position: fixed; left: 0; right: 0; margin: 0 auto; width: max-content; bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 52;
+  min-height: 40px; padding: 8px 18px; background: var(--text); color: var(--bg); box-shadow: var(--shadow); animation: fade-in 0.3s ease-out; }
+.fx-binder-card { position: fixed; z-index: 51; object-fit: cover; border-radius: 8px; transform-origin: 50% 50%; pointer-events: none; will-change: transform; }
+.binder-card img { align-self: center; width: min(62vw, 260px); aspect-ratio: 63 / 88; object-fit: cover; border-radius: 14px; box-shadow: var(--shadow); }
+.binder-card img.missing { filter: grayscale(1); opacity: 0.5; }
+.binder-card-info { display: flex; flex-direction: column; gap: 4px; }
+.binder-card-info .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.binder-card-info a { color: var(--accent-text); font-weight: 600; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center; }
+.binder-card-info .tag { font-size: 0.78rem; padding: 5px 10px; background: var(--surface); }
+@media (prefers-reduced-motion: reduce) {
+  .pocket.fresh button { animation: none; box-shadow: 0 0 0 3px var(--success); }
+  .pocket.fresh button::before { display: none; }
+  .binder-progress span { transition: none; }
+  .binder-skip { animation: none; }
+}
+.pocket.blank { border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--border); opacity: 0.6; }

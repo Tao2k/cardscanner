@@ -7,6 +7,7 @@ Sammelkarten mit der Handykamera erkennen und als eigene Sammlung erfassen. Star
 - **Web-App fürs Handy (PWA):** Link öffnen, „Zum Startbildschirm hinzufügen“. Kein App-Store, kein Konto.
 - **Live-Scan:** Karte in den Rahmen halten. Sobald die Erkennung über mehrere Bilder stabil ist, wird die Karte sofort gespeichert. Knappe Treffer landen unter „Prüfen“.
 - **Erkennung auf dem Gerät:** Ein Bildmodell ([DINOv2 small](https://huggingface.co/Xenova/dinov2-small)) berechnet einen Vektor des Kamerabilds und sucht die ähnlichste Referenzkarte. Kein Training pro Karte nötig.
+- **Binder:** In der Sammlung hat jedes Set einen Ordner mit einem festen Platz je Karte (3 × 3 je Seite), fehlende Karten blass mit Nummer. Neu gescannte Karten fliegen beim Öffnen der Sammlung nacheinander in ihre Plätze.
 - **Daten bleiben lokal:** Jede Person hat ihre Sammlung nur im Browser ihres Geräts. Export und Import als Excel (`.xlsx`).
 - **Preise:** Euro-Preise von Cardmarket pro Karte, als Gesamtwert der Sammlung und als Spalten „Preis (€)“, „Wert (€)“ und „Preisstand“ im Excel. Quelle ist Cardmarkets öffentlicher Preisguide (Trendpreis, Near Mint, ohne Unterschied nach Sprache oder Zustand), täglich erneuert.
 

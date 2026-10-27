@@ -24,6 +24,12 @@ export interface Prefs {
   collectionOwnedOnly: boolean;
   /** Eingeklappte Sets in der Sammlung, Schlüssel „gameId|setCode“. */
   collectionCollapsed: string[];
+  /** Sammlung als Liste oder als Binder (ein Ordner je Set). */
+  collectionView: CollectionViewMode;
+  /** Zuletzt geöffneter Binder, Schlüssel „gameId|setCode“. */
+  binderSet: string;
+  /** Seit dem letzten Öffnen der Sammlung gescannte Drucke („gameId|printingId“, je Exemplar), fliegen dann in den Binder. */
+  binderNew: string[];
   /** Zeitraum im Tab „Preise“ in Tagen; null = gesamter Verlauf. */
   pricePeriod: number | null;
   /** Reihenfolge der Karten im Tab „Preise“ (innerhalb eines Sets). */
@@ -33,10 +39,11 @@ export interface Prefs {
 }
 
 export type CollectionSort = 'recent' | 'set' | 'price';
+export type CollectionViewMode = 'list' | 'binder';
 export type PriceSort = 'value' | 'gain' | 'loss' | 'change' | 'number';
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {

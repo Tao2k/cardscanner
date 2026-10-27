@@ -13,6 +13,7 @@ import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
 import { PriceView } from './PriceView';
 import { updates, useUpdatePending } from './updates';
+import { withoutLast } from './binder';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -129,7 +130,8 @@ export function App() {
   const [freshAlerts, setFreshAlerts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (tab === 'collection' && prefs.newScans) setPrefs({ newScans: 0 });
+    // Die Sammlung hat die neuen Karten beim Öffnen übernommen (für den Binder), danach zählen sie nicht mehr als neu
+    if (tab === 'collection' && catalogs && (prefs.newScans || prefs.binderNew.length)) setPrefs({ newScans: 0, binderNew: [] });
     if (tab !== 'prices') {
       if (freshAlerts.size) setFreshAlerts(new Set());
       return;
@@ -139,12 +141,24 @@ export function App() {
     const next = { ...seenPrices, ...Object.fromEntries(alerts.map((m) => [moverKey(m), m.to])) };
     setSeenPrices(next);
     saveSeenPrices(next);
-  }, [tab, alerts, prefs.newScans]);
+  }, [tab, alerts, prefs.newScans, catalogs]);
 
-  /** Gescannt oder rückgängig gemacht: Zähler am Tab „Sammlung“ (funktional, weil mehrere Scans schnell folgen können). */
-  const countScan = (delta: number) =>
+  /**
+   * Gescannt oder rückgängig gemacht: Zähler am Tab „Sammlung“ und Karten, die in den Binder fliegen
+   * (funktional, weil mehrere Scans schnell folgen können).
+   */
+  const countScan = (delta: number, key: string) =>
     setPrefsState((p) => {
-      const next = { ...p, newScans: Math.max(0, p.newScans + delta) };
+      const binderNew = delta > 0 ? [...p.binderNew, key] : withoutLast(p.binderNew, key);
+      const next = { ...p, newScans: Math.max(0, p.newScans + delta), binderNew };
+      savePrefs(next);
+      return next;
+    });
+  /** Scan auf einen anderen Druck korrigiert: Er fliegt dann in dessen Platz. */
+  const moveScan = (from: string, to: string) =>
+    setPrefsState((p) => {
+      if (!p.binderNew.includes(from)) return p;
+      const next = { ...p, binderNew: [...withoutLast(p.binderNew, from), to] };
       savePrefs(next);
       return next;
     });
@@ -176,6 +190,7 @@ export function App() {
             learning={learning}
             onChange={refresh}
             onAdded={countScan}
+            onMoved={moveScan}
             onLearn={relearn}
           />
         )}
