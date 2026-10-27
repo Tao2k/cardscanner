@@ -20,6 +20,7 @@ import type { Recognizer } from './recognizer';
 import { printingCode, printingLabel } from './format';
 import { formatEur, itemPrice } from '../core/prices';
 import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
+import { slotKey } from './binder';
 import { DEFAULT_STABILIZER, Stabilizer, type StableResult } from '../core/stabilizer';
 import { accuracyText, judgeStats, loadStats, strictness, updateStats, type Judgement } from './stats';
 import { nameIn } from '../core/catalog';
@@ -34,8 +35,10 @@ interface Props {
   service: CollectionService;
   learning: LearningService;
   onChange(): void;
-  /** Ein Exemplar wurde per Scan hinzugefügt (+1) oder rückgängig gemacht (−1), für den Hinweis am Tab „Sammlung“. */
-  onAdded(delta: number): void;
+  /** Ein Exemplar (key „gameId|printingId“) wurde per Scan hinzugefügt (+1) oder rückgängig gemacht (−1), für den Hinweis am Tab „Sammlung“ und den Binder. */
+  onAdded(delta: number, key: string): void;
+  /** Ein Scan wurde auf einen anderen Druck korrigiert (Keys wie bei onAdded). */
+  onMoved(from: string, to: string): void;
   /** Eigene Scans haben sich geändert; die Erkennung soll sie neu einlesen. */
   onLearn(): void;
 }
@@ -156,7 +159,7 @@ function languageReason(guess: LanguageGuess | null, label: string): string | un
   return undefined;
 }
 
-export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onAdded, onLearn }: Props) {
+export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onAdded, onMoved, onLearn }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stabilizer = useRef(new Stabilizer());
@@ -393,7 +396,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       alternatives: [stable.index, ...stable.alternatives].map((i) => printings[i].printingId).filter((id) => id !== printing.printingId),
     };
     const result = await service.addScan(input);
-    onAdded(1);
+    onAdded(1, slotKey(gameId, printing.printingId));
     // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
     const sample = vector
       ? await learning
@@ -512,7 +515,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   const undo = async (saved: Saved) => {
     await service.undo(saved.result);
-    onAdded(-1);
+    onAdded(-1, slotKey(saved.input.gameId, saved.input.printingId));
     if (saved.sample) await learning.forget(saved.sample.sampleId);
     setRecent((r) => r.filter((s) => s !== saved));
     stabilizer.current.reset();
@@ -532,6 +535,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         : old;
     if (old && sample && sample !== old) await learning.reassign(old, sample.itemId!, sample.source);
     setRecent((r) => r.map((s) => (s === saved ? { ...s, result, input, sample, ...overrides } : s)));
+    if (input.printingId !== saved.input.printingId) onMoved(slotKey(saved.input.gameId, saved.input.printingId), slotKey(input.gameId, input.printingId));
     onChange();
     if (old?.source === 'auto' && sample?.source !== 'auto') onLearn();
     return result;

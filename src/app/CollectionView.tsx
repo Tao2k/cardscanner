@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { CollectionService } from '../core/collection';
 import { compareCollectorNumbers, exportOrder, exportWorkbook, importWorkbook } from '../core/excel';
 import type { CollectionItem, Finish, Printing } from '../core/types';
@@ -6,9 +6,11 @@ import type { Catalogs } from './App';
 import { downloadBlob, printingCode } from './format';
 import { nameIn } from '../core/catalog';
 import { formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
-import type { CollectionSort, Prefs } from './prefs';
+import type { CollectionSort, CollectionViewMode, Prefs } from './prefs';
 import { collectionMovers, moverKey, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
+import { buildBinders } from './binder';
+import { BinderView } from './BinderView';
 
 interface Props {
   items: CollectionItem[];
@@ -52,6 +54,30 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const [sorting, setSorting] = useState(false);
   /** Eintrag, dessen Sprache und Marktplatz-Link aufgeklappt sind. */
   const [open, setOpen] = useState<string | null>(null);
+  /** Seit dem letzten Besuch gescannt: fliegt beim ersten Öffnen in den Binder, daher öffnet die Sammlung dann im Binder. */
+  const arriving = useRef(prefs.binderNew);
+  useEffect(() => {
+    arriving.current = [];
+  }, []);
+  const [view, setView] = useState<CollectionViewMode>(() => (arriving.current.length ? 'binder' : prefs.collectionView));
+  const showView = (v: CollectionViewMode) => {
+    setView(v);
+    setPrefs({ collectionView: v });
+  };
+
+  const binders = useMemo(
+    () => buildBinders([prefs.gameId, ...items.map((i) => i.gameId)], catalogs.byGame, catalogs.sets, items),
+    [items, catalogs, prefs.gameId],
+  );
+  const [binderKey, setBinderKey] = useState(() => {
+    const fresh = new Set(arriving.current);
+    return binders.find((b) => b.slots.some((s) => fresh.has(s.key)))?.key ?? prefs.binderSet;
+  });
+  const selectBinder = (key: string) => {
+    setBinderKey(key);
+    setPrefs({ binderSet: key });
+  };
+  const selectedBinder = binders.find((b) => b.key === binderKey) ?? binders.find((b) => b.owned > 0) ?? binders[0];
 
   // Alle Drucke der Spiele in der Sammlung (und des gewählten Spiels), auch die, die man nicht hat
   const catalogRows = useMemo(() => {
@@ -247,8 +273,15 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
 
   return (
     <section class="collection">
-      <header>
+      <header class="title-row">
         <h1>Sammlung</h1>
+        <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
+          {(['binder', 'list'] as const).map((v) => (
+            <button role="radio" aria-checked={view === v} class={view === v ? 'active' : ''} onClick={() => showView(v)}>
+              {v === 'binder' ? 'Binder' : 'Liste'}
+            </button>
+          ))}
+        </div>
       </header>
       {exportDue && items.length > 0 && (
         <p class="banner">
@@ -278,6 +311,10 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
         </label>
       </div>
       {message && <p class="banner">{message}</p>}
+      {view === 'binder' && selectedBinder && (
+        <BinderView binders={binders} catalogs={catalogs} selected={selectedBinder} onSelect={selectBinder} arriving={arriving.current} />
+      )}
+      {view === 'list' && <>
       <div class="find">
         <input type="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
         <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
@@ -320,6 +357,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           );
         })}
       </div>
+      </>}
       {sorting && (
         <>
           <div class="backdrop" onClick={() => setSorting(false)} />

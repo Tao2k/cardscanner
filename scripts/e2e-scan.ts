@@ -142,10 +142,14 @@ async function main() {
     const page = await context.newPage();
     page.on('pageerror', (e) => console.log(`  Seitenfehler: ${e.message}`));
     page.on('console', (m) => m.type() !== 'debug' && console.log(`  Konsole ${m.type()}: ${m.text().slice(0, 200)}`));
-    // Merkt sich, ob die Hinzufügen-Animation (Vorschaubild) gelaufen ist
+    // Merkt sich, ob die Hinzufügen-Animation (Vorschaubild) und der Flug in den Binder gelaufen sind
     await page.addInitScript(() => {
       new MutationObserver((list) => {
-        for (const m of list) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains('fx-card')) (window as unknown as { fxSeen: boolean }).fxSeen = true;
+        for (const m of list)
+          for (const n of m.addedNodes) {
+            if (n instanceof HTMLElement && n.classList.contains('fx-card')) (window as unknown as { fxSeen: boolean }).fxSeen = true;
+            if (n instanceof HTMLElement && n.classList.contains('fx-binder-card')) (window as unknown as { binderSeen: boolean }).binderSeen = true;
+          }
       }).observe(document, { childList: true, subtree: true });
     });
     await page.goto(URL_);
@@ -225,6 +229,15 @@ async function main() {
     await page.getByRole('button', { name: 'Einstellungen' }).click();
     await page.getByRole('dialog', { name: 'Einstellungen' }).waitFor({ timeout: 5000 });
     await page.screenshot({ path: path.join(shots, `einstellungen-${c.lang}-${c.specks}.png`) });
+    await page.locator('.backdrop').click({ position: { x: 10, y: 10 } });
+    // Sammlung öffnen: Die neue Karte fliegt in ihren Platz im Binder ihres Sets
+    await page.locator('[data-tab="collection"]').click();
+    const slot = page.locator(`.pocket.filled[data-slot="${file.meta.gameId}|${printing.printingId}"]`);
+    const inBinder = await slot.waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    const binderSeen = await page.evaluate(() => !!(window as unknown as { binderSeen?: boolean }).binderSeen);
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: path.join(shots, `binder-${c.lang}-${c.specks}.png`) });
+    console.log(`  [${c.lang}] Binder: ${inBinder ? 'Karte im Platz' : 'Karte NICHT im Platz'}, ${binderSeen ? 'eingeflogen' : 'NICHT eingeflogen'}`);
     await browser.close();
 
     const item = items[0];
@@ -232,7 +245,7 @@ async function main() {
     if (count !== 1) console.log(`  [${c.lang}] FEHLER: ${count} Exemplare gespeichert, erwartet 1 (doppelt gescannt)`);
     if (!fxSeen) console.log(`  [${c.lang}] FEHLER: keine Hinzufügen-Animation`);
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught && count === 1 && fxSeen;
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught && count === 1 && fxSeen && inBinder && binderSeen;
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(
