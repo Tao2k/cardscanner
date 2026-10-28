@@ -266,6 +266,8 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .login-brand img { border-radius: 16px; }
 .login-brand h1 { margin: 0; font-size: 1.8rem; }
 .login-brand h1 b { color: var(--accent-text); }
+.login .link.forgot { align-self: flex-start; padding: 0; }
+.account input[type='password'] { -webkit-appearance: none; appearance: none; }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 

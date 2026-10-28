@@ -18,12 +18,13 @@ const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || pr
  */
 export const cloudConfigured = !!(URL && KEY);
 
-export type CloudStatus = 'off' | 'loading' | 'signed-out' | 'code-sent' | 'syncing' | 'synced' | 'offline' | 'error';
+export type CloudStatus = 'off' | 'loading' | 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error';
 
 export interface CloudState {
   status: CloudStatus;
-  /** Angemeldet (beim Code-Versand steht die E-Mail schon fest, angemeldet ist man erst danach). */
   signedIn: boolean;
+  /** Über den Link „Passwort vergessen“ gekommen: erst ein neues Passwort setzen. */
+  recovery?: boolean;
   email?: string;
   /** Letzter erfolgreicher Abgleich (ISO). */
   lastSync?: string;
@@ -80,6 +81,7 @@ class Cloud {
     try {
       const client = await this.getClient();
       client.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') this.set({ recovery: true });
         if (event === 'SIGNED_OUT') this.signedOut();
         else if (session?.user && session.user.id !== this.userId) setTimeout(() => this.signedIn(session.user));
       });
@@ -115,26 +117,34 @@ class Cloud {
     this.set({ status: 'signed-out', signedIn: false, message: undefined });
   }
 
-  async sendCode(email: string) {
+  async signIn(email: string, password: string) {
     const client = await this.getClient();
-    const { error } = await client.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: true, emailRedirectTo: `${location.origin}${import.meta.env.BASE_URL}` },
-    });
-    if (error) throw new Error(authMessage(error.message));
-    this.set({ status: 'code-sent', email, message: undefined });
-  }
-
-  async verifyCode(email: string, code: string) {
-    const client = await this.getClient();
-    const { data, error } = await client.auth.verifyOtp({ email, token: code.replace(/\s/g, ''), type: 'email' });
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw new Error(authMessage(error.message));
     if (data.user) await this.signedIn(data.user);
   }
 
-  /** Zurück zur Eingabe der E-Mail-Adresse. */
-  restart() {
-    this.set({ status: 'signed-out', message: undefined });
+  /** Neues Konto. In Supabase ist „Confirm email“ aus, man ist danach direkt angemeldet. */
+  async signUp(email: string, password: string) {
+    const client = await this.getClient();
+    const { data, error } = await client.auth.signUp({ email, password });
+    if (error) throw new Error(authMessage(error.message));
+    if (!data.session) throw new Error('Konto angelegt. Bitte erst den Link in der E-Mail bestätigen, dann anmelden.');
+    if (data.user) await this.signedIn(data.user);
+  }
+
+  /** Schickt einen Link zum Zurücksetzen; er öffnet die App im Browser mit dem Formular für ein neues Passwort. */
+  async resetPassword(email: string) {
+    const client = await this.getClient();
+    const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${import.meta.env.BASE_URL}` });
+    if (error) throw new Error(authMessage(error.message));
+  }
+
+  async setNewPassword(password: string) {
+    const client = await this.getClient();
+    const { error } = await client.auth.updateUser({ password });
+    if (error) throw new Error(authMessage(error.message));
+    this.set({ recovery: false });
   }
 
   /**
@@ -224,7 +234,10 @@ export function useCloud(): CloudState {
 function authMessage(message: string): string {
   if (/rate limit|security purposes/i.test(message)) return 'Zu viele Versuche. Bitte in ein paar Minuten noch einmal.';
   if (/email/i.test(message) && /valid/i.test(message)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
-  if (/expired|invalid/i.test(message)) return 'Der Code stimmt nicht oder ist abgelaufen.';
+  if (/invalid login credentials/i.test(message)) return 'E-Mail oder Passwort stimmt nicht.';
+  if (/already registered/i.test(message)) return 'Für diese E-Mail gibt es schon ein Konto.';
+  if (/password/i.test(message) && /least|short|weak/i.test(message)) return 'Das Passwort ist zu kurz (mindestens 6 Zeichen).';
+  if (/expired|invalid/i.test(message)) return 'Der Link ist abgelaufen. Bitte neu anfordern.';
   return message;
 }
 

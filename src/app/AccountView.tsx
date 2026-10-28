@@ -3,10 +3,10 @@ import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
 
 /** Mit Supabase-Projekt ist die Anmeldung Pflicht: bis dahin zeigt die App nur diese Seite. */
 export function needsLogin(state: CloudState): boolean {
-  return cloudConfigured && (state.status === 'loading' || !state.signedIn);
+  return cloudConfigured && (state.status === 'loading' || !state.signedIn || !!state.recovery);
 }
 
-/** Anmeldeseite beim Start (E-Mail, dann Code). */
+/** Anmeldeseite beim Start (E-Mail und Passwort). */
 export function LoginScreen({ state }: { state: CloudState }) {
   if (state.status === 'loading') return <section class="login" aria-busy="true" />;
   return (
@@ -52,16 +52,21 @@ function when(iso: string): string {
   return d.toDateString() === new Date().toDateString() ? `heute ${time}` : `${d.toLocaleDateString('de-DE')} ${time}`;
 }
 
-/** Erst E-Mail-Adresse, dann den Code aus der E-Mail. */
+type LoginMode = 'login' | 'signup' | 'reset';
+
+/** Anmelden, Konto erstellen, Passwort vergessen; nach dem Link aus der E-Mail ein neues Passwort setzen. */
 function LoginForm({ state }: { state: CloudState }) {
+  const [mode, setMode] = useState<LoginMode>('login');
   const [email, setEmail] = useState(state.email ?? '');
-  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const submit = (fn: () => Promise<void>) => async (e: Event) => {
     e.preventDefault();
     setBusy(true);
     setError('');
+    setInfo('');
     try {
       await fn();
     } catch (err) {
@@ -69,6 +74,11 @@ function LoginForm({ state }: { state: CloudState }) {
     } finally {
       setBusy(false);
     }
+  };
+  const switchTo = (next: LoginMode) => {
+    setMode(next);
+    setError('');
+    setInfo('');
   };
 
   const brand = (
@@ -79,49 +89,76 @@ function LoginForm({ state }: { state: CloudState }) {
       </h1>
     </header>
   );
-  if (state.status === 'code-sent') {
+  const emailField = (
+    <label class="field">
+      <span>E-Mail</span>
+      <input type="email" autocomplete="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} placeholder="name@beispiel.de" />
+    </label>
+  );
+  const passwordField = (autocomplete: string) => (
+    <label class="field">
+      <span>Passwort</span>
+      <input type="password" autocomplete={autocomplete} required minLength={6} value={password} onInput={(e) => setPassword(e.currentTarget.value)} />
+    </label>
+  );
+  const messages = (
+    <>
+      {error && <p class="banner error">{error}</p>}
+      {info && <p class="banner">{info}</p>}
+    </>
+  );
+
+  if (state.recovery) {
     return (
-      <form class="account" onSubmit={submit(() => cloud.verifyCode(state.email ?? email, code))}>
+      <form class="account" onSubmit={submit(() => cloud.setNewPassword(password))}>
         {brand}
-        <h2>Code eingeben</h2>
-        <p class="muted">Gesendet an {state.email}</p>
-        <label class="field">
-          <span>Code</span>
-          <input
-            inputMode="numeric"
-            autocomplete="one-time-code"
-            pattern="[0-9 ]{6,10}"
-            required
-            value={code}
-            onInput={(e) => setCode(e.currentTarget.value)}
-            placeholder="123456"
-          />
-        </label>
-        <button class="primary" type="submit" disabled={busy || code.replace(/\s/g, '').length < 6}>
-          {busy ? 'Prüfe …' : 'Anmelden'}
+        <h2>Neues Passwort</h2>
+        {passwordField('new-password')}
+        <button class="primary" type="submit" disabled={busy || password.length < 6}>
+          Speichern
         </button>
-        {error && <p class="banner error">{error}</p>}
-        <p class="muted">
-          Keine E-Mail bekommen?
-          <button type="button" class="link" onClick={() => cloud.restart()}>
-            Andere Adresse oder neu senden
-          </button>
-        </p>
+        {messages}
       </form>
     );
   }
+  if (mode === 'reset') {
+    return (
+      <form class="account" onSubmit={submit(async () => (await cloud.resetPassword(email.trim()), setInfo('Link gesendet. Bitte E-Mail öffnen.')))}>
+        {brand}
+        <h2>Passwort vergessen</h2>
+        {emailField}
+        <button class="primary" type="submit" disabled={busy || !email.trim()}>
+          Link senden
+        </button>
+        {messages}
+        <button type="button" class="link" onClick={() => switchTo('login')}>
+          Zurück zur Anmeldung
+        </button>
+      </form>
+    );
+  }
+  const signup = mode === 'signup';
   return (
-    <form class="account" onSubmit={submit(() => cloud.sendCode(email.trim()))}>
+    <form class="account" onSubmit={submit(() => (signup ? cloud.signUp(email.trim(), password) : cloud.signIn(email.trim(), password)))}>
       {brand}
-      <h2>Anmelden</h2>
-      <label class="field">
-        <span>E-Mail</span>
-        <input type="email" autocomplete="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} placeholder="name@beispiel.de" />
-      </label>
-      <button class="primary" type="submit" disabled={busy || !email.trim()}>
-        {busy ? 'Sende …' : 'Code per E-Mail senden'}
+      <h2>{signup ? 'Konto erstellen' : 'Anmelden'}</h2>
+      {emailField}
+      {passwordField(signup ? 'new-password' : 'current-password')}
+      <button class="primary" type="submit" disabled={busy || !email.trim() || password.length < 6}>
+        {busy ? '…' : signup ? 'Konto erstellen' : 'Anmelden'}
       </button>
-      {error && <p class="banner error">{error}</p>}
+      {messages}
+      <p class="muted login-switch">
+        {signup ? 'Schon ein Konto?' : 'Neu hier?'}
+        <button type="button" class="link" onClick={() => switchTo(signup ? 'login' : 'signup')}>
+          {signup ? 'Anmelden' : 'Konto erstellen'}
+        </button>
+      </p>
+      {!signup && (
+        <button type="button" class="link forgot" onClick={() => switchTo('reset')}>
+          Passwort vergessen?
+        </button>
+      )}
     </form>
   );
 }
