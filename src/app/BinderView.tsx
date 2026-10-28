@@ -3,6 +3,8 @@ import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
 import { pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
+import { CoverMotif } from './BinderMotif';
+import { themeOf, themeStyle, uiColor } from './binderThemes';
 import { printingCode } from './format';
 
 interface Props {
@@ -249,13 +251,16 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const valueOf = (s: Slot) => priceFor(catalogs.price(selected.gameId, s.printing.printingId), s.foil ? 'foil' : 'normal', s.printing) ?? 0;
   const showcase = selected.slots.filter((s) => s.quantity > 0).reduce<Slot | null>((best, s) => (!best || valueOf(s) > valueOf(best) ? s : best), null);
   const isOpen = cover === 'open';
+  // Farben und Motiv wie das Display des Sets
+  const theme = themeOf(selected.key);
 
   return (
-    <div class="binder-view">
+    <div class="binder-view" style={themeStyle(theme)} data-motif={theme.motif}>
       {binders.length > 1 && (
         <div class="chips filters binder-sets" role="tablist" aria-label="Sets">
           {binders.map((b) => (
             <button role="tab" aria-selected={b.key === selected.key} class={b.key === selected.key ? 'active' : ''} onClick={() => select(b.key)}>
+              <i class="set-dot" style={{ '--dot': themeOf(b.key).base, '--dot-ring': uiColor(themeOf(b.key)) }} aria-hidden="true" />
               {b.name}
             </button>
           ))}
@@ -319,6 +324,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
             onClick={openCover}
             aria-label={`${selected.name} öffnen`}
           >
+            {theme.motif && <CoverMotif motif={theme.motif} />}
             <span class="cover-spine" aria-hidden="true" />
             <span class="cover-face">
               {selected.code && <small>{selected.code}</small>}
