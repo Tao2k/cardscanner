@@ -29,3 +29,11 @@ jobs:
           curl --fail-with-body -sS -X POST "$url/rest/v1/rpc/ping" \
             -H "apikey: $key" -H "Authorization: Bearer $key" \
             -H "Content-Type: application/json" -d '{}'
+          echo
+          # Tabelle da und durch die Regeln geschützt (ohne Anmeldung leer, aber kein Fehler)
+          curl --fail-with-body -sS "$url/rest/v1/collection_items?select=item_id&limit=1" \
+            -H "apikey: $key" -H "Authorization: Bearer $key"
+          echo
+          # Anmeldeeinstellungen: E-Mail an, „Confirm email“ aus (mailer_autoconfirm)
+          curl --fail-with-body -sS "$url/auth/v1/settings" -H "apikey: $key" \
+            | jq '{email: .external.email, mailer_autoconfirm, disable_signup}'
