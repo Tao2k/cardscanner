@@ -16,7 +16,8 @@ const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || pr
  * Mit Supabase-Projekt ist die Anmeldung Pflicht und der Server die Quelle der Wahrheit. Ohne Projekt
  * (supabase/project.json leer) arbeitet die App wie früher nur im Browser.
  */
-export const cloudConfigured = !!(URL && KEY);
+/** VITE_CLOUD=off schaltet Konto und Server ab; der Kamera-Test (e2e.yml) prüft das Scannen ohne Anmeldung. */
+export const cloudConfigured = !!(URL && KEY) && import.meta.env.VITE_CLOUD !== 'off';
 
 export type CloudStatus = 'off' | 'loading' | 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error';
 
