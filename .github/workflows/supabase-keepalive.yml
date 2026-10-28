@@ -1,0 +1,31 @@
+name: Supabase wach halten
+
+# Gratis-Projekte bei Supabase pausieren nach einer Woche ohne Zugriff. Zweimal pro Woche kurz
+# anfragen, damit die Online-Sammlung erreichbar bleibt, auch wenn niemand die App öffnet.
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: supabase/project.json
+          sparse-checkout-cone-mode: false
+      - name: Datenbank anfragen
+        run: |
+          url=$(jq -r .url supabase/project.json)
+          key=$(jq -r .anonKey supabase/project.json)
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            echo "Noch kein Supabase-Projekt eingetragen (supabase/project.json)."
+            exit 0
+          fi
+          curl --fail-with-body -sS -X POST "$url/rest/v1/rpc/ping" \
+            -H "apikey: $key" -H "Authorization: Bearer $key" \
+            -H "Content-Type: application/json" -d '{}'

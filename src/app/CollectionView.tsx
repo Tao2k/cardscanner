@@ -11,6 +11,7 @@ import { collectionMovers, moverKey, type Mover, type PriceHistoryFile } from '.
 import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
 import { buildBinders } from './binder';
 import { BinderView } from './BinderView';
+import { CloudLine } from './AccountView';
 
 interface Props {
   items: CollectionItem[];
@@ -289,6 +290,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           <span>{lastExport ? `Letzter Excel-Export: ${lastExport.toLocaleDateString('de-DE')}` : 'Noch nicht als Excel gesichert'}</span>
         </p>
       )}
+      <CloudLine />
       <div class="actions">
         <button class="primary" disabled={busy || !items.length} onClick={doExport}>
           {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
