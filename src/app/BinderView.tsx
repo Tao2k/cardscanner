@@ -19,6 +19,19 @@ interface Props {
 const FRESH_MS = 2400;
 /** Mehr Karten fliegen nicht einzeln, der Rest steckt danach auf einmal. */
 const MAX_FLIGHTS = 40;
+/** Dauer des Auf- und Zuklappens. */
+const COVER_MS = 820;
+/** Deckel klappt um den Rücken links nach vorn auf, steht kurz senkrecht und verschwindet. */
+const COVER_OPENING: Keyframe[] = [
+  { transform: 'perspective(1600px) rotateY(0deg)', opacity: 1 },
+  { transform: 'perspective(1600px) rotateY(-10deg)', opacity: 1, offset: 0.12 },
+  { transform: 'perspective(1600px) rotateY(-80deg)', opacity: 1, offset: 0.75 },
+  { transform: 'perspective(1600px) rotateY(-96deg)', opacity: 0 },
+];
+const COVER_EASING = 'cubic-bezier(.33,0,.2,1)';
+
+/** Binder zu, beim Aufklappen, offen oder beim Zuklappen. */
+type CoverState = 'closed' | 'opening' | 'open' | 'closing';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -48,6 +61,17 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   selectedRef.current = selected.key;
   /** Überspringen, solange Karten fliegen. */
   const [skip, setSkip] = useState<(() => void) | null>(null);
+  // Der Binder ist zu, bis man ihn antippt; neue Karten klappen ihn selbst auf (bei reduzierter Bewegung ist er dann gleich offen)
+  const [cover, setCoverState] = useState<CoverState>(() => (queue.length && reducedMotion() ? 'open' : 'closed'));
+  const coverNow = useRef(cover);
+  const setCover = (state: CoverState) => {
+    coverNow.current = state;
+    setCoverState(state);
+  };
+  /** Aktueller Stand, auch nach await (der State der Darstellung hinkt hinterher). */
+  const coverIs = (state: CoverState) => coverNow.current === state;
+  const coverRef = useRef<HTMLButtonElement>(null);
+  const shadeRef = useRef<HTMLDivElement>(null);
 
   const shown = (s: Slot) => s.quantity - pending.filter((k) => k === s.key).length;
   const owned = selected.slots.filter((s) => shown(s) > 0).length;
@@ -73,6 +97,34 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     if (Math.abs(el.scrollLeft - index * width) < 2) return;
     el.scrollTo({ left: index * width, behavior: smooth ? 'smooth' : 'auto' });
     if (smooth) await sleep(Math.min(700, 280 + Math.abs(el.scrollLeft / width - index) * 60));
+  };
+
+  /** Deckel aufklappen; wartet, bis Seite 1 frei liegt. */
+  const openCover = async () => {
+    if (!coverIs('closed')) return;
+    setCover('opening');
+    const lid = coverRef.current;
+    if (lid && !reducedMotion()) {
+      shadeRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: COVER_MS, easing: 'ease-in', fill: 'forwards' });
+      await lid.animate(COVER_OPENING, { duration: COVER_MS, easing: COVER_EASING, fill: 'forwards' }).finished.catch(() => undefined);
+    }
+    if (coverIs('opening')) setCover('open');
+  };
+
+  /** Zurück auf Seite 1 und den Deckel zuklappen. */
+  const closeCover = async () => {
+    if (!coverIs('open')) return;
+    await turnTo(0);
+    setCover('closing');
+    await frame();
+    await frame();
+    const lid = coverRef.current;
+    if (lid && !reducedMotion()) {
+      const timing = { duration: COVER_MS, easing: COVER_EASING, direction: 'reverse', fill: 'both' } as const;
+      shadeRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, easing: 'ease-out' });
+      await lid.animate(COVER_OPENING, timing).finished.catch(() => undefined);
+    }
+    if (coverIs('closing')) setCover('closed');
   };
 
   /** Den Binder samt Kopf ins Bild holen (unten nicht vom Rand abgeschnitten), bevor Karten hineinfliegen. */
@@ -113,12 +165,14 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       setPending([]);
       markFresh(queue);
       setSkip(null);
+      setCover('open');
     };
     setSkip(() => stop);
 
     (async () => {
       await sleep(320);
       await reveal();
+      await openCover();
       const n = Math.min(queue.length, MAX_FLIGHTS);
       const duration = Math.round(Math.max(560, 900 - n * 18));
       const gap = Math.round(Math.max(240, 620 - n * 25));
@@ -133,9 +187,14 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           landed = [];
           if (stopped) return;
           if (binder.key !== selectedRef.current) {
+            // Nächstes Set: dessen Binder liegt zu da und klappt auf
             onSelect(binder.key);
+            setCover('closed');
             await frame();
             await frame();
+            await reveal();
+            await openCover();
+            if (stopped) return;
           }
           await turnTo(target);
           await reveal();
@@ -178,6 +237,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const select = (key: string) => {
     skip?.();
     setPage(0);
+    setCover('closed');
     onSelect(key);
   };
 
@@ -185,6 +245,10 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const lastPage = Math.max(0, sheets.length - 1);
   const openEntry = open ? catalogs.price(selected.gameId, open.printing.printingId) : undefined;
   const openPrice = open ? priceFor(openEntry, open.foil ? 'foil' : 'normal', open.printing) : undefined;
+  // Auf dem Deckel: die wertvollste eigene Karte des Sets
+  const valueOf = (s: Slot) => priceFor(catalogs.price(selected.gameId, s.printing.printingId), s.foil ? 'foil' : 'normal', s.printing) ?? 0;
+  const showcase = selected.slots.filter((s) => s.quantity > 0).reduce<Slot | null>((best, s) => (!best || valueOf(s) > valueOf(best) ? s : best), null);
+  const isOpen = cover === 'open';
 
   return (
     <div class="binder-view">
@@ -205,13 +269,18 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           </small>
         </div>
         <span class="binder-pct">{pct} %</span>
+        {isOpen && !skip && (
+          <button class="binder-close" onClick={closeCover}>
+            Zuklappen
+          </button>
+        )}
       </div>
       <div class="binder-progress" role="progressbar" aria-valuemin={0} aria-valuemax={selected.slots.length} aria-valuenow={owned} aria-label="Gesammelt">
         <span style={{ width: `${pct}%` }} />
       </div>
+      <div class="binder-stage" key={selected.key}>
       <div
-        class="binder"
-        key={selected.key}
+        class={`binder${isOpen ? '' : ' locked'}`}
         ref={pagesRef}
         role="region"
         aria-label={`Binder ${selected.name}`}
@@ -241,8 +310,30 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           </div>
         ))}
       </div>
+      {!isOpen && (
+        <>
+          <div class="binder-shade" ref={shadeRef} aria-hidden="true" />
+          <button
+            class={`binder-cover ${cover}`}
+            ref={coverRef}
+            onClick={openCover}
+            aria-label={`${selected.name} öffnen`}
+          >
+            <span class="cover-spine" aria-hidden="true" />
+            <span class="cover-face">
+              {selected.code && <small>{selected.code}</small>}
+              <strong>{selected.name}</strong>
+              {showcase && <img src={imageOf(showcase)} alt="" draggable={false} />}
+              <span class="cover-open">Öffnen</span>
+            </span>
+            <span class="cover-strap" aria-hidden="true" />
+          </button>
+        </>
+      )}
+      </div>
       {sheets.length > 1 && (
-        <div class="binder-nav">
+        // Bei geschlossenem Binder nur unsichtbar, damit beim Auf- und Zuklappen nichts springt
+        <div class={`binder-nav${isOpen ? '' : ' hidden'}`} aria-hidden={!isOpen}>
           <button class="icon" aria-label="Vorherige Seite" disabled={page <= 0} onClick={() => turnTo(Math.max(0, page - 1))}>
             {chevron('M15 6l-6 6 6 6')}
           </button>

@@ -41,9 +41,9 @@ const sets = new Map<string, CardSet[]>([
 describe('Binder', () => {
   it('hat je Set einen Binder in Erscheinungsreihenfolge, Plätze nach Sammlernummer', () => {
     const binders = buildBinders(['riftbound'], byGame, sets, []);
-    expect(binders.map((b) => [b.key, b.name])).toEqual([
-      ['riftbound|OGN', 'Origins'],
-      ['riftbound|SFD', 'Spiritforged'],
+    expect(binders.map((b) => [b.key, b.code, b.name])).toEqual([
+      ['riftbound|OGN', 'OGN', 'Origins'],
+      ['riftbound|SFD', 'SFD', 'Spiritforged'],
     ]);
     expect(binders[0].slots.map((s) => s.printing.collectorNumber)).toEqual(['1', '2', '2a', '10']);
     expect(binders[0].owned).toBe(0);
