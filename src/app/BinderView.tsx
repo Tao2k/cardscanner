@@ -4,7 +4,7 @@ import type { Catalogs } from './App';
 import { pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
 import { CoverMotif } from './BinderMotif';
-import { themeOf, themeStyle } from './binderThemes';
+import { themeOf, themeStyle, uiColor } from './binderThemes';
 import { printingCode } from './format';
 
 interface Props {
@@ -260,7 +260,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
         <div class="chips filters binder-sets" role="tablist" aria-label="Sets">
           {binders.map((b) => (
             <button role="tab" aria-selected={b.key === selected.key} class={b.key === selected.key ? 'active' : ''} onClick={() => select(b.key)}>
-              <i class="set-dot" style={{ background: themeOf(b.key).base }} aria-hidden="true" />
+              <i class="set-dot" style={{ '--dot': themeOf(b.key).base, '--dot-ring': uiColor(themeOf(b.key)) }} aria-hidden="true" />
               {b.name}
             </button>
           ))}
