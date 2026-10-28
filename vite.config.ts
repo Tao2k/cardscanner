@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 // Auf GitHub Pages liegt die App unter /<repo>/; lokal unter /.
 const base = process.env.BASE_PATH ?? '/';
 
-// Versionsangabe für die Einstellungen: Paketversion, Commit und dessen Datum. Bewusst nicht die
+// Versionsangabe für die Einstellungen: Version, Commit und dessen Datum. Bewusst nicht die
 // Bauzeit: der tägliche Preis-Build soll keine neue App-Version erzeugen.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 const git = (args: string) => {
@@ -20,10 +20,18 @@ const git = (args: string) => {
 const commit = git('rev-parse --short HEAD');
 const committed = git('log -1 --format=%cI') || new Date().toISOString();
 
+// Release 1.0 = Sammlung auf dem Server (PR #19). Jede weitere Änderung auf main (Merge oder direkter
+// Commit) zählt die zweite Stelle hoch: 1.1, 1.2, … Ohne Git-Verlauf gilt die Paketversion.
+const RELEASE_1_0 = '9a285b22608d9ed682cd6decebb231d1ee19784e';
+const released = git(`merge-base ${RELEASE_1_0} HEAD`) === RELEASE_1_0;
+const version = released
+  ? `1.${git(`rev-list --count --first-parent ${RELEASE_1_0}..HEAD`)}`
+  : pkg.version.split('.').slice(0, 2).join('.');
+
 export default defineConfig({
   base,
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(version),
     __APP_COMMIT__: JSON.stringify(commit),
     __APP_BUILT__: JSON.stringify(committed),
   },

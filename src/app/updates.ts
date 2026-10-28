@@ -17,7 +17,7 @@ export const updates = new UpdateScheduler({
   now: () => Date.now(),
 });
 
-/** Version dieses Builds, z. B. „0.1.0 · a1b2c3d · 24.10.2026“. */
+/** Version dieses Builds, z. B. „1.4 · a1b2c3d · 24.10.2026“. */
 export const APP_VERSION = [__APP_VERSION__, __APP_COMMIT__, new Date(__APP_BUILT__).toLocaleDateString('de-DE')].filter(Boolean).join(' · ');
 
 /** Service Worker anmelden und auf neue Versionen achten. */
