@@ -246,7 +246,9 @@ async function main() {
       await page.locator('.binder-cover').waitFor({ state: 'detached', timeout: 5000 });
       return true;
     })().catch(() => false);
-    console.log(`  [${c.lang}] Binder: ${inBinder ? 'Karte im Platz' : 'Karte NICHT im Platz'}, ${binderSeen ? 'eingeflogen' : 'NICHT eingeflogen'}, ${lidWorks ? 'zu- und aufgeklappt' : 'Zu-/Aufklappen FEHLT'}`);
+    // Farben und Motiv des Sets (fehlt nur bei Sets ohne Eintrag in binderThemes.ts)
+    const motif = await page.locator('.binder-view').getAttribute('data-motif');
+    console.log(`  [${c.lang}] Binder: ${inBinder ? 'Karte im Platz' : 'Karte NICHT im Platz'}, ${binderSeen ? 'eingeflogen' : 'NICHT eingeflogen'}, ${lidWorks ? 'zu- und aufgeklappt' : 'Zu-/Aufklappen FEHLT'}, Set ${printing.setCode} mit Motiv ${motif ?? 'keins (Standardfarben)'}`);
     await browser.close();
 
     const item = items[0];

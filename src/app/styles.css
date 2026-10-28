@@ -374,26 +374,43 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .view-switch { flex: none; }
 .view-switch button { padding: 6px 14px; }
 .binder-view { display: flex; flex-direction: column; gap: 10px; }
+/* Farben des Sets wie sein Display (binderThemes.ts); ohne Eintrag das Violett der App */
+.binder-view { --set-light: #8d2bb0; --set-base: #5c0477; --set-deep: #3c0350; --set-accent: #ffffff; --set-rival: var(--set-base);
+  --set-ink: var(--set-base); --page: color-mix(in srgb, var(--set-base) 6%, var(--surface)); --strip: color-mix(in srgb, var(--set-base) 13%, transparent); }
+@media (prefers-color-scheme: dark) {
+  .binder-view { --set-ink: color-mix(in srgb, var(--set-light) 70%, #fff); --page: color-mix(in srgb, var(--set-light) 9%, var(--surface));
+    --strip: color-mix(in srgb, var(--set-light) 15%, transparent); }
+}
+.set-dot { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border-radius: 50%; vertical-align: -1px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.binder-sets button.active { background: var(--set-base); }
+.chips button.active .set-dot { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
 .binder-sets { margin-bottom: 2px; }
 .binder-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .binder-head > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .binder-head strong { font-size: 1.05rem; font-weight: 750; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .binder-head small { font-size: 0.8rem; font-weight: 500; font-variant-numeric: tabular-nums; }
-.binder-pct { flex: none; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.binder-pct { flex: none; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--set-ink); }
 .binder-progress { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; }
-.binder-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.4s ease; }
+.binder-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--set-base), var(--set-light)); transition: width 0.4s ease; }
 .binder { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; margin: 0 -16px; scrollbar-width: none; }
 .binder::-webkit-scrollbar { display: none; }
 .binder-page { flex: 0 0 100%; padding: 0 16px; scroll-snap-align: start; }
 .pockets { list-style: none; margin: 0 auto; max-width: 460px; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  padding: 12px 12px 12px 30px; background: linear-gradient(90deg, var(--gutter), transparent 40px) var(--surface); border-radius: 8px var(--r-card) var(--r-card) 8px; }
+  padding: 12px 12px 12px 30px; border-radius: 8px var(--r-card) var(--r-card) 8px;
+  background: linear-gradient(90deg, var(--gutter), transparent 40px), linear-gradient(90deg, var(--strip) 0 24px, transparent 30px) var(--page); }
 /* Lochung im Bund wie bei einer Ordnerseite */
 .pockets::before { content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px; width: 12px;
   background: radial-gradient(circle, var(--bg) 0 4px, var(--border) 4.5px 5px, transparent 5.5px) center / 12px calc(100% / 3) repeat-y; }
 /* Bund wie im echten Ordner abwechselnd: Seite 1, 3, … liegt rechts im Ordner (Bund links), Seite 2, 4, … links (Bund rechts) */
-.binder-page:nth-child(even) .pockets { padding: 12px 30px 12px 12px; background: linear-gradient(270deg, var(--gutter), transparent 40px) var(--surface);
-  border-radius: var(--r-card) 8px 8px var(--r-card); }
+.binder-page:nth-child(even) .pockets { padding: 12px 30px 12px 12px; border-radius: var(--r-card) 8px 8px var(--r-card);
+  background: linear-gradient(270deg, var(--gutter), transparent 40px), linear-gradient(270deg, var(--strip) 0 24px, transparent 30px) var(--page); }
 .binder-page:nth-child(even) .pockets::before { left: auto; right: 9px; }
+/* Zeichen des Sets oben und unten im Lochrand */
+.binder-view[data-motif] .pockets::after { content: ''; position: absolute; left: 8px; top: 16px; bottom: 16px; width: 14px; pointer-events: none;
+  background: var(--set-ink); opacity: 0.5;
+  -webkit-mask: var(--set-mark) top / 14px 14px no-repeat, var(--set-mark) bottom / 14px 14px no-repeat;
+  mask: var(--set-mark) top / 14px 14px no-repeat, var(--set-mark) bottom / 14px 14px no-repeat; }
+.binder-view[data-motif] .binder-page:nth-child(even) .pockets::after { left: auto; right: 8px; }
 .pocket { aspect-ratio: 63 / 88; min-width: 0; }
 .pocket button { position: relative; display: block; width: 100%; height: 100%; padding: 0; min-height: 0; border-radius: 8px; overflow: hidden; background: var(--raised); }
 .pocket img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; }
@@ -408,7 +425,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .pocket .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem;
   color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .pocket-qty { position: absolute; right: 4px; bottom: 4px; z-index: 2; padding: 3px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; line-height: 1;
-  background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+  background: var(--set-base); color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 .pocket.fresh button { animation: pocket-glow 2.4s ease-out; }
 .pocket.fresh button::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; transform: translateX(-120%);
   background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.8) 50%, transparent 70%); animation: pocket-shine 0.9s 0.05s ease-out forwards; }
@@ -447,27 +464,32 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
   background: linear-gradient(90deg, rgba(10, 6, 14, 0.42), rgba(10, 6, 14, 0.14) 55%, rgba(10, 6, 14, 0.04)); }
 .binder-cover { z-index: 4; display: flex; align-items: stretch; justify-content: stretch; padding: 0; min-height: 0; overflow: hidden; color: #fff;
   border-radius: 10px var(--r-card) var(--r-card) 10px; transform-origin: 0 50%; backface-visibility: hidden;
-  background: radial-gradient(120% 90% at 72% 18%, #8d2bb0 0%, #5c0477 52%, #3c0350 100%);
-  box-shadow: 0 2px 0 #3a024b, 0 4px 0 #2a0136, 0 18px 36px rgba(22, 19, 26, 0.3);
+  background: radial-gradient(120% 90% at 72% 18%, var(--set-light) 0%, var(--set-base) 52%, var(--set-deep) 100%);
+  box-shadow: 0 2px 0 var(--set-deep), 0 4px 0 color-mix(in srgb, var(--set-deep) 70%, #000), 0 18px 36px rgba(22, 19, 26, 0.3);
   transition: transform 0.18s ease; }
 .binder-cover:active:not(:disabled) { transform: perspective(1600px) rotateY(-5deg); }
 .binder-cover.opening, .binder-cover.closing { pointer-events: none; }
 .binder-cover.closing { opacity: 0; transform: perspective(1600px) rotateY(-96deg); }
+/* Motiv des Sets hinter Titel und Karte */
+.cover-motif { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--set-accent); pointer-events: none; }
+.motif-rival { fill: var(--set-rival); }
 /* Rücken mit Falz */
 .cover-spine { position: absolute; left: 0; top: 0; bottom: 0; width: 30px;
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.14) 72%, rgba(255, 255, 255, 0.16) 76%, rgba(255, 255, 255, 0) 84%); }
 .cover-face { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   padding: 28px 52px 28px 50px; text-align: center; }
 /* Naht */
-.cover-face::before { content: ''; position: absolute; inset: 12px 14px 12px 40px; border: 1.5px dashed rgba(255, 255, 255, 0.26); border-radius: 14px; pointer-events: none; }
-.cover-face small { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.72; }
+.cover-face::before { content: ''; position: absolute; inset: 12px 14px 12px 40px; border: 1.5px dashed color-mix(in srgb, var(--set-accent) 34%, transparent);
+  border-radius: 14px; pointer-events: none; }
+.cover-face small { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--set-accent); opacity: 0.85; }
 .cover-face strong { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
 .cover-face img { width: 42%; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 9px; border: 3px solid rgba(255, 255, 255, 0.92);
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.38); margin: 6px 0; user-select: none; }
 .cover-open { margin-top: 4px; padding: 8px 18px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); font-size: 0.9rem; font-weight: 700; }
 /* Gummiband */
 .cover-strap { position: absolute; right: 20px; top: 0; bottom: 0; width: 14px;
-  background: linear-gradient(90deg, #2a0136, #47025b 50%, #2a0136); box-shadow: 2px 0 6px rgba(0, 0, 0, 0.3); }
+  background: linear-gradient(90deg, var(--set-deep), color-mix(in srgb, var(--set-deep) 55%, var(--set-base)) 50%, var(--set-deep));
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.3), inset 1px 0 0 color-mix(in srgb, var(--set-accent) 30%, transparent), inset -1px 0 0 color-mix(in srgb, var(--set-accent) 30%, transparent); }
 @media (prefers-reduced-motion: reduce) {
   .binder-cover { transition: none; }
   .binder-cover:active:not(:disabled) { transform: none; }
