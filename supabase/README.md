@@ -12,7 +12,9 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
 1. Bei supabase.com ein Konto anlegen und ein Projekt erstellen: Region **Frankfurt (eu-central-1)**,
    Tarif **Free**.
 2. **Tabellen anlegen:** im Dashboard *SQL Editor* öffnen, den Inhalt von
-   [`migrations/0001_collection.sql`](migrations/0001_collection.sql) einfügen und ausführen.
+   [`migrations/0001_collection.sql`](migrations/0001_collection.sql) einfügen und ausführen, danach
+   genauso [`migrations/0002_friends.sql`](migrations/0002_friends.sql) (Freunde). Die Skripte dürfen
+   mehrfach laufen.
 3. **Anmeldung mit Passwort:** *Authentication → Sign In / Providers → Email* öffnen und **Confirm email**
    ausschalten. Dann ist man nach „Konto erstellen“ sofort angemeldet. Supabase verschickt ohne
    eigenen E-Mail-Versand (SMTP) nur Links, und die öffnen sich auf dem iPhone in Safari statt in der
@@ -31,5 +33,10 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
   `.github/workflows/supabase-keepalive.yml` fragt deshalb zweimal pro Woche kurz an.
 - **E-Mails:** Der eingebaute Versand von Supabase schickt nur wenige E-Mails pro Stunde. Das betrifft
   nur „Passwort vergessen“.
+- **Freunde:** Jede Person hat einen Freundescode (6 Zeichen) und kann ihn als Link teilen
+  (`…/cardscanner/?freund=CODE`). Eine Freundschaft gilt, wenn die andere Person annimmt oder
+  ihrerseits den Code eingibt. Freunde sehen von der Sammlung nur Karte, Ausführung und Anzahl, keinen
+  Lagerort und keine Notizen. „Übrig“ ist alles über ein Exemplar je Druck; vorgeschlagen werden nur
+  Karten, die der anderen Seite ganz fehlen.
 - **Abgleich:** Jede Änderung landet zuerst in einer Warteschlange im Browser und geht zum Server,
   sobald Netz da ist. Ändern zwei Geräte denselben Eintrag, gewinnt die spätere Änderung.
