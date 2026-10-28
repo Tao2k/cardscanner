@@ -31,12 +31,47 @@ const COVER_OPENING: Keyframe[] = [
   { transform: 'perspective(1600px) rotateY(-96deg)', opacity: 0 },
 ];
 const COVER_EASING = 'cubic-bezier(.33,0,.2,1)';
+/** Dauer des Umblätterns über die Pfeile. */
+const TURN_MS = 480;
+/** Ab diesem Anteil der Seitenbreite blättert ein Wischen um, sonst fällt die Seite zurück. */
+const TURN_AT = 0.35;
+/** So schnell gewischt (px/ms) blättert es auch bei kurzem Weg um. */
+const FLICK = 0.45;
+
+/** Laufendes Umblättern: die obere Seite dreht sich um den linken Rand, darunter liegt die andere. */
+interface Turn {
+  from: number;
+  to: number;
+  /** Weg der freien Kante: 0 = Ausgangsseite liegt, 1 = umgeblättert */
+  p: number;
+  frame?: number;
+  finished: Promise<void>;
+  resolve(): void;
+}
+
+/** Wischen über die Seite, bis klar ist, ob waagrecht geblättert wird. */
+interface Swipe {
+  id: number;
+  x: number;
+  y: number;
+  from: number;
+  /** Zielseite, sobald waagrecht gewischt wird */
+  to?: number;
+  turn?: Turn;
+  lastX: number;
+  lastT: number;
+  /** px/ms, negativ nach links */
+  speed: number;
+}
 
 /** Binder zu, beim Aufklappen, offen oder beim Zuklappen. */
 type CoverState = 'closed' | 'opening' | 'open' | 'closing';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+const easeInOut = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
+const easeOut = (x: number) => 1 - (1 - x) ** 2;
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const imageOf = (s: Slot) => s.printing.thumbUrl ?? s.printing.imageUrl;
 
 export function BinderView({ binders, catalogs, selected, onSelect, arriving }: Props) {
@@ -56,7 +91,19 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   /** Noch nicht gelandete Exemplare; ihre Plätze zeigen sie bis dahin nicht. */
   const [pending, setPending] = useState<string[]>(queue);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(0);
+  const [page, setPageState] = useState(0);
+  /** Aktuelle Seite, auch nach await. */
+  const pageNow = useRef(0);
+  const setPage = (index: number) => {
+    pageNow.current = index;
+    setPageState(index);
+  };
+  /** Beim Umblättern: Seite, die sich dreht, und Seite darunter. */
+  const [turning, setTurning] = useState<{ top: number; under: number } | null>(null);
+  const turn = useRef<Turn | null>(null);
+  const swipe = useRef<Swipe | null>(null);
+  /** Nach einem Wischen keinen Platz öffnen. */
+  const swiped = useRef(false);
   const [open, setOpen] = useState<Slot | null>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected.key);
@@ -84,21 +131,152 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     setTimeout(() => setFresh((f) => new Set([...f].filter((k) => !keys.includes(k)))), FRESH_MS);
   };
 
-  const pageWidth = () => {
-    const first = pagesRef.current?.firstElementChild;
-    return first instanceof HTMLElement ? first.offsetWidth : 0;
-  };
-  const currentPage = () => (pageWidth() ? Math.round(pagesRef.current!.scrollLeft / pageWidth()) : 0);
+  const pageEl = (index: number) => pagesRef.current?.children[index] as HTMLElement | undefined;
+  const shadeOf = (el: HTMLElement) => el.lastElementChild as HTMLElement;
 
-  /** Auf die Seite blättern; wartet, bis sie steht. */
+  /** Seiten in Stellung bringen: p ist der Weg der freien Kante, der Winkel folgt daraus (die Kante bleibt unter dem Finger). */
+  const pose = (t: Turn, p: number) => {
+    t.p = p;
+    const forward = t.to > t.from;
+    const top = pageEl(forward ? t.from : t.to);
+    const under = pageEl(forward ? t.to : t.from);
+    // 0 = obere Seite liegt flach, 1 = steht senkrecht am Rand
+    const lifted = clamp01(forward ? p : 1 - p);
+    if (top) {
+      top.style.transform = `perspective(3200px) rotateY(${(-(Math.acos(1 - lifted) * 180) / Math.PI).toFixed(2)}deg)`;
+      shadeOf(top).style.opacity = (lifted * 0.28).toFixed(3);
+    }
+    // Schatten der Seite darüber, wird heller, je weiter sie sich hebt
+    if (under) shadeOf(under).style.opacity = ((1 - lifted) * 0.22).toFixed(3);
+  };
+
+  const begin = (from: number, to: number) => {
+    let resolve!: () => void;
+    const finished = new Promise<void>((r) => (resolve = r));
+    const t: Turn = { from, to, p: 0, finished, resolve: () => resolve() };
+    turn.current = t;
+    setTurning(to > from ? { top: from, under: to } : { top: to, under: from });
+    pose(t, 0);
+    return t;
+  };
+
+  /** Kante gleitet von ihrer Stelle nach `target`. */
+  const glide = (t: Turn, target: number, ms: number, ease: (x: number) => number) =>
+    new Promise<void>((done) => {
+      const start = performance.now();
+      const from = t.p;
+      const step = () => {
+        if (turn.current !== t) return done();
+        const x = clamp01((performance.now() - start) / ms);
+        pose(t, from + (target - from) * ease(x));
+        if (x < 1) t.frame = requestAnimationFrame(step);
+        else done();
+      };
+      t.frame = requestAnimationFrame(step);
+    });
+
+  /** Umgeblättert oder zurückgefallen: Seiten wieder flach hinlegen. */
+  const end = async (t: Turn, turned: boolean) => {
+    if (turn.current !== t) return;
+    turn.current = null;
+    if (turned) setPage(t.to);
+    setTurning(null);
+    await frame();
+    for (const index of [t.from, t.to]) {
+      const el = pageEl(index);
+      if (!el) continue;
+      el.style.transform = '';
+      shadeOf(el).style.opacity = '';
+    }
+    t.resolve();
+  };
+
+  /** Laufendes Umblättern abbrechen (anderes Set). */
+  const stopTurn = () => {
+    const t = turn.current;
+    swipe.current = null;
+    if (!t) return;
+    if (t.frame) cancelAnimationFrame(t.frame);
+    turn.current = null;
+    setTurning(null);
+    t.resolve();
+  };
+  useEffect(() => stopTurn, []);
+
+  /** Auf die Seite blättern; wartet, bis sie liegt. */
   const turnTo = async (index: number, smooth = !reducedMotion()) => {
-    const el = pagesRef.current;
-    const width = pageWidth();
-    if (!el || !width) return;
-    setPage(index);
-    if (Math.abs(el.scrollLeft - index * width) < 2) return;
-    el.scrollTo({ left: index * width, behavior: smooth ? 'smooth' : 'auto' });
-    if (smooth) await sleep(Math.min(700, 280 + Math.abs(el.scrollLeft / width - index) * 60));
+    await turn.current?.finished;
+    const from = pageNow.current;
+    if (index === from) return;
+    if (!smooth) {
+      setPage(index);
+      await frame();
+      return;
+    }
+    const t = begin(from, index);
+    await frame();
+    await glide(t, 1, TURN_MS, easeInOut);
+    await end(t, true);
+  };
+
+  const widthOf = (index: number) => pageEl(index)?.offsetWidth || 1;
+  const progress = (s: Swipe, x: number) => clamp01(((x - s.x) * (s.to! > s.from ? -1 : 1)) / widthOf(s.from));
+
+  const onPointerDown = (e: PointerEvent) => {
+    swiped.current = false;
+    if (!isOpen || skip || turn.current || sheets.length < 2 || !e.isPrimary || e.button > 0) return;
+    swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: pageNow.current, lastX: e.clientX, lastT: e.timeStamp, speed: 0 };
+  };
+
+  const onPointerMove = (e: PointerEvent) => {
+    const s = swipe.current;
+    if (!s || s.id !== e.pointerId) return;
+    const dx = e.clientX - s.x;
+    if (s.to === undefined) {
+      // Senkrecht gewischt: die Seite scrollt, es wird nicht geblättert
+      const dy = e.clientY - s.y;
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+        swipe.current = null;
+        return;
+      }
+      if (Math.abs(dx) < 10) return;
+      const to = s.from + (dx < 0 ? 1 : -1);
+      if (to < 0 || to > lastPage) {
+        swipe.current = null;
+        return;
+      }
+      s.to = to;
+      swiped.current = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      if (!reducedMotion()) s.turn = begin(s.from, to);
+    }
+    const dt = e.timeStamp - s.lastT;
+    if (dt > 0) s.speed = 0.6 * ((e.clientX - s.lastX) / dt) + 0.4 * s.speed;
+    s.lastX = e.clientX;
+    s.lastT = e.timeStamp;
+    if (s.turn) pose(s.turn, progress(s, e.clientX));
+  };
+
+  /** Loslassen: weit oder schnell genug gewischt blättert um, sonst fällt die Seite zurück. */
+  const onPointerUp = (e: PointerEvent) => {
+    const s = swipe.current;
+    if (!s || s.id !== e.pointerId) return;
+    swipe.current = null;
+    if (s.to === undefined) return;
+    // Der Klick nach dem Loslassen öffnet keinen Platz, spätere Klicks schon
+    setTimeout(() => (swiped.current = false), 300);
+    const forward = s.to > s.from;
+    // Erst gewischt, dann angehalten: zählt nicht als schneller Wisch
+    const speed = e.timeStamp - s.lastT > 80 ? 0 : s.speed;
+    const flick = forward ? speed < -FLICK : speed > FLICK;
+    const turned = e.type === 'pointerup' && (progress(s, e.clientX) > TURN_AT || flick);
+    const t = s.turn;
+    if (!t) {
+      if (turned) setPage(s.to);
+      return;
+    }
+    const target = turned ? 1 : 0;
+    glide(t, target, 120 + 300 * Math.abs(target - t.p), easeOut).then(() => end(t, turned));
   };
 
   /** Deckel aufklappen; wartet, bis Seite 1 frei liegt. */
@@ -183,7 +361,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
         if (stopped) return;
         const { binder, at } = slotIndex.get(key)!;
         const target = Math.floor(at / PER_PAGE);
-        if (binder.key !== selectedRef.current || target !== currentPage()) {
+        if (binder.key !== selectedRef.current || target !== pageNow.current) {
           // Erst alle Karten dieser Seite einstecken, dann umblättern
           await Promise.all(landed);
           landed = [];
@@ -191,6 +369,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           if (binder.key !== selectedRef.current) {
             // Nächstes Set: dessen Binder liegt zu da und klappt auf
             onSelect(binder.key);
+            setPage(0);
             setCover('closed');
             await frame();
             await frame();
@@ -238,6 +417,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
 
   const select = (key: string) => {
     skip?.();
+    stopTurn();
     setPage(0);
     setCover('closed');
     onSelect(key);
@@ -245,6 +425,20 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
 
   const pct = selected.slots.length ? Math.round((owned / selected.slots.length) * 100) : 0;
   const lastPage = Math.max(0, sheets.length - 1);
+  const shownPage = Math.min(page, lastPage);
+  // Aufgeschlagene Seite (beim Umblättern die beiden beteiligten); die Nachbarn liegen unsichtbar bereit und laden ihre Bilder
+  const pageClass = (index: number) =>
+    turning
+      ? index === turning.top
+        ? 'top'
+        : index === turning.under
+          ? 'under'
+          : ''
+      : index === shownPage
+        ? 'current'
+        : Math.abs(index - shownPage) === 1
+          ? 'near'
+          : '';
   const openEntry = open ? catalogs.price(selected.gameId, open.printing.printingId) : undefined;
   const openPrice = open ? priceFor(openEntry, open.foil ? 'foil' : 'normal', open.printing) : undefined;
   // Auf dem Deckel: die wertvollste eigene Karte des Sets
@@ -285,14 +479,23 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       </div>
       <div class="binder-stage" key={selected.key}>
       <div
-        class={`binder${isOpen ? '' : ' locked'}`}
+        class="binder"
         ref={pagesRef}
         role="region"
         aria-label={`Binder ${selected.name}`}
-        onScroll={() => setPage(currentPage())}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onClickCapture={(e) => {
+          if (!swiped.current) return;
+          swiped.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
       >
         {sheets.map((sheet, i) => (
-          <div class="binder-page" aria-label={`Seite ${i + 1}`}>
+          <div class={`binder-page ${pageClass(i)}`.trim()} aria-label={`Seite ${i + 1}`}>
             <ol class="pockets">
               {sheet.map((s) => {
                 const quantity = shown(s);
@@ -312,6 +515,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                 <li key={`blank-${k}`} class="pocket blank" aria-hidden="true" />
               ))}
             </ol>
+            <span class="page-shade" aria-hidden="true" />
           </div>
         ))}
       </div>
@@ -340,13 +544,13 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       {sheets.length > 1 && (
         // Bei geschlossenem Binder nur unsichtbar, damit beim Auf- und Zuklappen nichts springt
         <div class={`binder-nav${isOpen ? '' : ' hidden'}`} aria-hidden={!isOpen}>
-          <button class="icon" aria-label="Vorherige Seite" disabled={page <= 0} onClick={() => turnTo(Math.max(0, page - 1))}>
+          <button class="icon" aria-label="Vorherige Seite" disabled={shownPage <= 0} onClick={() => turnTo(Math.max(0, pageNow.current - 1))}>
             {chevron('M15 6l-6 6 6 6')}
           </button>
           <span>
-            Seite {Math.min(page, lastPage) + 1} von {sheets.length}
+            Seite {shownPage + 1} von {sheets.length}
           </span>
-          <button class="icon" aria-label="Nächste Seite" disabled={page >= lastPage} onClick={() => turnTo(Math.min(lastPage, page + 1))}>
+          <button class="icon" aria-label="Nächste Seite" disabled={shownPage >= lastPage} onClick={() => turnTo(Math.min(lastPage, pageNow.current + 1))}>
             {chevron('M9 6l6 6-6 6')}
           </button>
         </div>
