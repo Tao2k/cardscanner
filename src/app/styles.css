@@ -405,23 +405,17 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .binder-page.under { z-index: 1; }
 .binder-page.top .pockets { box-shadow: 0 10px 26px rgba(22, 19, 26, 0.16); }
 .page-shade { position: absolute; inset: 0; z-index: 1; border-radius: 8px var(--r-card) var(--r-card) 8px; pointer-events: none; opacity: 0; background: rgb(10, 6, 14); }
-.binder-page:nth-child(even) .page-shade { border-radius: var(--r-card) 8px 8px var(--r-card); }
 .pockets { list-style: none; margin: 0; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
   padding: 12px 12px 12px 30px; border-radius: 8px var(--r-card) var(--r-card) 8px;
   background: linear-gradient(90deg, var(--gutter), transparent 40px), linear-gradient(90deg, var(--strip) 0 24px, transparent 30px) var(--page); }
-/* Lochung im Bund wie bei einer Ordnerseite */
+/* Lochung im Bund wie bei einer Ordnerseite; der Bund liegt immer links, um ihn dreht sich die Seite beim Umblättern */
 .pockets::before { content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px; width: 12px;
   background: radial-gradient(circle, var(--bg) 0 4px, var(--border) 4.5px 5px, transparent 5.5px) center / 12px calc(100% / 3) repeat-y; }
-/* Bund wie im echten Ordner abwechselnd: Seite 1, 3, … liegt rechts im Ordner (Bund links), Seite 2, 4, … links (Bund rechts) */
-.binder-page:nth-child(even) .pockets { padding: 12px 30px 12px 12px; border-radius: var(--r-card) 8px 8px var(--r-card);
-  background: linear-gradient(270deg, var(--gutter), transparent 40px), linear-gradient(270deg, var(--strip) 0 24px, transparent 30px) var(--page); }
-.binder-page:nth-child(even) .pockets::before { left: auto; right: 9px; }
 /* Zeichen des Sets oben und unten im Lochrand */
 .binder-view[data-motif] .pockets::after { content: ''; position: absolute; left: 8px; top: 16px; bottom: 16px; width: 14px; pointer-events: none;
   background: var(--set-ink); opacity: 0.5;
   -webkit-mask: var(--set-mark) top / 14px 14px no-repeat, var(--set-mark) bottom / 14px 14px no-repeat;
   mask: var(--set-mark) top / 14px 14px no-repeat, var(--set-mark) bottom / 14px 14px no-repeat; }
-.binder-view[data-motif] .binder-page:nth-child(even) .pockets::after { left: auto; right: 8px; }
 .pocket { aspect-ratio: 63 / 88; min-width: 0; }
 .pocket button { position: relative; display: block; width: 100%; height: 100%; padding: 0; min-height: 0; border-radius: 8px; overflow: hidden; background: var(--raised); }
 .pocket img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; }

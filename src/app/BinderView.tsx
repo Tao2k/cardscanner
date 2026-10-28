@@ -32,11 +32,15 @@ const COVER_OPENING: Keyframe[] = [
 ];
 const COVER_EASING = 'cubic-bezier(.33,0,.2,1)';
 /** Dauer des Umblätterns über die Pfeile. */
-const TURN_MS = 480;
+const TURN_MS = 380;
 /** Ab diesem Anteil der Seitenbreite blättert ein Wischen um, sonst fällt die Seite zurück. */
-const TURN_AT = 0.35;
+const TURN_AT = 0.2;
 /** So schnell gewischt (px/ms) blättert es auch bei kurzem Weg um. */
-const FLICK = 0.45;
+const FLICK = 0.2;
+/** Ein schneller Wisch zählt erst ab diesem Weg (px), verwackeltes Antippen blättert nicht. */
+const FLICK_PX = 16;
+/** Ab so vielen Pixeln zur Seite beginnt das Blättern. */
+const START_PX = 8;
 
 /** Laufendes Umblättern: die obere Seite dreht sich um den linken Rand, darunter liegt die andere. */
 interface Turn {
@@ -44,6 +48,8 @@ interface Turn {
   to: number;
   /** Weg der freien Kante: 0 = Ausgangsseite liegt, 1 = umgeblättert */
   p: number;
+  /** Wohin die Kante gerade gleitet; fehlt, solange der Finger sie hält */
+  target?: number;
   frame?: number;
   finished: Promise<void>;
   resolve(): void;
@@ -58,10 +64,8 @@ interface Swipe {
   /** Zielseite, sobald waagrecht gewischt wird */
   to?: number;
   turn?: Turn;
-  lastX: number;
-  lastT: number;
-  /** px/ms, negativ nach links */
-  speed: number;
+  /** Letzte Punkte des Fingers fürs Tempo */
+  trail: { x: number; t: number }[];
 }
 
 /** Binder zu, beim Aufklappen, offen oder beim Zuklappen. */
@@ -72,6 +76,17 @@ const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 const easeInOut = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
 const easeOut = (x: number) => 1 - (1 - x) ** 2;
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+/** Punkt merken; fürs Tempo zählen nur die letzten 100 ms. */
+const track = (s: Swipe, x: number, t: number) => {
+  s.trail.push({ x, t });
+  while (s.trail.length > 2 && t - s.trail[1].t >= 100) s.trail.shift();
+};
+/** Tempo in px/ms, negativ nach links; wer vor dem Loslassen anhält, wischt nicht schnell. */
+const speedOf = ({ trail }: Swipe) => {
+  const a = trail[0];
+  const b = trail[trail.length - 1];
+  return b.t > a.t ? (b.x - a.x) / (b.t - a.t) : 0;
+};
 const imageOf = (s: Slot) => s.printing.thumbUrl ?? s.printing.imageUrl;
 
 export function BinderView({ binders, catalogs, selected, onSelect, arriving }: Props) {
@@ -165,6 +180,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     new Promise<void>((done) => {
       const start = performance.now();
       const from = t.p;
+      t.target = target;
       const step = () => {
         if (turn.current !== t) return done();
         const x = clamp01((performance.now() - start) / ms);
@@ -182,13 +198,24 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     if (turned) setPage(t.to);
     setTurning(null);
     await frame();
+    // Hat inzwischen schon das nächste Umblättern begonnen, bleiben dessen Seiten in Stellung
+    const next = turn.current as Turn | null;
     for (const index of [t.from, t.to]) {
       const el = pageEl(index);
-      if (!el) continue;
+      if (!el || (next && (index === next.from || index === next.to))) continue;
       el.style.transform = '';
       shadeOf(el).style.opacity = '';
     }
     t.resolve();
+  };
+
+  /** Fällt eine Seite noch, liegt sie sofort, damit gleich weitergeblättert werden kann. */
+  const finish = () => {
+    const t = turn.current;
+    if (!t) return;
+    const target = t.target ?? (t.p > 0.5 ? 1 : 0);
+    pose(t, target);
+    end(t, target === 1);
   };
 
   /** Laufendes Umblättern abbrechen (anderes Set). */
@@ -219,27 +246,38 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     await end(t, true);
   };
 
+  /** Pfeile: eine Seite weiter oder zurück, auch wenn die vorige gerade noch fällt. */
+  const turnBy = (step: number) => {
+    if (skip || swipe.current?.turn) return;
+    finish();
+    const to = pageNow.current + step;
+    if (to >= 0 && to <= lastPage) turnTo(to);
+  };
+
   const widthOf = (index: number) => pageEl(index)?.offsetWidth || 1;
   const progress = (s: Swipe, x: number) => clamp01(((x - s.x) * (s.to! > s.from ? -1 : 1)) / widthOf(s.from));
 
   const onPointerDown = (e: PointerEvent) => {
     swiped.current = false;
-    if (!isOpen || skip || turn.current || sheets.length < 2 || !e.isPrimary || e.button > 0) return;
-    swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: pageNow.current, lastX: e.clientX, lastT: e.timeStamp, speed: 0 };
+    if (!isOpen || skip || sheets.length < 2 || !e.isPrimary || e.button > 0) return;
+    // Fällt die vorige Seite noch, liegt sie sofort, und es geht von der neuen aus weiter
+    finish();
+    swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: pageNow.current, trail: [{ x: e.clientX, t: e.timeStamp }] };
   };
 
   const onPointerMove = (e: PointerEvent) => {
     const s = swipe.current;
     if (!s || s.id !== e.pointerId) return;
+    track(s, e.clientX, e.timeStamp);
     const dx = e.clientX - s.x;
     if (s.to === undefined) {
       // Senkrecht gewischt: die Seite scrollt, es wird nicht geblättert
       const dy = e.clientY - s.y;
-      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dy) > START_PX && Math.abs(dy) > Math.abs(dx)) {
         swipe.current = null;
         return;
       }
-      if (Math.abs(dx) < 10) return;
+      if (Math.abs(dx) < START_PX) return;
       const to = s.from + (dx < 0 ? 1 : -1);
       if (to < 0 || to > lastPage) {
         swipe.current = null;
@@ -250,10 +288,6 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       if (!reducedMotion()) s.turn = begin(s.from, to);
     }
-    const dt = e.timeStamp - s.lastT;
-    if (dt > 0) s.speed = 0.6 * ((e.clientX - s.lastX) / dt) + 0.4 * s.speed;
-    s.lastX = e.clientX;
-    s.lastT = e.timeStamp;
     if (s.turn) pose(s.turn, progress(s, e.clientX));
   };
 
@@ -265,18 +299,23 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     if (s.to === undefined) return;
     // Der Klick nach dem Loslassen öffnet keinen Platz, spätere Klicks schon
     setTimeout(() => (swiped.current = false), 300);
-    const forward = s.to > s.from;
-    // Erst gewischt, dann angehalten: zählt nicht als schneller Wisch
-    const speed = e.timeStamp - s.lastT > 80 ? 0 : s.speed;
-    const flick = forward ? speed < -FLICK : speed > FLICK;
-    const turned = e.type === 'pointerup' && (progress(s, e.clientX) > TURN_AT || flick);
+    track(s, e.clientX, e.timeStamp);
+    // Tempo in Blätterrichtung
+    const speed = speedOf(s) * (s.to > s.from ? -1 : 1);
+    const fling = Math.abs(e.clientX - s.x) < FLICK_PX ? 0 : speed;
+    // Schnell gewischt blättert auch auf kurzem Weg um, schnell zurückgezogen nicht
+    const turned = e.type === 'pointerup' && (fling > FLICK || (progress(s, e.clientX) > TURN_AT && fling > -FLICK));
     const t = s.turn;
     if (!t) {
       if (turned) setPage(s.to);
       return;
     }
     const target = turned ? 1 : 0;
-    glide(t, target, 120 + 300 * Math.abs(target - t.p), easeOut).then(() => end(t, turned));
+    const left = Math.abs(target - t.p);
+    // Mit Schwung gewischt, fällt die Seite so schnell weiter, wie der Finger war (easeOut startet mit doppeltem Mitteltempo)
+    const along = turned ? speed : -speed;
+    const ms = along > 0 ? Math.min(120 + 220 * left, (2 * left * widthOf(s.from)) / along) : 120 + 220 * left;
+    glide(t, target, Math.max(120, ms), easeOut).then(() => end(t, turned));
   };
 
   /** Deckel aufklappen; wartet, bis Seite 1 frei liegt. */
@@ -295,6 +334,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const closeCover = async () => {
     if (!coverIs('open')) return;
     await turnTo(0);
+    // Inzwischen wird wieder geblättert: Binder bleibt offen
+    if (swipe.current || turn.current) return;
     setCover('closing');
     await frame();
     await frame();
@@ -426,19 +467,18 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const pct = selected.slots.length ? Math.round((owned / selected.slots.length) * 100) : 0;
   const lastPage = Math.max(0, sheets.length - 1);
   const shownPage = Math.min(page, lastPage);
-  // Aufgeschlagene Seite (beim Umblättern die beiden beteiligten); die Nachbarn liegen unsichtbar bereit und laden ihre Bilder
+  // Aufgeschlagene Seite (beim Umblättern die beiden beteiligten); je zwei Seiten davor und danach liegen unsichtbar bereit
+  // und laden schon ihre Bilder, damit auch schnelles Blättern gleich volle Seiten zeigt
   const pageClass = (index: number) =>
-    turning
-      ? index === turning.top
-        ? 'top'
-        : index === turning.under
-          ? 'under'
-          : ''
-      : index === shownPage
-        ? 'current'
-        : Math.abs(index - shownPage) === 1
-          ? 'near'
-          : '';
+    index === turning?.top
+      ? 'top'
+      : index === turning?.under
+        ? 'under'
+        : index === shownPage && !turning
+          ? 'current'
+          : Math.abs(index - shownPage) <= 2
+            ? 'near'
+            : '';
   const openEntry = open ? catalogs.price(selected.gameId, open.printing.printingId) : undefined;
   const openPrice = open ? priceFor(openEntry, open.foil ? 'foil' : 'normal', open.printing) : undefined;
   // Auf dem Deckel: die wertvollste eigene Karte des Sets
@@ -544,13 +584,13 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       {sheets.length > 1 && (
         // Bei geschlossenem Binder nur unsichtbar, damit beim Auf- und Zuklappen nichts springt
         <div class={`binder-nav${isOpen ? '' : ' hidden'}`} aria-hidden={!isOpen}>
-          <button class="icon" aria-label="Vorherige Seite" disabled={shownPage <= 0} onClick={() => turnTo(Math.max(0, pageNow.current - 1))}>
+          <button class="icon" aria-label="Vorherige Seite" disabled={shownPage <= 0} onClick={() => turnBy(-1)}>
             {chevron('M15 6l-6 6 6 6')}
           </button>
           <span>
             Seite {shownPage + 1} von {sheets.length}
           </span>
-          <button class="icon" aria-label="Nächste Seite" disabled={shownPage >= lastPage} onClick={() => turnTo(Math.min(lastPage, pageNow.current + 1))}>
+          <button class="icon" aria-label="Nächste Seite" disabled={shownPage >= lastPage} onClick={() => turnBy(1)}>
             {chevron('M9 6l6 6-6 6')}
           </button>
         </div>
