@@ -395,10 +395,18 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .binder-pct { flex: none; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--set-ink); }
 .binder-progress { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; }
 .binder-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--set-ui), color-mix(in srgb, var(--set-ui) 65%, #fff)); transition: width 0.4s ease; }
-.binder { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; margin: 0 -16px; scrollbar-width: none; }
-.binder::-webkit-scrollbar { display: none; }
-.binder-page { flex: 0 0 100%; padding: 0 16px; scroll-snap-align: start; }
-.pockets { list-style: none; margin: 0 auto; max-width: 460px; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+/* Seiten liegen übereinander; zu sehen ist nur die aufgeschlagene, ihre Nachbarn laden unsichtbar schon die Bilder */
+.binder { display: grid; isolation: isolate; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none; }
+.binder-page { grid-area: 1 / 1; position: relative; display: none; width: 100%; max-width: 460px; margin: 0 auto; transform-origin: 0 50%; }
+.binder-page.near { display: block; visibility: hidden; }
+.binder-page.current, .binder-page.top, .binder-page.under { display: block; }
+/* Umblättern: die obere Seite dreht sich um den linken Rand wie der Deckel, darunter liegt schon die andere */
+.binder-page.top { z-index: 2; will-change: transform; }
+.binder-page.under { z-index: 1; }
+.binder-page.top .pockets { box-shadow: 0 10px 26px rgba(22, 19, 26, 0.16); }
+.page-shade { position: absolute; inset: 0; z-index: 1; border-radius: 8px var(--r-card) var(--r-card) 8px; pointer-events: none; opacity: 0; background: rgb(10, 6, 14); }
+.binder-page:nth-child(even) .page-shade { border-radius: var(--r-card) 8px 8px var(--r-card); }
+.pockets { list-style: none; margin: 0; position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
   padding: 12px 12px 12px 30px; border-radius: 8px var(--r-card) var(--r-card) 8px;
   background: linear-gradient(90deg, var(--gutter), transparent 40px), linear-gradient(90deg, var(--strip) 0 24px, transparent 30px) var(--page); }
 /* Lochung im Bund wie bei einer Ordnerseite */
@@ -459,7 +467,6 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 
 /* Geschlossener Binder: Deckel über Seite 1, klappt um den Rücken links auf */
 .binder-stage { position: relative; }
-.binder.locked { overflow-x: hidden; }
 .binder-head .binder-pct { margin-left: auto; }
 .binder-close { flex: none; min-height: 36px; padding: 6px 14px; font-size: 0.85rem; background: var(--surface); }
 .binder-cover, .binder-shade { position: absolute; inset: 0; max-width: 460px; margin: 0 auto; }
