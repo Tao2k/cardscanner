@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { SyncEngine, type FirstSync } from '../core/sync';
+import { SyncEngine } from '../core/sync';
 import type { SyncingStore } from '../storage/outbox';
 
 import project from '../../supabase/project.json';
@@ -12,20 +12,23 @@ import project from '../../supabase/project.json';
 const URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || project.url;
 const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || project.anonKey;
 
-/** Ohne Supabase-Projekt gibt es kein Konto; die App arbeitet dann nur lokal. */
+/**
+ * Mit Supabase-Projekt ist die Anmeldung Pflicht und der Server die Quelle der Wahrheit. Ohne Projekt
+ * (supabase/project.json leer) arbeitet die App wie früher nur im Browser.
+ */
 export const cloudConfigured = !!(URL && KEY);
 
-export type CloudStatus = 'off' | 'signed-out' | 'code-sent' | 'choice' | 'syncing' | 'synced' | 'offline' | 'error';
+export type CloudStatus = 'off' | 'loading' | 'signed-out' | 'code-sent' | 'syncing' | 'synced' | 'offline' | 'error';
 
 export interface CloudState {
   status: CloudStatus;
+  /** Angemeldet (beim Code-Versand steht die E-Mail schon fest, angemeldet ist man erst danach). */
+  signedIn: boolean;
   email?: string;
   /** Letzter erfolgreicher Abgleich (ISO). */
   lastSync?: string;
   /** Änderungen, die noch nicht auf dem Server sind. */
   pending: number;
-  /** Einträge auf dem Server bei der ersten Anmeldung (für die Frage „zusammenführen?“). */
-  remoteCount?: number;
   message?: string;
 }
 
@@ -34,11 +37,11 @@ const DEBOUNCE_MS = 2000;
 const LAST_SYNC_KEY = 'cardscanner.lastSync';
 
 /**
- * Konto und Abgleich mit dem Server. Die Sammlung bleibt immer im Browser; angemeldet wird sie
- * zusätzlich gesichert und zwischen Geräten abgeglichen.
+ * Konto und Abgleich mit dem Server. Die Sammlung liegt auf dem Server; der Browser hält eine Kopie,
+ * damit Scannen und Ansehen auch offline gehen. Änderungen warten dann in der Warteschlange.
  */
 class Cloud {
-  state: CloudState = { status: cloudConfigured ? 'signed-out' : 'off', pending: 0, lastSync: readLastSync() };
+  state: CloudState = { status: cloudConfigured ? 'loading' : 'off', signedIn: false, pending: 0, lastSync: readLastSync() };
   private listeners = new Set<(s: CloudState) => void>();
   private client: Promise<SupabaseClient> | null = null;
   private store: SyncingStore | null = null;
@@ -82,6 +85,7 @@ class Cloud {
       });
       const { data } = await client.auth.getSession();
       if (data.session?.user) await this.signedIn(data.session.user);
+      else this.set({ status: 'signed-out' });
     } catch (e) {
       this.set({ status: 'error', message: (e as Error).message });
     }
@@ -94,15 +98,12 @@ class Cloud {
     this.userId = user.id;
     const { SupabaseCollection } = await import('../storage/supabase');
     this.engine = new SyncEngine(this.store, new SupabaseCollection(await this.getClient()), user.id);
-    this.set({ email: user.email, status: 'syncing', message: undefined });
+    this.set({ signedIn: true, email: user.email, status: 'syncing', message: undefined });
     try {
-      const remoteCount = await this.engine.needsChoice();
-      if (remoteCount) {
-        this.set({ status: 'choice', remoteCount });
-        return;
-      }
-      if (await this.engine.isFirst()) await this.run(() => this.engine!.first('merge'));
-      else await this.syncNow();
+      await this.engine.prepare();
+      // Erste Anmeldung oder Kontowechsel: Karten vom Gerät hochladen bzw. Speicher geleert
+      this.onRemoteChange();
+      await this.syncNow();
     } catch (e) {
       this.failed(e);
     }
@@ -111,7 +112,7 @@ class Cloud {
   private signedOut() {
     this.userId = undefined;
     this.engine = null;
-    this.set({ status: 'signed-out', email: undefined, message: undefined });
+    this.set({ status: 'signed-out', signedIn: false, message: undefined });
   }
 
   async sendCode(email: string) {
@@ -136,28 +137,33 @@ class Cloud {
     this.set({ status: 'signed-out', message: undefined });
   }
 
+  /**
+   * Abmelden entfernt die Karten vom Gerät (sie liegen auf dem Server). Vorher muss alles gesendet
+   * sein, sonst gingen offline gescannte Karten verloren.
+   */
   async signOut() {
+    if (this.engine) {
+      await this.syncNow();
+      const pending = (await this.store!.outbox.list()).length;
+      if (pending) throw new Error(`${pending} ${pending === 1 ? 'Änderung ist' : 'Änderungen sind'} noch nicht auf dem Server. Bitte mit Internet erneut versuchen.`);
+      await this.engine.clearLocal();
+    }
     const client = await this.getClient();
     await client.auth.signOut();
     this.signedOut();
-  }
-
-  /** Antwort auf „Auf dem Server liegt schon eine Sammlung“. */
-  async choose(mode: FirstSync) {
-    if (!this.engine) return;
-    await this.run(() => this.engine!.first(mode));
+    this.onRemoteChange();
   }
 
   syncSoon() {
     this.countPending();
-    if (!this.engine || this.state.status === 'choice') return;
+    if (!this.engine) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.syncNow(), DEBOUNCE_MS);
   }
 
   async syncNow() {
     clearTimeout(this.timer);
-    if (!this.engine || this.state.status === 'choice') return;
+    if (!this.engine) return;
     await this.run(() => this.engine!.sync());
   }
 

@@ -49,6 +49,12 @@ const scan = (patch: Partial<ScanInput> = {}): ScanInput => ({
   ...patch,
 });
 
+/** Anmelden wie in der App: vorbereiten, dann abgleichen. */
+async function signIn(d: ReturnType<typeof device>) {
+  await d.engine.prepare();
+  return d.engine.sync();
+}
+
 describe('Abgleich mit dem Server', () => {
   it('legt jede Änderung in die Warteschlange und leert sie beim Abgleich', async () => {
     const remote = new FakeRemote();
@@ -56,7 +62,7 @@ describe('Abgleich mit dem Server', () => {
     await a.service.addScan(scan());
     await a.service.addScan(scan());
     expect(await a.store.outbox.list()).toHaveLength(1);
-    await a.engine.first('merge');
+    await signIn(a);
     expect(await a.store.outbox.list()).toHaveLength(0);
     expect(await remote.count()).toBe(1);
     expect([...remote.rows.values()][0].item?.quantity).toBe(2);
@@ -68,10 +74,9 @@ describe('Abgleich mit dem Server', () => {
     const b = device(remote);
     const { item } = await a.service.addScan(scan());
     await a.service.addScan(scan({ printingId: 'ogn-002-298' }));
-    await a.engine.first('merge');
+    await signIn(a);
 
-    expect(await b.engine.needsChoice()).toBe(0);
-    expect((await b.engine.first('merge')).changed).toBe(true);
+    expect((await signIn(b)).changed).toBe(true);
     expect(await b.service.list()).toHaveLength(2);
 
     await b.service.update(item.itemId, { quantity: 4 });
@@ -83,24 +88,44 @@ describe('Abgleich mit dem Server', () => {
     expect(onA[0].quantity).toBe(4);
   });
 
-  it('fragt bei der ersten Anmeldung, wenn hier und auf dem Server Karten liegen', async () => {
+  it('lädt Karten von vor der Anmeldung beim ersten Mal automatisch hoch', async () => {
     const remote = new FakeRemote();
     const a = device(remote);
     await a.service.addScan(scan());
-    await a.engine.first('merge');
+    await signIn(a);
 
     const b = device(remote);
     await b.service.addScan(scan({ printingId: 'ogn-003-298' }));
-    expect(await b.engine.needsChoice()).toBe(1);
-    await b.engine.first('server');
-    expect((await b.service.list()).map((i) => i.printingId)).toEqual(['ogn-001-298']);
+    await signIn(b);
+    expect(await b.service.list()).toHaveLength(2);
+    expect(await remote.count()).toBe(2);
+    // erneute Anmeldung desselben Kontos lädt nichts doppelt hoch
+    await signIn(b);
+    expect(await remote.count()).toBe(2);
+  });
+
+  it('Abmelden und anderes Konto: Gerätespeicher gehört nur dem angemeldeten Konto', async () => {
+    const remote = new FakeRemote();
+    const other = new FakeRemote();
+    const name = `sync-${dbCounter++}`;
+    const store = new SyncingStore(new IndexedDbStore(name), new Outbox(name));
+    const yalisa = new SyncEngine(store, remote, 'yalisa');
+    await new CollectionService(store).addScan(scan());
+    await yalisa.prepare();
+    await yalisa.sync();
+
+    // anderes Konto meldet sich auf demselben Gerät an: Yalisas Karten verschwinden vom Gerät, nicht vom Server
+    const friend = new SyncEngine(store, other, 'freundin');
+    await friend.prepare();
+    await friend.sync();
+    expect(await store.list()).toHaveLength(0);
+    expect(await other.count()).toBe(0);
     expect(await remote.count()).toBe(1);
 
-    const c = device(remote);
-    await c.service.addScan(scan({ printingId: 'ogn-004-298' }));
-    await c.engine.first('merge');
-    expect(await c.service.list()).toHaveLength(2);
-    expect(await remote.count()).toBe(2);
+    await friend.clearLocal();
+    await yalisa.prepare();
+    await yalisa.sync();
+    expect(await store.list()).toHaveLength(1);
   });
 
   it('bei Änderungen auf zwei Geräten gewinnt die spätere', async () => {
@@ -108,8 +133,8 @@ describe('Abgleich mit dem Server', () => {
     const a = device(remote);
     const b = device(remote);
     const { item } = await a.service.addScan(scan());
-    await a.engine.first('merge');
-    await b.engine.first('merge');
+    await signIn(a);
+    await signIn(b);
 
     await a.service.update(item.itemId, { quantity: 3 });
     await a.engine.sync();
@@ -126,7 +151,7 @@ describe('Abgleich mit dem Server', () => {
     const remote = new FakeRemote();
     const a = device(remote);
     const { item } = await a.service.addScan(scan());
-    await a.engine.first('merge');
+    await signIn(a);
     await a.service.replaceAll([{ ...item, itemId: 'neu', printingId: 'ogn-005-298' }]);
     await a.engine.sync();
     expect(await remote.count()).toBe(1);

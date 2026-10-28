@@ -6,7 +6,8 @@ import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHi
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
 import { SyncingStore } from '../storage/outbox';
-import { cloud } from './cloud';
+import { cloud, useCloud } from './cloud';
+import { LoginScreen, needsLogin } from './AccountView';
 import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Recognizer, type Learned } from './recognizer';
@@ -52,6 +53,7 @@ export function App() {
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
+  const account = useCloud();
 
   const setPrefs = (patch: Partial<Prefs>) => {
     setPrefsState((p) => {
@@ -167,6 +169,8 @@ export function App() {
       savePrefs(next);
       return next;
     });
+
+  if (needsLogin(account)) return <LoginScreen state={account} />;
 
   return (
     <div class="app">

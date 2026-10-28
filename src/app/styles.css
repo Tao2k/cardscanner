@@ -250,12 +250,17 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
   font-weight: 600; font-size: 0.88rem; justify-content: flex-start; border-radius: var(--r-row); }
 .cloud-line svg { flex: none; }
 .cloud-line.synced svg { color: var(--accent-text); }
-.cloud-line.signed-out, .cloud-line.code-sent, .cloud-line.choice { color: var(--accent-text); }
 .cloud-line.error { color: var(--error); }
 .account { display: flex; flex-direction: column; gap: 14px; }
 .account h2 { margin: 0; }
 .account input { width: 100%; }
 .account-sheet .close { align-self: center; padding: 8px; }
+.login { min-height: 100dvh; max-width: 480px; margin: 0 auto; padding: 48px 20px calc(24px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; }
+.login p { margin: 0; }
+.login-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 16px; }
+.login-brand img { border-radius: 16px; }
+.login-brand h1 { margin: 0; font-size: 1.8rem; }
+.login-brand h1 b { color: var(--accent-text); }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 

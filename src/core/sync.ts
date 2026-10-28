@@ -21,8 +21,6 @@ export interface RemoteCollection {
   count(): Promise<number>;
 }
 
-export type FirstSync = 'merge' | 'server';
-
 export interface SyncResult {
   pushed: number;
   /** Lokale Sammlung wurde durch den Server verändert (Anzeige neu laden). */
@@ -34,6 +32,9 @@ export interface SyncResult {
  * so trotzdem an. Doppelt geholte Zeilen schaden nicht.
  */
 const OVERLAP_MS = 10_000;
+
+/** Konto, dem die Karten im Gerätespeicher gehören. */
+const OWNER_KEY = 'owner';
 
 /**
  * Abgleich der lokalen Sammlung mit dem Server, lokal zuerst:
@@ -51,35 +52,33 @@ export class SyncEngine {
     return `cursor:${this.userId}`;
   }
 
-  /** Noch nie mit diesem Konto abgeglichen. */
-  async isFirst(): Promise<boolean> {
-    return (await this.store.outbox.getMeta<string>(this.cursorKey)) === undefined;
-  }
-
   /**
-   * Erste Anmeldung auf diesem Gerät. Liegen hier und auf dem Server schon Karten, muss die Person
-   * wählen: zusammenführen (die Karten dieses Geräts kommen dazu) oder den Server-Stand übernehmen.
-   * Ergebnis: Anzahl der Einträge auf dem Server, 0 = keine Frage nötig.
+   * Vor dem ersten Abgleich nach der Anmeldung. Der Server ist die Quelle der Wahrheit, das Gerät
+   * nur Zwischenspeicher: Gehört der Speicher einem anderen Konto, wird er geleert. Karten aus der
+   * Zeit vor der Anmeldung (noch keinem Konto zugeordnet) werden einmal hochgeladen.
    */
-  async needsChoice(): Promise<number> {
-    if (!(await this.isFirst())) return 0;
-    if (!(await this.store.local.list()).length) return 0;
-    return this.remote.count();
-  }
-
-  async first(mode: FirstSync): Promise<SyncResult> {
-    if (mode === 'server') {
-      await this.store.local.replaceAll([]);
-      await this.store.outbox.clear();
-    } else {
-      // Alles, was schon vor der Anmeldung da war, einmal hochladen
+  async prepare(): Promise<void> {
+    const { local, outbox } = this.store;
+    const owner = await outbox.getMeta<string>(OWNER_KEY);
+    if (owner && owner !== this.userId) {
+      await this.clearLocal();
+    } else if (!owner) {
       const changedAt = new Date().toISOString();
-      for (const item of await this.store.local.list()) {
-        if (!(await this.store.outbox.has(item.itemId))) await this.store.outbox.add({ itemId: item.itemId, item, deleted: false, changedAt });
+      for (const item of await local.list()) {
+        if (!(await outbox.has(item.itemId))) await outbox.add({ itemId: item.itemId, item, deleted: false, changedAt });
       }
     }
-    const result = await this.sync();
-    return { ...result, changed: result.changed || mode === 'server' };
+    await outbox.setMeta(OWNER_KEY, this.userId);
+  }
+
+  /** Abmelden: Karten und Warteschlange dieses Kontos vom Gerät entfernen (sie liegen auf dem Server). */
+  async clearLocal(): Promise<void> {
+    const { local, outbox } = this.store;
+    const owner = await outbox.getMeta<string>(OWNER_KEY);
+    await local.replaceAll([]);
+    await outbox.clear();
+    if (owner) await outbox.setMeta(`cursor:${owner}`, undefined);
+    await outbox.setMeta(OWNER_KEY, undefined);
   }
 
   async sync(): Promise<SyncResult> {

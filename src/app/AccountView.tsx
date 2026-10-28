@@ -1,11 +1,27 @@
 import { useState } from 'preact/hooks';
 import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
 
-/** Zeile in der Sammlung: Stand der Online-Sicherung, öffnet das Konto. */
+/** Mit Supabase-Projekt ist die Anmeldung Pflicht: bis dahin zeigt die App nur diese Seite. */
+export function needsLogin(state: CloudState): boolean {
+  return cloudConfigured && (state.status === 'loading' || !state.signedIn);
+}
+
+/** Anmeldeseite beim Start (E-Mail, dann Code). */
+export function LoginScreen({ state }: { state: CloudState }) {
+  if (state.status === 'loading') return <section class="login" aria-busy="true" />;
+  return (
+    <section class="login">
+      <LoginForm state={state} />
+      {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
+    </section>
+  );
+}
+
+/** Zeile in der Sammlung: Stand des Abgleichs mit dem Server, öffnet das Konto. */
 export function CloudLine() {
   const state = useCloud();
   const [open, setOpen] = useState(false);
-  if (!cloudConfigured) return null;
+  if (!cloudConfigured || !state.signedIn) return null;
   return (
     <>
       <button class={`cloud-line ${state.status}`} onClick={() => setOpen(true)}>
@@ -19,11 +35,6 @@ export function CloudLine() {
 
 function lineText(s: CloudState): string {
   switch (s.status) {
-    case 'signed-out':
-    case 'code-sent':
-      return 'Sammlung online sichern';
-    case 'choice':
-      return 'Anmeldung abschließen';
     case 'syncing':
       return 'Wird abgeglichen …';
     case 'offline':
@@ -31,7 +42,7 @@ function lineText(s: CloudState): string {
     case 'error':
       return 'Abgleich fehlgeschlagen';
     default:
-      return s.lastSync ? `Gesichert · ${when(s.lastSync)}` : 'Gesichert';
+      return s.lastSync ? `Auf dem Server · ${when(s.lastSync)}` : 'Auf dem Server';
   }
 }
 
@@ -41,14 +52,14 @@ function when(iso: string): string {
   return d.toDateString() === new Date().toDateString() ? `heute ${time}` : `${d.toLocaleDateString('de-DE')} ${time}`;
 }
 
-function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }) {
+/** Erst E-Mail-Adresse, dann den Code aus der E-Mail. */
+function LoginForm({ state }: { state: CloudState }) {
   const [email, setEmail] = useState(state.email ?? '');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
-  const act = (fn: () => Promise<void>) => async (e?: Event) => {
-    e?.preventDefault();
+  const submit = (fn: () => Promise<void>) => async (e: Event) => {
+    e.preventDefault();
     setBusy(true);
     setError('');
     try {
@@ -60,27 +71,18 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
     }
   };
 
-  let body;
-  if (state.status === 'signed-out') {
-    body = (
-      <form class="account" onSubmit={act(() => cloud.sendCode(email.trim()))}>
-        <h2>Sammlung online sichern</h2>
-        <p class="muted">
-          Mit einem Konto wird deine Sammlung zusätzlich auf dem Server gesichert und auf allen deinen Geräten abgeglichen. Ohne Anmeldung bleibt alles nur auf
-          diesem Gerät.
-        </p>
-        <label class="field">
-          <span>E-Mail</span>
-          <input type="email" autocomplete="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} placeholder="name@beispiel.de" />
-        </label>
-        <button class="primary" type="submit" disabled={busy || !email.trim()}>
-          {busy ? 'Sende …' : 'Code per E-Mail senden'}
-        </button>
-      </form>
-    );
-  } else if (state.status === 'code-sent') {
-    body = (
-      <form class="account" onSubmit={act(() => cloud.verifyCode(state.email ?? email, code))}>
+  const brand = (
+    <header class="login-brand">
+      <img src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" width={64} height={64} />
+      <h1>
+        Scann<b>R</b>
+      </h1>
+    </header>
+  );
+  if (state.status === 'code-sent') {
+    return (
+      <form class="account" onSubmit={submit(() => cloud.verifyCode(state.email ?? email, code))}>
+        {brand}
         <h2>Code eingeben</h2>
         <p class="muted">Wir haben dir einen Code an {state.email} geschickt. Er gilt eine Stunde.</p>
         <label class="field">
@@ -98,6 +100,7 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
         <button class="primary" type="submit" disabled={busy || code.replace(/\s/g, '').length < 6}>
           {busy ? 'Prüfe …' : 'Anmelden'}
         </button>
+        {error && <p class="banner error">{error}</p>}
         <p class="muted">
           Keine E-Mail bekommen?
           <button type="button" class="link" onClick={() => cloud.restart()}>
@@ -106,49 +109,63 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
         </p>
       </form>
     );
-  } else if (state.status === 'choice') {
-    body = (
-      <div class="account">
-        <h2>Auf dem Server liegt schon eine Sammlung</h2>
-        <p class="muted">
-          Dein Konto hat dort {state.remoteCount ?? 'bereits'} Einträge, und auf diesem Gerät sind auch Karten. Zusammenführen lädt die Karten dieses Geräts
-          dazu (gleiche Karten zählen dann doppelt). Server-Stand übernehmen ersetzt die Karten auf diesem Gerät.
-        </p>
-        <button class="primary" disabled={busy} onClick={act(() => cloud.choose('merge'))}>
-          Zusammenführen
-        </button>
-        <button disabled={busy} onClick={act(() => cloud.choose('server'))}>
-          Server-Stand übernehmen
-        </button>
-      </div>
-    );
-  } else {
-    body = (
-      <div class="account">
-        <h2>Konto</h2>
-        <p>{state.email}</p>
-        <p class="muted">
-          {lineText(state)}
-          {state.pending > 0 && state.status !== 'offline' ? ` · ${state.pending} ${state.pending === 1 ? 'Änderung wartet' : 'Änderungen warten'}` : ''}
-        </p>
-        {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
-        <button class="primary" disabled={busy || state.status === 'syncing'} onClick={act(() => cloud.syncNow())}>
-          Jetzt abgleichen
-        </button>
-        <button disabled={busy} onClick={act(() => cloud.signOut())}>
-          Abmelden
-        </button>
-        <p class="muted">Beim Abmelden bleiben die Karten auf diesem Gerät.</p>
-      </div>
-    );
   }
+  return (
+    <form class="account" onSubmit={submit(() => cloud.sendCode(email.trim()))}>
+      {brand}
+      <h2>Anmelden</h2>
+      <p class="muted">
+        Deine Sammlung liegt auf dem Server, damit du sie auf allen Geräten hast. Zum Anmelden schicken wir dir einen Code per E-Mail, ein Passwort brauchst du
+        nicht.
+      </p>
+      <label class="field">
+        <span>E-Mail</span>
+        <input type="email" autocomplete="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} placeholder="name@beispiel.de" />
+      </label>
+      <button class="primary" type="submit" disabled={busy || !email.trim()}>
+        {busy ? 'Sende …' : 'Code per E-Mail senden'}
+      </button>
+      {error && <p class="banner error">{error}</p>}
+    </form>
+  );
+}
+
+function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const act = (fn: () => Promise<void>) => async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <>
       <div class="backdrop" onClick={onClose} />
       <div class="sheet account-sheet" role="dialog" aria-label="Konto">
         <div class="grabber" />
-        {body}
+        <div class="account">
+          <h2>Konto</h2>
+          <p>{state.email}</p>
+          <p class="muted">
+            {lineText(state)}
+            {state.pending > 0 && state.status !== 'offline' ? ` · ${state.pending} ${state.pending === 1 ? 'Änderung wartet' : 'Änderungen warten'}` : ''}
+          </p>
+          {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
+          <button class="primary" disabled={busy || state.status === 'syncing'} onClick={act(() => cloud.syncNow())}>
+            Jetzt abgleichen
+          </button>
+          <button disabled={busy} onClick={act(() => cloud.signOut())}>
+            Abmelden
+          </button>
+          <p class="muted">Offline gescannte Karten werden gesendet, sobald du wieder Internet hast.</p>
+        </div>
         {error && <p class="banner error">{error}</p>}
         <button class="link close" onClick={onClose}>
           Schließen

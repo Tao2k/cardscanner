@@ -1,8 +1,11 @@
 # Online-Sammlung mit Supabase
 
-Mit einem Konto wird die Sammlung zusätzlich bei [Supabase](https://supabase.com) gespeichert und
-zwischen Geräten abgeglichen. Die App bleibt lokal zuerst: Scannen und die Sammlung funktionieren
-offline und ohne Anmeldung. Solange `project.json` leer ist, zeigt die App kein Konto an.
+Die Sammlung liegt bei [Supabase](https://supabase.com); zum Benutzen der App meldet man sich an
+(Code per E-Mail). Der Browser hält eine Kopie als Zwischenspeicher, damit Scannen und Ansehen auch
+offline gehen; Änderungen warten dann in einer Warteschlange. Karten, die vor der ersten Anmeldung
+auf dem Gerät lagen, werden dabei automatisch hochgeladen. Beim Abmelden werden die Karten vom Gerät
+entfernt (erst wenn alles gesendet ist). Solange `project.json` leer ist, arbeitet die App wie
+früher nur im Browser und fragt nicht nach einer Anmeldung.
 
 ## Einmal einrichten
 

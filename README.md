@@ -29,7 +29,7 @@ src/app/              Oberfläche (Preact), Kamera, Erkennungs-Worker
 
 ## Online-Sammlung
 
-Optional: Mit einem Konto (E-Mail-Code) wird die Sammlung bei Supabase gesichert und zwischen Geräten abgeglichen. Einrichtung und Kosten: [supabase/README.md](supabase/README.md).
+Die Sammlung liegt auf dem Server (Supabase), Anmeldung per E-Mail-Code. Offline arbeitet die App mit einer Kopie im Browser weiter und gleicht später ab. Einrichtung und Kosten: [supabase/README.md](supabase/README.md).
 
 ## Entwicklung
 
