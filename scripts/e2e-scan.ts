@@ -237,7 +237,16 @@ async function main() {
     const binderSeen = await page.evaluate(() => !!(window as unknown as { binderSeen?: boolean }).binderSeen);
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(shots, `binder-${c.lang}-${c.specks}.png`) });
-    console.log(`  [${c.lang}] Binder: ${inBinder ? 'Karte im Platz' : 'Karte NICHT im Platz'}, ${binderSeen ? 'eingeflogen' : 'NICHT eingeflogen'}`);
+    // Zuklappen und per Antippen wieder aufklappen
+    const lidWorks = await (async () => {
+      await page.getByRole('button', { name: 'Zuklappen' }).click({ timeout: 15_000 });
+      await page.locator('.binder-cover.closed').waitFor({ timeout: 5000 });
+      await page.screenshot({ path: path.join(shots, `binder-zu-${c.lang}-${c.specks}.png`) });
+      await page.locator('.binder-cover').click();
+      await page.locator('.binder-cover').waitFor({ state: 'detached', timeout: 5000 });
+      return true;
+    })().catch(() => false);
+    console.log(`  [${c.lang}] Binder: ${inBinder ? 'Karte im Platz' : 'Karte NICHT im Platz'}, ${binderSeen ? 'eingeflogen' : 'NICHT eingeflogen'}, ${lidWorks ? 'zu- und aufgeklappt' : 'Zu-/Aufklappen FEHLT'}`);
     await browser.close();
 
     const item = items[0];
@@ -245,7 +254,7 @@ async function main() {
     if (count !== 1) console.log(`  [${c.lang}] FEHLER: ${count} Exemplare gespeichert, erwartet 1 (doppelt gescannt)`);
     if (!fxSeen) console.log(`  [${c.lang}] FEHLER: keine Hinzufügen-Animation`);
     // Gespeichert mit erkannter Sprache, angezeigt aber immer mit englischem Namen
-    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught && count === 1 && fxSeen && inBinder && binderSeen;
+    const ok = !!item && item.printingId === printing.printingId && item.language === c.lang && !!item.condition && item.finish === expectedFinish && shown.includes(printing.cardName) && verified && taught && count === 1 && fxSeen && inBinder && binderSeen && lidWorks;
     const estimated = /Zustand geschätzt/.test(shown);
     if (!ok) failures++;
     console.log(

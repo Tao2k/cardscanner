@@ -18,6 +18,8 @@ export interface Binder {
   /** „gameId|setCode“, wie die eingeklappten Sets */
   key: string;
   gameId: string;
+  /** Set-Kürzel, z. B. „OGN“ */
+  code: string;
   name: string;
   slots: Slot[];
   owned: number;
@@ -52,6 +54,7 @@ export function buildBinders(
       binders.push({
         key: `${gameId}|${code}`,
         gameId,
+        code,
         name: list.find((s) => s.code === code)?.name ?? (code || 'Ohne Set'),
         slots,
         owned: slots.filter((s) => s.quantity > 0).length,
