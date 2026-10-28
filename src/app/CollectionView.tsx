@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { CollectionService } from '../core/collection';
-import { compareCollectorNumbers, exportOrder, exportWorkbook, importWorkbook } from '../core/excel';
+import { compareCollectorNumbers, exportOrder, exportWorkbook } from '../core/excel';
 import type { CollectionItem, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { downloadBlob, printingCode } from './format';
@@ -12,6 +12,7 @@ import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, tren
 import { buildBinders } from './binder';
 import { BinderView } from './BinderView';
 import { CloudLine } from './AccountView';
+import { useCloud } from './cloud';
 
 interface Props {
   items: CollectionItem[];
@@ -52,6 +53,8 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Angemeldet ist der Server die Sicherung; dann keine Erinnerung an den Excel-Export. */
+  const account = useCloud();
   const [sorting, setSorting] = useState(false);
   /** Eintrag, dessen Sprache und Marktplatz-Link aufgeklappt sind. */
   const [open, setOpen] = useState<string | null>(null);
@@ -172,30 +175,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     }
   };
 
-  const doImport = async (file: File) => {
-    setBusy(true);
-    try {
-      const languages = [...new Set([...catalogs.languages.values()].flat().map((l) => l.code))];
-      const { items: imported, errors } = await importWorkbook(await file.arrayBuffer(), (g, id) => !!catalogs.lookup(g, id), languages);
-      if (!imported.length) {
-        setMessage(`Nichts importiert. ${errors.join(' ')}`);
-        return;
-      }
-      const ok = confirm(
-        `${imported.length} Einträge aus „${file.name}“ übernehmen? Die aktuelle Sammlung wird ersetzt.` +
-          (errors.length ? `\n\n${errors.length} Zeilen werden übersprungen.` : ''),
-      );
-      if (!ok) return;
-      await service.replaceAll(imported);
-      onChange();
-      setMessage(`${imported.length} Einträge importiert.${errors.length ? ` Übersprungen: ${errors.join(' ')}` : ''}`);
-    } catch (e) {
-      setMessage(`Import fehlgeschlagen: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const changeQty = (item: CollectionItem, delta: number) => {
     if (item.quantity + delta <= 0 && !confirm('Eintrag löschen?')) return;
     service.update(item.itemId, { quantity: item.quantity + delta }).then(onChange);
@@ -284,33 +263,18 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           ))}
         </div>
       </header>
-      {exportDue && items.length > 0 && (
+      {exportDue && !account.signedIn && items.length > 0 && (
         <p class="banner">
           {infoIcon}
           <span>{lastExport ? `Letzter Excel-Export: ${lastExport.toLocaleDateString('de-DE')}` : 'Noch nicht als Excel gesichert'}</span>
         </p>
       )}
-      <CloudLine />
-      <div class="actions">
-        <button class="primary" disabled={busy || !items.length} onClick={doExport}>
+      <div class="collection-tools">
+        <CloudLine />
+        <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
           {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
-          Excel-Export
+          Excel
         </button>
-        <label class={`button ${busy ? 'disabled' : ''}`}>
-          {icon('M12 15V4M7 9l5-5 5 5M5 20h14')}
-          Excel-Import
-          <input
-            type="file"
-            accept=".xlsx"
-            hidden
-            disabled={busy}
-            onChange={(e) => {
-              const f = e.currentTarget.files?.[0];
-              e.currentTarget.value = '';
-              if (f) doImport(f);
-            }}
-          />
-        </label>
       </div>
       {message && <p class="banner">{message}</p>}
       {view === 'binder' && selectedBinder && (

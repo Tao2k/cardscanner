@@ -84,7 +84,7 @@ function LoginForm({ state }: { state: CloudState }) {
       <form class="account" onSubmit={submit(() => cloud.verifyCode(state.email ?? email, code))}>
         {brand}
         <h2>Code eingeben</h2>
-        <p class="muted">Wir haben dir einen Code an {state.email} geschickt. Er gilt eine Stunde.</p>
+        <p class="muted">Gesendet an {state.email}</p>
         <label class="field">
           <span>Code</span>
           <input
@@ -114,10 +114,6 @@ function LoginForm({ state }: { state: CloudState }) {
     <form class="account" onSubmit={submit(() => cloud.sendCode(email.trim()))}>
       {brand}
       <h2>Anmelden</h2>
-      <p class="muted">
-        Deine Sammlung liegt auf dem Server, damit du sie auf allen Geräten hast. Zum Anmelden schicken wir dir einen Code per E-Mail, ein Passwort brauchst du
-        nicht.
-      </p>
       <label class="field">
         <span>E-Mail</span>
         <input type="email" autocomplete="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} placeholder="name@beispiel.de" />
@@ -164,7 +160,6 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
           <button disabled={busy} onClick={act(() => cloud.signOut())}>
             Abmelden
           </button>
-          <p class="muted">Offline gescannte Karten werden gesendet, sobald du wieder Internet hast.</p>
         </div>
         {error && <p class="banner error">{error}</p>}
         <button class="link close" onClick={onClose}>
