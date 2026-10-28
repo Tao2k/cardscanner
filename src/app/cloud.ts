@@ -64,7 +64,7 @@ class Cloud {
   }
 
   /** Supabase erst laden, wenn es gebraucht wird (hält den Start der App klein). */
-  private getClient(): Promise<SupabaseClient> {
+  getClient(): Promise<SupabaseClient> {
     this.client ??= import('@supabase/supabase-js').then(({ createClient }) =>
       createClient(URL!, KEY!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'cardscanner.auth' } }),
     );

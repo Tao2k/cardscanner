@@ -6,7 +6,7 @@ import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHi
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
 import { SyncingStore } from '../storage/outbox';
-import { cloud, useCloud } from './cloud';
+import { cloud, cloudConfigured, useCloud } from './cloud';
 import { LoginScreen, needsLogin } from './AccountView';
 import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
@@ -15,6 +15,7 @@ import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
 import { PriceView } from './PriceView';
+import { FriendsView, takeInvite } from './FriendsView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 
@@ -36,7 +37,7 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'prices' | 'review';
+type Tab = 'scan' | 'collection' | 'prices' | 'friends' | 'review';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
@@ -49,7 +50,9 @@ export function App() {
   const [status, setStatus] = useState('Lade Kartenkataloge …');
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
-  const [tab, setTab] = useState<Tab>('scan');
+  /** Freundescode aus einem Einladungslink: App startet dann bei „Freunde“. */
+  const [invite, setInvite] = useState(() => (cloudConfigured ? takeInvite() : null));
+  const [tab, setTab] = useState<Tab>(invite ? 'friends' : 'scan');
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
@@ -209,6 +212,9 @@ export function App() {
         {tab === 'prices' && catalogs && (
           <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} fresh={freshAlerts} />
         )}
+        {tab === 'friends' && catalogs && account.signedIn && (
+          <FriendsView items={items} catalogs={catalogs} invite={invite} onInviteUsed={() => setInvite(null)} />
+        )}
         {tab === 'review' && catalogs && (
           <ReviewView
             items={items}
@@ -222,7 +228,7 @@ export function App() {
           />
         )}
       </main>
-      <nav class="tabs">
+      <nav class={`tabs${account.signedIn ? ' five' : ''}`}>
         <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>
           {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
           Scannen
@@ -235,6 +241,12 @@ export function App() {
           {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
           Preise {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
         </button>
+        {account.signedIn && (
+          <button data-tab="friends" class={tab === 'friends' ? 'active' : ''} onClick={() => setTab('friends')}>
+            {tabIcon('M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.13a4 4 0 0 1 0 7.75M22 21v-2a4 4 0 0 0-3-3.87')}
+            Freunde
+          </button>
+        )}
         <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
           {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
