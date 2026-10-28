@@ -244,6 +244,30 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field > span { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .stats { font-size: 0.8rem; }
+
+/* Konto und Export */
+.collection-tools { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.collection-tools .cloud-line { flex: 1; }
+.export-button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 8px 14px; background: var(--surface);
+  color: var(--muted); font-weight: 600; font-size: 0.88rem; }
+.cloud-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; padding: 8px 14px; background: var(--surface); color: var(--muted);
+  font-weight: 600; font-size: 0.88rem; justify-content: flex-start; border-radius: var(--r-row); }
+.cloud-line svg { flex: none; }
+.cloud-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-line.synced svg { color: var(--accent-text); }
+.cloud-line.error { color: var(--error); }
+.account { display: flex; flex-direction: column; gap: 14px; }
+.account h2 { margin: 0; }
+.account input { width: 100%; }
+.account-sheet .close { align-self: center; padding: 8px; }
+.login { min-height: 100dvh; max-width: 480px; margin: 0 auto; padding: 48px 20px calc(24px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; }
+.login p { margin: 0; }
+.login-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 16px; }
+.login-brand img { border-radius: 16px; }
+.login-brand h1 { margin: 0; font-size: 1.8rem; }
+.login-brand h1 b { color: var(--accent-text); }
+.login .link.forgot { align-self: flex-start; padding: 0; }
+.account input[type='password'] { -webkit-appearance: none; appearance: none; }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 

@@ -27,6 +27,10 @@ src/app/              Oberfläche (Preact), Kamera, Erkennungs-Worker
 
 **Server später:** `CollectionStore` (`src/storage/store.ts`) mit einer HTTP-Umsetzung implementieren. Die App spricht nur über dieses Interface mit dem Speicher; Excel-Export und -Import bleiben gleich.
 
+## Online-Sammlung
+
+Die Sammlung liegt auf dem Server (Supabase), Anmeldung mit E-Mail und Passwort. Offline arbeitet die App mit einer Kopie im Browser weiter und gleicht später ab. Einrichtung und Kosten: [supabase/README.md](supabase/README.md).
+
 ## Entwicklung
 
 ```bash

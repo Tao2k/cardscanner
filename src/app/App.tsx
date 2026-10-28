@@ -4,7 +4,10 @@ import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
 import { loadPrices, type PriceEntry, type PriceFile } from '../core/prices';
 import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHistoryFile } from '../core/priceHistory';
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
-import { IndexedDbSampleStore, IndexedDbStore } from '../storage/indexeddb';
+import { IndexedDbSampleStore } from '../storage/indexeddb';
+import { SyncingStore } from '../storage/outbox';
+import { cloud, useCloud } from './cloud';
+import { LoginScreen, needsLogin } from './AccountView';
 import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Recognizer, type Learned } from './recognizer';
@@ -36,7 +39,8 @@ export interface Catalogs {
 type Tab = 'scan' | 'collection' | 'prices' | 'review';
 
 export function App() {
-  const service = useMemo(() => new CollectionService(new IndexedDbStore()), []);
+  const store = useMemo(() => new SyncingStore(), []);
+  const service = useMemo(() => new CollectionService(store), []);
   const learning = useMemo(() => new LearningService(new IndexedDbSampleStore()), []);
   const [learned, setLearned] = useState<Learned | null>(null);
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
@@ -49,6 +53,7 @@ export function App() {
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
+  const account = useCloud();
 
   const setPrefs = (patch: Partial<Prefs>) => {
     setPrefsState((p) => {
@@ -65,6 +70,8 @@ export function App() {
 
   useEffect(() => {
     refresh();
+    // Angemeldet: Sammlung mit dem Server abgleichen; Änderungen von anderen Geräten neu anzeigen
+    cloud.init(store, refresh);
     (async () => {
       try {
         const games = await loadGames(BASE);
@@ -162,6 +169,8 @@ export function App() {
       savePrefs(next);
       return next;
     });
+
+  if (needsLogin(account)) return <LoginScreen state={account} />;
 
   return (
     <div class="app">
