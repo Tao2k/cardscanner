@@ -18,7 +18,7 @@ const item: CollectionItem = {
   printingId: 'ogn-001-298',
   language: 'fr',
   quantity: 3,
-  condition: 'LP',
+  condition: 'EX',
   finish: 'foil',
   location: 'Binder 1',
   notes: 'Geschenk',

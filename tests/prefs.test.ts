@@ -17,4 +17,11 @@ describe('migratePrefs', () => {
     expect(migratePrefs({ pricePeriod: 90 }).pricePeriod).toBe(30);
     expect(migratePrefs(null).pricePeriod).toBe(30);
   });
+
+  it('stellt den festen Zustand auf die Cardmarket-Kürzel um', () => {
+    expect(migratePrefs({ condition: 'HP' as never }).condition).toBe('PL');
+    expect(migratePrefs({ condition: 'LP' }).condition).toBe('EX');
+    expect(migratePrefs({ condition: 'LP', conditionScale: 'cm' }).condition).toBe('LP');
+    expect(migratePrefs(null)).toMatchObject({ condition: 'NM', conditionScale: 'cm' });
+  });
 });

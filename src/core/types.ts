@@ -94,7 +94,24 @@ export interface Catalog {
   embeddings: Float32Array;
 }
 
-export type Condition = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
+/** Zustandsstufen wie bei Cardmarket, von gut nach schlecht: Near Mint, Excellent, Good, Light Played, Played, Poor. */
+export const CONDITIONS = ['NM', 'EX', 'GD', 'LP', 'PL', 'PO'] as const;
+export type Condition = (typeof CONDITIONS)[number];
+
+/** Frühere Stufen (NM, LP, MP, HP, DMG) auf die Cardmarket-Stufen. */
+const LEGACY_CONDITIONS: Record<string, Condition> = { NM: 'NM', LP: 'EX', MP: 'GD', HP: 'PL', DMG: 'PO' };
+
+/** Zustand aus gespeicherten Daten mit den früheren Stufen; Unbekanntes wird NM. */
+export function conditionFromLegacy(value: string | null | undefined): Condition {
+  return LEGACY_CONDITIONS[(value ?? '').toUpperCase()] ?? toCondition(value);
+}
+
+/** Zustand aus Text (z. B. Excel): Cardmarket-Kürzel bleiben, nur frühere Stufen (MP, HP, DMG) werden umgesetzt; Unbekanntes wird NM. */
+export function toCondition(value: string | null | undefined): Condition {
+  const v = (value ?? '').trim().toUpperCase();
+  if ((CONDITIONS as readonly string[]).includes(v)) return v as Condition;
+  return LEGACY_CONDITIONS[v] ?? 'NM';
+}
 export type Finish = 'normal' | 'foil';
 
 export interface CollectionItem {

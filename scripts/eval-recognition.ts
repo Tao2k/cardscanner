@@ -20,6 +20,7 @@ import { OCR_MODELS } from '../src/app/ocr';
 import { AdaptiveIndex, DEFAULT_LEARNING, type SampleSource } from '../src/core/learning';
 import type { Embedder } from '../src/core/embedder';
 import { estimateCondition, toGray, type Gray } from '../src/core/condition';
+import { CONDITIONS } from '../src/core/types';
 import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
@@ -309,7 +310,7 @@ async function evalCondition(file: CatalogFile, n: number) {
     for (const level of levels) {
       const key = `${level.name}|${table.name}`;
       const m = results.get(key)!;
-      const dist = ['NM', 'LP', 'MP', 'HP', 'keine'].filter((c) => m.has(c)).map((c) => `${c} ${Math.round((100 * m.get(c)!) / rows.length)} %`).join(', ');
+      const dist = [...CONDITIONS, 'keine'].filter((c) => m.has(c)).map((c) => `${c} ${Math.round((100 * m.get(c)!) / rows.length)} %`).join(', ');
       const ms = metrics.get(key) ?? [];
       const med = (i: number) => (ms.length ? [...ms.map((x) => x[i])].sort((a, b) => a - b)[ms.length >> 1].toFixed(4) : '-');
       console.log(`${table.name.padEnd(11)} ${level.name.padEnd(7)} → ${dist}   (Median Kante ${med(0)}, Ecke ${med(1)})`);

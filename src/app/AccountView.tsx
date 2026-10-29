@@ -17,16 +17,15 @@ export function LoginScreen({ state }: { state: CloudState }) {
   );
 }
 
-/** Zeile in der Sammlung: Stand des Abgleichs mit dem Server, öffnet das Konto. */
+/** Wolke neben dem Excel-Button: Haken = abgeglichen, Kreuz = offline oder fehlgeschlagen; öffnet das Konto. */
 export function CloudLine() {
   const state = useCloud();
   const [open, setOpen] = useState(false);
   if (!cloudConfigured || !state.signedIn) return null;
   return (
     <>
-      <button class={`cloud-line ${state.status}`} onClick={() => setOpen(true)}>
-        {cloudIcon}
-        <span>{lineText(state)}</span>
+      <button class={`cloud-line ${state.status}`} onClick={() => setOpen(true)} aria-label={lineText(state)} title={lineText(state)}>
+        {cloudIcon(cloudMark(state))}
       </button>
       {open && <AccountSheet state={state} onClose={() => setOpen(false)} />}
     </>
@@ -42,8 +41,13 @@ function lineText(s: CloudState): string {
     case 'error':
       return 'Abgleich fehlgeschlagen';
     default:
-      return s.lastSync ? `Auf dem Server · ${when(s.lastSync)}` : 'Auf dem Server';
+      return s.lastSync ? `Abgeglichen · ${when(s.lastSync)}` : 'Abgeglichen';
   }
+}
+
+function cloudMark(s: CloudState): 'check' | 'cross' | null {
+  if (s.status === 'offline' || s.status === 'error') return 'cross';
+  return s.status === 'syncing' ? null : 'check';
 }
 
 function when(iso: string): string {
@@ -207,8 +211,14 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
   );
 }
 
-const cloudIcon = (
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-    <path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
-  </svg>
-);
+const cloudPath = 'M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z';
+
+function cloudIcon(mark: 'check' | 'cross' | null) {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path d={cloudPath} fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+      {mark === 'check' && <path d="M9.2 13.4l2 2 3.8-3.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />}
+      {mark === 'cross' && <path d="M10 11.3l4 4M14 11.3l-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />}
+    </svg>
+  );
+}

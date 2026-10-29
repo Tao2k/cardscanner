@@ -1,5 +1,5 @@
 import type { MoverSort } from '../core/priceHistory';
-import type { Condition, Finish } from '../core/types';
+import { conditionFromLegacy, type Condition, type Finish } from '../core/types';
 
 /** Kleine Einstellungen pro Gerät. localStorage kann im privaten Modus fehlen, daher immer abgesichert. */
 export interface Prefs {
@@ -14,6 +14,8 @@ export interface Prefs {
   condition: Condition;
   /** Zustand aus dem Foto schätzen. */
   conditionAuto: boolean;
+  /** 'cm' = condition ist schon ein Cardmarket-Kürzel; fehlt bei Einstellungen von vor der Umstellung. */
+  conditionScale: 'cm';
   /** Kameralicht einschalten, wenn das Bild zu dunkel ist. */
   torchAuto: boolean;
   lastExportAt: string | null;
@@ -58,7 +60,7 @@ const PRICE_SORTS: PriceSort[] = ['value-desc', 'value-asc', 'change-desc', 'cha
 const OLD_PRICE_SORTS: Record<string, PriceSort> = { value: 'value-desc', gain: 'pct-desc', loss: 'pct-asc', change: 'change-desc', number: 'value-desc' };
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
@@ -68,9 +70,10 @@ export function loadPrefs(): Prefs {
   }
 }
 
-/** Gespeicherte Einstellungen mit den Standardwerten ergänzen; veraltete Werte (frühere Zeiträume, Sortierungen) umstellen. */
+/** Gespeicherte Einstellungen mit den Standardwerten ergänzen; veraltete Werte (frühere Zeiträume, Sortierungen, Zustandsstufen) umstellen. */
 export function migratePrefs(stored: Partial<Prefs> | null): Prefs {
-  const prefs: Prefs = { ...DEFAULTS, ...stored };
+  const prefs: Prefs = { ...DEFAULTS, ...stored, conditionScale: 'cm' };
+  if (stored?.condition && stored.conditionScale !== 'cm') prefs.condition = conditionFromLegacy(stored.condition);
   if (!PRICE_PERIODS.some((p) => p.days === prefs.pricePeriod)) prefs.pricePeriod = DEFAULTS.pricePeriod;
   if (!PRICE_SORTS.includes(prefs.priceSort)) prefs.priceSort = OLD_PRICE_SORTS[prefs.priceSort] ?? DEFAULTS.priceSort;
   return prefs;

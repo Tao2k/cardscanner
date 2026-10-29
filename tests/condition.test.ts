@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { classify, estimateCondition, findCard, type Gray } from '../src/core/condition';
+import { CONDITIONS, conditionFromLegacy, toCondition } from '../src/core/types';
 
 // Deterministischer Zufall
 let seed = 7;
@@ -93,11 +94,10 @@ describe('Zustandsschätzung', () => {
     expect(shot(ref).condition).toBe('NM');
     const light = shot(wear(ref, 12));
     const heavy = shot(wear(ref, 150));
-    const rank = { NM: 0, LP: 1, MP: 2, HP: 3 } as const;
     expect(light.condition).not.toBeNull();
     expect(heavy.condition).not.toBeNull();
-    expect(rank[light.condition!]).toBeGreaterThanOrEqual(1);
-    expect(rank[heavy.condition!]).toBeGreaterThan(rank[light.condition!]);
+    expect(CONDITIONS.indexOf(light.condition!)).toBeGreaterThanOrEqual(1);
+    expect(CONDITIONS.indexOf(heavy.condition!)).toBeGreaterThan(CONDITIONS.indexOf(light.condition!));
     expect(heavy.edge).toBeGreaterThan(light.edge);
   });
 
@@ -125,8 +125,16 @@ describe('Zustandsschätzung', () => {
 
   it('ordnet Messwerte den Stufen zu', () => {
     expect(classify(0, 0)).toBe('NM');
-    expect(classify(0.01, 0.05)).toBe('LP');
-    expect(classify(0.05, 0.2)).toBe('MP');
-    expect(classify(0.2, 0.5)).toBe('HP');
+    expect(classify(0.01, 0.05)).toBe('EX');
+    expect(classify(0.05, 0.2)).toBe('GD');
+    expect(classify(0.1, 0.4)).toBe('LP');
+    expect(classify(0.2, 0.5)).toBe('PL');
+  });
+
+  it('setzt die früheren Stufen auf die Cardmarket-Kürzel um', () => {
+    expect(['NM', 'LP', 'MP', 'HP', 'DMG'].map(conditionFromLegacy)).toEqual(['NM', 'EX', 'GD', 'PL', 'PO']);
+    expect(conditionFromLegacy(null)).toBe('NM');
+    // Text (z. B. Excel): Cardmarket-Kürzel bleiben, nur die alten Stufen werden umgesetzt
+    expect(['nm', 'EX', 'GD', 'LP', 'PL', 'PO', 'MP', 'HP', 'DMG', '', 'xyz'].map(toCondition)).toEqual(['NM', 'EX', 'GD', 'LP', 'PL', 'PO', 'GD', 'PL', 'PO', 'NM', 'NM']);
   });
 });
