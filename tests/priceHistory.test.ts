@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendSnapshot, averageValue, basisFor, collectionMovers, collectionSeries, isStrong, priceAlerts, shiftDay, startIndex, valueChart, type Mover, type PriceHistoryFile } from '../src/core/priceHistory';
+import { appendSnapshot, averageValue, basisFor, collectionMovers, collectionSeries, isStrong, moverOrder, priceAlerts, shiftDay, startIndex, valueChart, type Mover, type PriceHistoryFile } from '../src/core/priceHistory';
 import type { PriceFile, PriceEntry } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
@@ -121,6 +121,8 @@ describe('Preisverlauf', () => {
     expect(basisFor(h, 7)).toEqual({ kind: 'history', since: '2026-10-20' });
     expect(basisFor(h, 30)).toEqual({ kind: 'history', since: '2026-10-01' });
     expect(basisFor(h, 365)).toEqual({ kind: 'history', since: '2026-10-01' });
+    expect(basisFor(h, 183)).toEqual({ kind: 'history', since: '2026-10-01' });
+    expect(basisFor(h, 1826)).toEqual({ kind: 'history', since: '2026-10-01' });
     expect(basisFor(build([['2026-10-20', {}], ['2026-10-31', {}]]), 30)).toEqual({ kind: 'average', days: 30 });
     const [m] = collectionMovers([item('a')], new Map([['riftbound', h]]), lookup, 30, () => ({ n: 4, a30: 3.9 }));
     expect(m).toMatchObject({ from: 1, to: 4, basis: { kind: 'history', since: '2026-10-01' } });
@@ -175,5 +177,38 @@ describe('Preisverlauf', () => {
     const seen = { 'riftbound|billig|normal': 0.5, 'riftbound|mittel|normal': 25 };
     expect(priceAlerts(movers, seen)).toEqual([]);
     expect(priceAlerts([mover('mittel', 20, 31)], seen).map((m) => m.to)).toEqual([31]);
+  });
+});
+
+describe('moverOrder', () => {
+  const m = (printingId: string, from: number, to: number): Mover => ({
+    gameId: 'riftbound',
+    printingId,
+    finish: 'normal',
+    quantity: 1,
+    from,
+    to,
+    delta: to - from,
+    pct: (to - from) / from,
+    strong: false,
+    basis: { kind: 'average', days: 30 },
+    series: [],
+  });
+  // a: 10 → 12 (+2 €, +20 %), b: 1 → 2 (+1 €, +100 %), c: 30 → 27 (−3 €, −10 %)
+  const all = [m('a', 10, 12), m('b', 1, 2), m('c', 30, 27)];
+  const ids = (sort: Parameters<typeof moverOrder>[0]) => [...all].sort(moverOrder(sort)).map((x) => x.printingId);
+
+  it('sortiert nach Preis, Änderung in € und Änderung in %, jeweils ab- und aufsteigend', () => {
+    expect(ids('value-desc')).toEqual(['c', 'a', 'b']);
+    expect(ids('value-asc')).toEqual(['b', 'a', 'c']);
+    expect(ids('change-desc')).toEqual(['a', 'b', 'c']);
+    expect(ids('change-asc')).toEqual(['c', 'b', 'a']);
+    expect(ids('pct-desc')).toEqual(['b', 'a', 'c']);
+    expect(ids('pct-asc')).toEqual(['c', 'a', 'b']);
+  });
+
+  it('nimmt bei Gleichstand den höheren Preis zuerst', () => {
+    const same = [m('low', 1, 2), m('high', 5, 10)];
+    expect(same.sort(moverOrder('pct-desc')).map((x) => x.printingId)).toEqual(['high', 'low']);
   });
 });
