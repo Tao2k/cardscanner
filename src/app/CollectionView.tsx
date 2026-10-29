@@ -255,12 +255,19 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     <section class="collection">
       <header class="title-row">
         <h1>Sammlung</h1>
-        <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
-          {(['binder', 'list'] as const).map((v) => (
-            <button role="radio" aria-checked={view === v} class={view === v ? 'active' : ''} onClick={() => showView(v)}>
-              {v === 'binder' ? 'Binder' : 'Liste'}
-            </button>
-          ))}
+        <div class="title-actions">
+          <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
+            {(['binder', 'list'] as const).map((v) => (
+              <button role="radio" aria-checked={view === v} class={view === v ? 'active' : ''} onClick={() => showView(v)}>
+                {v === 'binder' ? 'Binder' : 'Liste'}
+              </button>
+            ))}
+          </div>
+          <CloudLine />
+          <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
+            {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
+            Excel
+          </button>
         </div>
       </header>
       {exportDue && !account.signedIn && items.length > 0 && (
@@ -269,13 +276,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           <span>{lastExport ? `Letzter Excel-Export: ${lastExport.toLocaleDateString('de-DE')}` : 'Noch nicht als Excel gesichert'}</span>
         </p>
       )}
-      <div class="collection-tools">
-        <CloudLine />
-        <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
-          {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
-          Excel
-        </button>
-      </div>
       {message && <p class="banner">{message}</p>}
       {view === 'binder' && selectedBinder && (
         <BinderView binders={binders} catalogs={catalogs} selected={selectedBinder} onSelect={selectBinder} arriving={arriving.current} />
