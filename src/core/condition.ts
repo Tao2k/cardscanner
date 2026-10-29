@@ -1,6 +1,6 @@
 import type { Rect } from './geometry';
 import type { Pixels } from './imageops';
-import type { Condition } from './types';
+import { CONDITIONS, type Condition } from './types';
 
 /**
  * Grobe Zustandsschätzung aus einem Kamerabild.
@@ -8,7 +8,7 @@ import type { Condition } from './types';
  * Gemessen wird nur, was ein Handyfoto zuverlässig zeigt: weiße Abnutzung an Kanten und Ecken.
  * Dazu werden die Kartenkanten im Bild gesucht, die Karte entzerrt und Pixel für Pixel mit dem
  * offiziellen Kartenbild verglichen. Was dort dunkel ist, im Foto aber fast weiß, gilt als
- * abgenutzt. Kratzer, Knicke und Druckstellen sieht das Verfahren nicht; DMG wird nie geschätzt.
+ * abgenutzt. Kratzer, Knicke und Druckstellen sieht das Verfahren nicht; PO wird nie geschätzt.
  */
 
 export interface Gray {
@@ -27,7 +27,7 @@ export type Quad = [Point, Point, Point, Point];
 
 export interface ConditionEstimate {
   /** null = keine Schätzung möglich (Grund in reason). */
-  condition: Exclude<Condition, 'DMG'> | null;
+  condition: Exclude<Condition, 'PO'> | null;
   reason?: string;
   /** Anteil weißer Pixel am Kantenstreifen ohne Ecken und an der schlimmsten Ecke. */
   edge: number;
@@ -40,14 +40,16 @@ export interface ConditionEstimate {
 export interface ConditionThresholds {
   /** Obergrenzen [Kanten, Ecken] je Stufe; darüber ist es die nächstschlechtere. */
   NM: [number, number];
+  EX: [number, number];
+  GD: [number, number];
   LP: [number, number];
-  MP: [number, number];
 }
 
 export const DEFAULT_THRESHOLDS: ConditionThresholds = {
   NM: [0.004, 0.04],
-  LP: [0.025, 0.15],
-  MP: [0.08, 0.35],
+  EX: [0.025, 0.15],
+  GD: [0.08, 0.35],
+  LP: [0.15, 0.5],
 };
 
 /** Auflösung der entzerrten Karte: 6 Pixel je Millimeter (63 × 88 mm); Abnutzung ist oft unter 1 mm breit. */
@@ -287,11 +289,9 @@ function median(values: number[]): number {
   return s[Math.floor(s.length / 2)];
 }
 
-export function classify(edge: number, corner: number, t: ConditionThresholds = DEFAULT_THRESHOLDS): Exclude<Condition, 'DMG'> {
-  if (edge <= t.NM[0] && corner <= t.NM[1]) return 'NM';
-  if (edge <= t.LP[0] && corner <= t.LP[1]) return 'LP';
-  if (edge <= t.MP[0] && corner <= t.MP[1]) return 'MP';
-  return 'HP';
+export function classify(edge: number, corner: number, t: ConditionThresholds = DEFAULT_THRESHOLDS): Exclude<Condition, 'PO'> {
+  for (const c of ['NM', 'EX', 'GD', 'LP'] as const) if (edge <= t[c][0] && corner <= t[c][1]) return c;
+  return 'PL';
 }
 
 /** Deine Zustandsangabe zu einem Scan mit den gemessenen Abnutzungswerten. */
@@ -301,12 +301,12 @@ export interface ConditionFeedback {
   condition: Condition;
 }
 
-const RANK: Record<Condition, number> = { NM: 0, LP: 1, MP: 2, HP: 3, DMG: 4 };
+const rank = (c: Condition) => CONDITIONS.indexOf(c);
 
 /** Schwellen mit Faktor: > 1 = nachsichtiger (mehr Abnutzung für dieselbe Stufe), < 1 = strenger. */
 export function scaleThresholds(scale: number, t: ConditionThresholds = DEFAULT_THRESHOLDS): ConditionThresholds {
   const f = ([e, c]: [number, number]): [number, number] => [e * scale, c * scale];
-  return { NM: f(t.NM), LP: f(t.LP), MP: f(t.MP) };
+  return { NM: f(t.NM), EX: f(t.EX), GD: f(t.GD), LP: f(t.LP) };
 }
 
 /**
@@ -318,7 +318,7 @@ export function learnConditionScale(feedback: ConditionFeedback[]): number {
   if (!feedback.length) return 1;
   const cost = (scale: number) => {
     const t = scaleThresholds(scale);
-    return feedback.reduce((sum, f) => sum + Math.abs(RANK[classify(f.edge, f.corner, t)] - RANK[f.condition]), 0);
+    return feedback.reduce((sum, f) => sum + Math.abs(rank(classify(f.edge, f.corner, t)) - rank(f.condition)), 0);
   };
   let best = 1;
   for (let k = -8; k <= 8; k++) {

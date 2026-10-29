@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddResult, CollectionService, ScanInput } from '../core/collection';
 import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
-import type { CollectionItem, Condition, Finish, Printing } from '../core/types';
+import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
@@ -46,7 +46,6 @@ interface Props {
 /** Immer das englische Kartenbild, auch bei chinesischen Drucken. */
 const thumb = (p: Printing) => p.thumbUrl ?? p.imageUrl;
 
-const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const FINISHES: { value: Finish; label: string }[] = [
   { value: 'normal', label: 'Normal' },
   { value: 'foil', label: 'Foil' },

@@ -1,4 +1,4 @@
-import type { Condition, Finish } from '../core/types';
+import { conditionFromLegacy, type Condition, type Finish } from '../core/types';
 
 /** Kleine Einstellungen pro Gerät. localStorage kann im privaten Modus fehlen, daher immer abgesichert. */
 export interface Prefs {
@@ -13,6 +13,8 @@ export interface Prefs {
   condition: Condition;
   /** Zustand aus dem Foto schätzen. */
   conditionAuto: boolean;
+  /** 'cm' = condition ist schon ein Cardmarket-Kürzel; fehlt bei Einstellungen von vor der Umstellung. */
+  conditionScale: 'cm';
   /** Kameralicht einschalten, wenn das Bild zu dunkel ist. */
   torchAuto: boolean;
   lastExportAt: string | null;
@@ -43,11 +45,13 @@ export type CollectionViewMode = 'list' | 'binder';
 export type PriceSort = 'value' | 'gain' | 'loss' | 'change' | 'number';
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    if (saved.condition && saved.conditionScale !== 'cm') saved.condition = conditionFromLegacy(saved.condition);
+    return { ...DEFAULTS, ...saved, conditionScale: 'cm' };
   } catch {
     return { ...DEFAULTS };
   }

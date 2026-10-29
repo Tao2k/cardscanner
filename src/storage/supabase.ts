@@ -1,13 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RemoteCollection, RemoteRow } from '../core/sync';
-import type { CollectionItem } from '../core/types';
+import { conditionFromLegacy, toCondition, type CollectionItem } from '../core/types';
 import type { PendingChange } from './outbox';
 
 const TABLE = 'collection_items';
 /** Supabase liefert höchstens 1000 Zeilen je Abfrage. */
 const PAGE = 1000;
 
-interface Row {
+export interface Row {
   item_id: string;
   game_id: string | null;
   printing_id: string | null;
@@ -18,7 +18,8 @@ interface Row {
   location: string | null;
   notes: string | null;
   confirmed: boolean | null;
-  extra: { matchScore?: number; alternatives?: string[] } | null;
+  /** conditionScale 'cm': Zustand als Cardmarket-Kürzel; fehlt bei Zeilen von vor der Umstellung (NM, LP, MP, HP, DMG). */
+  extra: { matchScore?: number; alternatives?: string[]; conditionScale?: 'cm' } | null;
   added_at: string | null;
   updated_at: string | null;
   deleted: boolean;
@@ -26,9 +27,9 @@ interface Row {
   server_updated_at: string;
 }
 
-function toRow(change: PendingChange & { item: CollectionItem }) {
+export function toRow(change: PendingChange & { item: CollectionItem }) {
   const { item } = change;
-  const extra: Row['extra'] = {};
+  const extra: NonNullable<Row['extra']> = { conditionScale: 'cm' };
   if (item.matchScore !== undefined) extra.matchScore = item.matchScore;
   if (item.alternatives !== undefined) extra.alternatives = item.alternatives;
   return {
@@ -50,7 +51,7 @@ function toRow(change: PendingChange & { item: CollectionItem }) {
   };
 }
 
-function fromRow(row: Row): RemoteRow {
+export function fromRow(row: Row): RemoteRow {
   if (row.deleted || !row.game_id || !row.printing_id) return { itemId: row.item_id, deleted: true, serverUpdatedAt: row.server_updated_at };
   const item: CollectionItem = {
     itemId: row.item_id,
@@ -58,7 +59,7 @@ function fromRow(row: Row): RemoteRow {
     printingId: row.printing_id,
     language: row.language ?? 'en',
     quantity: row.quantity ?? 1,
-    condition: (row.condition ?? 'NM') as CollectionItem['condition'],
+    condition: row.extra?.conditionScale === 'cm' ? toCondition(row.condition) : conditionFromLegacy(row.condition),
     finish: (row.finish ?? 'normal') as CollectionItem['finish'],
     location: row.location ?? '',
     notes: row.notes ?? '',

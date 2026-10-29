@@ -1,5 +1,5 @@
 import type { Workbook } from 'exceljs';
-import type { CardSet, CollectionItem, Condition, Finish, Printing } from './types';
+import { CONDITIONS, toCondition, type CardSet, type CollectionItem, type Finish, type Printing } from './types';
 
 /** Lädt exceljs erst bei Bedarf (das Paket ist groß und wird nur für Export/Import gebraucht). */
 async function newWorkbook(): Promise<Workbook> {
@@ -36,7 +36,6 @@ export const COLLECTION_COLUMNS = [
   { header: 'Eintrag-ID', key: 'itemId', width: 38 },
 ] as const;
 
-const CONDITIONS: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const FINISHES: Finish[] = ['normal', 'foil'];
 
 /**
@@ -225,7 +224,6 @@ export async function importWorkbook(
       errors.push(`Zeile ${rowNumber}: Anzahl „${get('Anzahl')}“ ist ungültig.`);
       return;
     }
-    const condition = get('Zustand').toUpperCase() as Condition;
     const finish = get('Finish').toLowerCase() as Finish;
     const score = Number.parseFloat(get('Erkennungswert'));
     const language = languages.find((l) => l.toLowerCase() === get('Sprache').toLowerCase());
@@ -239,7 +237,7 @@ export async function importWorkbook(
       printingId,
       language: language ?? languages[0],
       quantity,
-      condition: CONDITIONS.includes(condition) ? condition : 'NM',
+      condition: toCondition(get('Zustand')),
       finish: FINISHES.includes(finish) ? finish : 'normal',
       location: get('Lagerort'),
       notes: get('Notizen'),

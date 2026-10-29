@@ -5,10 +5,10 @@ import { judgeStats, type ScanStats } from '../src/app/stats';
 
 describe('Lernen aus Korrekturen', () => {
   it('lernt, den Zustand strenger zu schätzen', () => {
-    // Geschätzt NM, du sagst LP: Schwellen werden strenger
+    // Geschätzt NM, du sagst EX: Schwellen werden strenger
     const feedback = [
-      { edge: 0.003, corner: 0.03, condition: 'LP' as const },
-      { edge: 0.0035, corner: 0.035, condition: 'LP' as const },
+      { edge: 0.003, corner: 0.03, condition: 'EX' as const },
+      { edge: 0.0035, corner: 0.035, condition: 'EX' as const },
       { edge: 0.0005, corner: 0.002, condition: 'NM' as const },
     ];
     const scale = learnConditionScale(feedback);
