@@ -1,3 +1,4 @@
+import type { MoverSort } from '../core/priceHistory';
 import type { Condition, Finish } from '../core/types';
 
 /** Kleine Einstellungen pro Gerät. localStorage kann im privaten Modus fehlen, daher immer abgesichert. */
@@ -40,17 +41,39 @@ export interface Prefs {
 
 export type CollectionSort = 'recent' | 'set' | 'price';
 export type CollectionViewMode = 'list' | 'binder';
-export type PriceSort = 'value' | 'gain' | 'loss' | 'change' | 'number';
+export type PriceSort = MoverSort;
+
+/** Zeiträume im Tab „Preise“ (Tage; null = gesamter Verlauf). */
+export const PRICE_PERIODS: { days: number | null; label: string }[] = [
+  { days: 7, label: '1 W' },
+  { days: 30, label: '1 M' },
+  { days: 183, label: '6 M' },
+  { days: 365, label: '1 J' },
+  { days: 1826, label: '5 J' },
+  { days: null, label: 'Gesamt' },
+];
+
+const PRICE_SORTS: PriceSort[] = ['value-desc', 'value-asc', 'change-desc', 'change-asc', 'pct-desc', 'pct-asc'];
+/** Frühere Sortierungen im Tab „Preise“ auf die heutigen abbilden. */
+const OLD_PRICE_SORTS: Record<string, PriceSort> = { value: 'value-desc', gain: 'pct-desc', loss: 'pct-asc', change: 'change-desc', number: 'value-desc' };
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') };
+    return migratePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}'));
   } catch {
     return { ...DEFAULTS };
   }
+}
+
+/** Gespeicherte Einstellungen mit den Standardwerten ergänzen; veraltete Werte (frühere Zeiträume, Sortierungen) umstellen. */
+export function migratePrefs(stored: Partial<Prefs> | null): Prefs {
+  const prefs: Prefs = { ...DEFAULTS, ...stored };
+  if (!PRICE_PERIODS.some((p) => p.days === prefs.pricePeriod)) prefs.pricePeriod = DEFAULTS.pricePeriod;
+  if (!PRICE_SORTS.includes(prefs.priceSort)) prefs.priceSort = OLD_PRICE_SORTS[prefs.priceSort] ?? DEFAULTS.priceSort;
+  return prefs;
 }
 
 export function savePrefs(prefs: Prefs) {

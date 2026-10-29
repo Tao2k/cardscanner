@@ -340,6 +340,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .value-chart .x-axis span.last { transform: translateX(-100%); }
 .value-card .segmented { margin-top: 10px; background: var(--raised); }
 .value-card .segmented button.active { background: var(--surface); box-shadow: none; color: var(--text); }
+.value-card .segmented button { padding-inline: 2px; white-space: nowrap; font-size: 0.84rem; }
 .movers .delta { font-size: 0.95rem; font-weight: 750; padding: 6px 12px; border-radius: 999px; background: var(--raised); }
 .movers li { position: relative; overflow: hidden; }
 .movers li.strong-up::before, .movers li.strong-down::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; }

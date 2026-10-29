@@ -173,8 +173,8 @@ export function startIndex(dates: string[], days: number | null): number {
 }
 
 /**
- * Woran die Entwicklung gemessen wird: am eigenen Verlauf, sobald er den Zeitraum abdeckt (bei 1 Jahr und
- * „Alles“ reichen 30 Tage), sonst an Cardmarkets Durchschnittspreis der letzten 7 bzw. 30 Tage.
+ * Woran die Entwicklung gemessen wird: am eigenen Verlauf, sobald er den Zeitraum abdeckt (ab 6 Monaten
+ * und bei „Gesamt“ reichen 30 Tage), sonst an Cardmarkets Durchschnittspreis der letzten 7 bzw. 30 Tage.
  */
 export type Basis = { kind: 'history'; since: string } | { kind: 'average'; days: 7 | 30 };
 
@@ -250,6 +250,24 @@ export interface Mover {
   basis: Basis;
   /** Preise im Zeitraum laut eigenem Verlauf (leer, solange es keinen gibt). */
   series: number[];
+}
+
+/** Reihenfolge der Karten im Tab „Preise“: nach Preis, Änderung in € oder Änderung in %, jeweils ab- oder aufsteigend. */
+export type MoverSort = 'value-desc' | 'value-asc' | 'change-desc' | 'change-asc' | 'pct-desc' | 'pct-asc';
+
+/** Vergleich für `sort`; bei Gleichstand zuerst der höhere Preis, dann `tie` (z. B. Sammlernummer). */
+export function moverOrder(sort: MoverSort, tie: (a: Mover, b: Mover) => number = () => 0): (a: Mover, b: Mover) => number {
+  const byValue = (a: Mover, b: Mover) => b.to - a.to || b.quantity - a.quantity || tie(a, b);
+  const key: Record<MoverSort, (m: Mover) => number> = {
+    'value-desc': (m) => -m.to,
+    'value-asc': (m) => m.to,
+    'change-desc': (m) => -m.delta,
+    'change-asc': (m) => m.delta,
+    'pct-desc': (m) => -m.pct,
+    'pct-asc': (m) => m.pct,
+  };
+  const of = key[sort] ?? key['value-desc'];
+  return (a, b) => of(a) - of(b) || byValue(a, b);
 }
 
 export function isStrong(from: number, to: number): boolean {

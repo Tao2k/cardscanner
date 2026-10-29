@@ -1,11 +1,11 @@
 import { useId, useState } from 'preact/hooks';
 import { compareCollectorNumbers } from '../core/excel';
-import { averageValue, collectionMovers, collectionSeries, dayOf, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
+import { averageValue, collectionMovers, collectionSeries, dayOf, moverOrder, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { collectionValue, formatAsOf, formatEur } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { printingCode } from './format';
-import type { Prefs, PriceSort } from './prefs';
+import { PRICE_PERIODS, type Prefs, type PriceSort } from './prefs';
 import { arrow, groupBySet, groupChange, MoveCol, PCT, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
 
 interface Props {
@@ -18,18 +18,13 @@ interface Props {
   fresh: Set<string>;
 }
 
-const PERIODS: { days: number | null; label: string }[] = [
-  { days: 7, label: '7 Tage' },
-  { days: 30, label: '30 Tage' },
-  { days: 365, label: '1 Jahr' },
-  { days: null, label: 'Alles' },
-];
 const SORTS: { value: PriceSort; label: string }[] = [
-  { value: 'value', label: 'Wert, höchster zuerst' },
-  { value: 'gain', label: 'Prozent, stärkster Anstieg zuerst' },
-  { value: 'loss', label: 'Prozent, stärkster Rückgang zuerst' },
-  { value: 'change', label: 'Größte Änderung in €' },
-  { value: 'number', label: 'Sammlernummer' },
+  { value: 'value-desc', label: 'Preis absteigend' },
+  { value: 'value-asc', label: 'Preis aufsteigend' },
+  { value: 'change-desc', label: 'Änderung (€) absteigend' },
+  { value: 'change-asc', label: 'Änderung (€) aufsteigend' },
+  { value: 'pct-desc', label: 'Änderung (%) absteigend' },
+  { value: 'pct-asc', label: 'Änderung (%) aufsteigend' },
 ];
 
 type Filter = 'all' | 'up' | 'down';
@@ -69,18 +64,11 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
 
   const number = (m: Mover) => catalogs.lookup(m.gameId, m.printingId)?.collectorNumber ?? '';
   const byNumber = (a: Mover, b: Mover) => compareCollectorNumbers(number(a), number(b)) || a.finish.localeCompare(b.finish);
-  const byValue = (a: Mover, b: Mover) => b.to - a.to || b.quantity - a.quantity || byNumber(a, b);
-  const order: Record<PriceSort, (a: Mover, b: Mover) => number> = {
-    value: byValue,
-    gain: (a, b) => b.pct - a.pct || byValue(a, b),
-    loss: (a, b) => a.pct - b.pct || byValue(a, b),
-    change: (a, b) => Math.abs(b.delta) - Math.abs(a.delta) || byValue(a, b),
-    number: byNumber,
-  };
 
   // Sets wie in der Sammlung und im Export: nach Erscheinen, die Karten darin nach der gewählten Sortierung
   const sets = groupBySet(list, (m) => ({ gameId: m.gameId, code: catalogs.lookup(m.gameId, m.printingId)?.setCode ?? '' }), catalogs.sets);
-  for (const g of sets) g.rows.sort(order[prefs.priceSort] ?? byValue);
+  const order = moverOrder(prefs.priceSort, byNumber);
+  for (const g of sets) g.rows.sort(order);
   const collapsed = new Set(prefs.priceCollapsed);
 
   const row = (m: Mover) => {
@@ -154,7 +142,7 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
             )}
             {hasChart && <ValueChart points={chart} active={scrub} onScrub={setScrub} />}
             <div class="segmented" role="radiogroup" aria-label="Zeitraum">
-              {PERIODS.map((p) => (
+              {PRICE_PERIODS.map((p) => (
                 <button
                   role="radio"
                   aria-checked={days === p.days}
