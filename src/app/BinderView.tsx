@@ -153,12 +153,24 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const pose = (t: Turn, p: number) => {
     t.p = p;
     const forward = t.to > t.from;
-    const top = pageEl(forward ? t.from : t.to);
-    const under = pageEl(forward ? t.to : t.from);
     // 0 = obere Seite liegt flach, 1 = steht senkrecht am Rand
     const lifted = clamp01(forward ? p : 1 - p);
+    const angle = ((-Math.acos(1 - lifted) * 180) / Math.PI).toFixed(2);
+    // Vor Seite 1 liegt der Deckel: zurückgeblättert klappt er über die Seite
+    if (t.to < 0) {
+      const lid = coverRef.current;
+      if (lid) {
+        lid.style.transition = 'none';
+        lid.style.transform = `perspective(1600px) rotateY(${angle}deg)`;
+        lid.style.opacity = '1';
+      }
+      if (shadeRef.current) shadeRef.current.style.opacity = (1 - lifted).toFixed(3);
+      return;
+    }
+    const top = pageEl(forward ? t.from : t.to);
+    const under = pageEl(forward ? t.to : t.from);
     if (top) {
-      top.style.transform = `perspective(3200px) rotateY(${(-(Math.acos(1 - lifted) * 180) / Math.PI).toFixed(2)}deg)`;
+      top.style.transform = `perspective(3200px) rotateY(${angle}deg)`;
       shadeOf(top).style.opacity = (lifted * 0.28).toFixed(3);
     }
     // Schatten der Seite darüber, wird heller, je weiter sie sich hebt
@@ -170,7 +182,9 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     const finished = new Promise<void>((r) => (resolve = r));
     const t: Turn = { from, to, p: 0, finished, resolve: () => resolve() };
     turn.current = t;
-    setTurning(to > from ? { top: from, under: to } : { top: to, under: from });
+    // Der Deckel kommt dazu und steht erst senkrecht, also unsichtbar
+    if (to < 0) setCover('closing');
+    else setTurning(to > from ? { top: from, under: to } : { top: to, under: from });
     pose(t, 0);
     return t;
   };
@@ -195,9 +209,23 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const end = async (t: Turn, turned: boolean) => {
     if (turn.current !== t) return;
     turn.current = null;
-    if (turned) setPage(t.to);
+    if (t.to < 0) setCover(turned ? 'closed' : 'open');
+    else if (turned) setPage(t.to);
     setTurning(null);
     await frame();
+    if (t.to < 0) {
+      // Zu liegt der Deckel wie im CSS, offen ist er schon weg
+      const lid = coverRef.current;
+      const shade = shadeRef.current;
+      if (lid) {
+        lid.style.transform = '';
+        lid.style.opacity = '';
+        lid.style.transition = '';
+      }
+      if (shade) shade.style.opacity = '';
+      t.resolve();
+      return;
+    }
     // Hat inzwischen schon das nächste Umblättern begonnen, bleiben dessen Seiten in Stellung
     const next = turn.current as Turn | null;
     for (const index of [t.from, t.to]) {
@@ -246,12 +274,13 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     await end(t, true);
   };
 
-  /** Pfeile: eine Seite weiter oder zurück, auch wenn die vorige gerade noch fällt. */
+  /** Pfeile: eine Seite weiter oder zurück, auch wenn die vorige gerade noch fällt; vor Seite 1 liegt der Deckel. */
   const turnBy = (step: number) => {
     if (skip || swipe.current?.turn) return;
     finish();
     const to = pageNow.current + step;
-    if (to >= 0 && to <= lastPage) turnTo(to);
+    if (to < 0) closeCover();
+    else if (to <= lastPage) turnTo(to);
   };
 
   const widthOf = (index: number) => pageEl(index)?.offsetWidth || 1;
@@ -259,7 +288,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
 
   const onPointerDown = (e: PointerEvent) => {
     swiped.current = false;
-    if (!isOpen || skip || sheets.length < 2 || !e.isPrimary || e.button > 0) return;
+    if (!isOpen || skip || !e.isPrimary || e.button > 0) return;
     // Fällt die vorige Seite noch, liegt sie sofort, und es geht von der neuen aus weiter
     finish();
     swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: pageNow.current, trail: [{ x: e.clientX, t: e.timeStamp }] };
@@ -271,15 +300,16 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     track(s, e.clientX, e.timeStamp);
     const dx = e.clientX - s.x;
     if (s.to === undefined) {
-      // Senkrecht gewischt: die Seite scrollt, es wird nicht geblättert
+      // Im offenen Binder scrollt nichts: klar senkrecht gewischt tut nichts, schräg gewischt blättert
       const dy = e.clientY - s.y;
-      if (Math.abs(dy) > START_PX && Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dy) > 3 * START_PX && Math.abs(dy) > 3 * Math.abs(dx)) {
         swipe.current = null;
         return;
       }
-      if (Math.abs(dx) < START_PX) return;
+      if (Math.abs(dx) < START_PX || Math.abs(dx) < Math.abs(dy) / 2) return;
+      // Vor Seite 1 klappt der Deckel zu, nach der letzten Seite ist Schluss
       const to = s.from + (dx < 0 ? 1 : -1);
-      if (to < 0 || to > lastPage) {
+      if (to > lastPage) {
         swipe.current = null;
         return;
       }
@@ -307,7 +337,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     const turned = e.type === 'pointerup' && (fling > FLICK || (progress(s, e.clientX) > TURN_AT && fling > -FLICK));
     const t = s.turn;
     if (!t) {
-      if (turned) setPage(s.to);
+      if (turned && s.to < 0) closeCover();
+      else if (turned) setPage(s.to);
       return;
     }
     const target = turned ? 1 : 0;
@@ -488,6 +519,19 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   // Farben und Motiv wie das Display des Sets
   const theme = themeOf(selected.key);
 
+  // Antippen neben dem offenen Binder klappt ihn zu; Knöpfe, Felder, Links und offene Blätter tun weiter das Ihre.
+  // Am Scrollbereich statt am document, sonst meldet Safari auf dem iPhone kein Antippen von Text und leeren Flächen.
+  useEffect(() => {
+    const main = pagesRef.current?.closest('main');
+    if (!isOpen || skip || open || !main) return;
+    const onClick = (e: MouseEvent) => {
+      const keep = '.binder, .binder-nav, button, a, input, select, textarea, label, [role="tab"], [role="dialog"], .backdrop';
+      if (!(e.target as Element).closest(keep)) closeCover();
+    };
+    main.addEventListener('click', onClick);
+    return () => main.removeEventListener('click', onClick);
+  }, [isOpen, skip, open]);
+
   return (
     <div class="binder-view" style={themeStyle(theme)} data-motif={theme.motif}>
       {binders.length > 1 && (
@@ -561,11 +605,15 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       </div>
       {!isOpen && (
         <>
-          <div class="binder-shade" ref={shadeRef} aria-hidden="true" />
+          <div class={`binder-shade ${cover}`} ref={shadeRef} aria-hidden="true" />
           <button
             class={`binder-cover ${cover}`}
             ref={coverRef}
-            onClick={openCover}
+            onClick={() => {
+              // Offen wird im Binder nicht gescrollt, also gleich ganz ins Bild holen
+              reveal();
+              openCover();
+            }}
             aria-label={`${selected.name} öffnen`}
           >
             {theme.motif && <CoverMotif motif={theme.motif} />}
@@ -584,7 +632,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
       {sheets.length > 1 && (
         // Bei geschlossenem Binder nur unsichtbar, damit beim Auf- und Zuklappen nichts springt
         <div class={`binder-nav${isOpen ? '' : ' hidden'}`} aria-hidden={!isOpen}>
-          <button class="icon" aria-label="Vorherige Seite" disabled={shownPage <= 0} onClick={() => turnBy(-1)}>
+          <button class="icon" aria-label={shownPage > 0 ? 'Vorherige Seite' : 'Binder schließen'} onClick={() => turnBy(-1)}>
             {chevron('M15 6l-6 6 6 6')}
           </button>
           <span>
