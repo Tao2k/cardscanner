@@ -264,9 +264,9 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
             ))}
           </div>
           <CloudLine />
-          <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren" title="Als Excel exportieren">
+          <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
             {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
-            <span>Excel</span>
+            Excel
           </button>
         </div>
       </header>
