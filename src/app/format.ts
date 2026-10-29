@@ -27,3 +27,24 @@ export function downloadBlob(data: BlobPart, filename: string, type: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
+
+/**
+ * Kartenbild in mehreren Breiten für srcset, damit es auf Retina-Displays scharf bleibt.
+ * Nur für Bilder vom Bild-CDN, das die Breite über ?w= liefert; sonst undefined (dann gilt src).
+ */
+export function cardSrcSet(url: string, widths: number[]): string | undefined {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (!u.searchParams.has('w')) return undefined;
+  return widths
+    .map((w) => {
+      u.searchParams.set('w', String(w));
+      u.searchParams.set('fm', 'webp');
+      return `${u} ${w}w`;
+    })
+    .join(', ');
+}

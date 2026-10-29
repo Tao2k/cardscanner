@@ -497,12 +497,13 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .binder-shade { z-index: 3; pointer-events: none; border-radius: 8px var(--r-card) var(--r-card) 8px;
   background: linear-gradient(90deg, rgba(10, 6, 14, 0.42), rgba(10, 6, 14, 0.14) 55%, rgba(10, 6, 14, 0.04)); }
 .binder-cover { z-index: 4; display: flex; align-items: stretch; justify-content: stretch; padding: 0; min-height: 0; overflow: hidden; color: var(--cover-ink);
-  border-radius: 10px var(--r-card) var(--r-card) 10px; transform-origin: 0 50%; backface-visibility: hidden;
+  border-radius: 10px var(--r-card) var(--r-card) 10px; transform-origin: 0 50%;
   background: radial-gradient(120% 90% at var(--set-glow), var(--set-light) 0%, var(--set-base) 52%, var(--set-deep) 100%);
   box-shadow: 0 2px 0 var(--set-deep), 0 4px 0 color-mix(in srgb, var(--set-deep) 70%, #000), 0 18px 36px rgba(22, 19, 26, 0.3);
   transition: transform 0.18s ease; }
 .binder-cover:active:not(:disabled) { transform: perspective(1600px) rotateY(-5deg); }
-.binder-cover.opening, .binder-cover.closing { pointer-events: none; }
+/* Eigene Ebene nur in Bewegung, liegend bleibt der Deckel gestochen scharf */
+.binder-cover.opening, .binder-cover.closing { pointer-events: none; backface-visibility: hidden; }
 .binder-cover.closing { opacity: 0; transform: perspective(1600px) rotateY(-96deg); }
 /* Beim Zuklappen dunkelt die Seite erst ab, wenn der Deckel kommt */
 .binder-shade.closing { opacity: 0; }

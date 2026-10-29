@@ -5,7 +5,7 @@ import { pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder'
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
 import { CoverMotif } from './BinderMotif';
 import { themeOf, themeStyle, uiColor } from './binderThemes';
-import { printingCode } from './format';
+import { cardSrcSet, printingCode } from './format';
 
 interface Props {
   binders: Binder[];
@@ -88,6 +88,10 @@ const speedOf = ({ trail }: Swipe) => {
   return b.t > a.t ? (b.x - a.x) / (b.t - a.t) : 0;
 };
 const imageOf = (s: Slot) => s.printing.thumbUrl ?? s.printing.imageUrl;
+/** Breiten fürs srcset: Hüllen sind etwa 110 px breit, die Karte auf dem Deckel bis 150 px, die geöffnete Karte bis 260 px. */
+const POCKET_WIDTHS = [120, 240, 360];
+const COVER_WIDTHS = [240, 480, 720];
+const SHEET_WIDTHS = [480, 800];
 
 export function BinderView({ binders, catalogs, selected, onSelect, arriving }: Props) {
   const slotIndex = useMemo(() => {
@@ -373,8 +377,15 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
     const lid = coverRef.current;
     if (lid && !reducedMotion()) {
       const timing = { duration: COVER_MS, easing: COVER_EASING, direction: 'reverse', fill: 'both' } as const;
-      shadeRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, easing: 'ease-out' });
-      await lid.animate(COVER_OPENING, timing).finished.catch(() => undefined);
+      const shade = shadeRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, easing: 'ease-out' });
+      const swing = lid.animate(COVER_OPENING, timing);
+      await swing.finished.catch(() => undefined);
+      if (coverIs('closing')) setCover('closed');
+      // Gehaltene Endstellung loswerden: mit 3D-Transform rendert Safari den Deckel als unscharfe Ebene
+      await frame();
+      swing.cancel();
+      shade?.cancel();
+      return;
     }
     if (coverIs('closing')) setCover('closed');
   };
@@ -587,7 +598,14 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                 return (
                   <li key={s.key} data-slot={s.key} class={['pocket', has ? 'filled' : 'empty', has && s.foil ? 'foil' : '', fresh.has(s.key) && has ? 'fresh' : ''].join(' ').trim()}>
                     <button onClick={() => setOpen(s)} aria-label={`${s.printing.cardName}, ${s.printing.collectorNumber}${has ? '' : ', fehlt'}`}>
-                      <img src={imageOf(s)} alt="" loading="lazy" draggable={false} />
+                      <img
+                        src={imageOf(s)}
+                        srcset={cardSrcSet(s.printing.imageUrl, POCKET_WIDTHS)}
+                        sizes="(min-width: 500px) 140px, 30vw"
+                        alt=""
+                        loading="lazy"
+                        draggable={false}
+                      />
                       {!has && <span class="num">{s.printing.collectorNumber}</span>}
                       {quantity > 1 && <span class="pocket-qty">{quantity}×</span>}
                     </button>
@@ -621,7 +639,9 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
             <span class="cover-face">
               {selected.code && <small>{selected.code}</small>}
               <strong>{selected.name}</strong>
-              {showcase && <img src={imageOf(showcase)} alt="" draggable={false} />}
+              {showcase && (
+                <img src={showcase.printing.imageUrl} srcset={cardSrcSet(showcase.printing.imageUrl, COVER_WIDTHS)} sizes="(min-width: 500px) 150px, 30vw" alt="" draggable={false} />
+              )}
               <span class="cover-open">Öffnen</span>
             </span>
             <span class="cover-strap" aria-hidden="true" />
@@ -653,7 +673,13 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           <div class="backdrop" onClick={() => setOpen(null)} />
           <div class="sheet binder-card" role="dialog" aria-label={open.printing.cardName}>
             <div class="grabber" />
-            <img class={shown(open) > 0 ? '' : 'missing'} src={open.printing.imageUrl} alt="" />
+            <img
+              class={shown(open) > 0 ? '' : 'missing'}
+              src={open.printing.imageUrl}
+              srcset={cardSrcSet(open.printing.imageUrl, SHEET_WIDTHS)}
+              sizes="(min-width: 420px) 260px, 62vw"
+              alt=""
+            />
             <div class="binder-card-info">
               <h2>{open.printing.cardName}</h2>
               <small class="muted">{printingCode(open.printing)}</small>
