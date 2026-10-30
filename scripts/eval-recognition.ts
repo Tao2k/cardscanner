@@ -224,6 +224,8 @@ async function evalCondition(file: CatalogFile, n: number) {
     { name: 'leicht', specks: 8 },
     { name: 'mittel', specks: 35 },
     { name: 'stark', specks: 140 },
+    { name: 'sauber + Schatten', specks: 0, shadow: true },
+    { name: 'mittel + Schatten', specks: 35, shadow: true },
   ];
   const tables = [
     { name: 'schwarz', v: 15 },
@@ -292,7 +294,13 @@ async function evalCondition(file: CatalogFile, n: number) {
           .blur(between(0.4, 1.2))
           .jpeg({ quality: Math.round(between(60, 85)) })
           .toBuffer();
-        const gray = await grayOf(sharp(photo));
+        let shot = sharp(photo);
+        if ('shadow' in level) {
+          const { data, info } = await shot.raw().toBuffer({ resolveWithObject: true });
+          addShadow(data, info.width, info.height, info.channels);
+          shot = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
+        }
+        const gray = await grayOf(shot);
         // Zielrahmen: dort, wo die Karte ungefähr liegt (die App kennt nur den Rahmen, nicht die Karte)
         const cx = left + rotated.info.width / 2, cy = top + rotated.info.height / 2;
         const jitter = h * 0.03;
@@ -316,7 +324,7 @@ async function evalCondition(file: CatalogFile, n: number) {
       const dist = [...CONDITIONS, 'keine'].filter((c) => m.has(c)).map((c) => `${c} ${Math.round((100 * m.get(c)!) / rows.length)} %`).join(', ');
       const ms = metrics.get(key) ?? [];
       const med = (i: number) => (ms.length ? [...ms.map((x) => x[i])].sort((a, b) => a - b)[ms.length >> 1].toFixed(4) : '-');
-      console.log(`${table.name.padEnd(11)} ${level.name.padEnd(7)} → ${dist}   (Median Kante ${med(0)}, Ecke ${med(1)})`);
+      console.log(`${table.name.padEnd(11)} ${level.name.padEnd(17)} → ${dist}   (Median Kante ${med(0)}, Ecke ${med(1)})`);
     }
   }
 }
@@ -342,6 +350,8 @@ async function evalFoil(file: CatalogFile, n: number) {
     { name: 'Foil schwach (8 %)', foil: 0.08, glare: false },
     { name: 'Foil mittel (15 %)', foil: 0.15, glare: false },
     { name: 'Foil stark (25 %)', foil: 0.25, glare: false },
+    { name: 'normal + Schatten', foil: 0, glare: false, shadow: true },
+    { name: 'Foil mittel + Schatten', foil: 0.15, glare: false, shadow: true },
   ];
   const PIXEL_THRESHOLDS = [0.03, FOIL_PIXEL, 0.04];
   // Fall → je Pixelschwelle die Anteile schimmernder Pixel
@@ -393,6 +403,7 @@ async function evalFoil(file: CatalogFile, n: number) {
           .jpeg({ quality: Math.round(between(60, 85)) })
           .toBuffer(),
       ).raw().toBuffer({ resolveWithObject: true });
+      if ('shadow' in c) addShadow(photoImg.data, photoImg.info.width, photoImg.info.height, photoImg.info.channels);
       const photo: Pixels = { data: photoImg.data, width: photoImg.info.width, height: photoImg.info.height, channels: photoImg.info.channels as 3 };
       const cx = left + rotated.info.width / 2, cy = top + rotated.info.height / 2;
       const jitter = h * 0.03;
