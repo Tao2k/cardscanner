@@ -18,7 +18,12 @@ export interface ModelSpec {
   rerank: number;
 }
 
-export const MODEL: ModelSpec = { id: 'Xenova/dinov2-small', dtype: 'q8', kind: 'dino', rerank: 0.2 };
+/**
+ * DINOv3 ViT-S/16 (August 2025), gleich groß und schnell wie das frühere DINOv2-small.
+ * Gemessen auf 400 schweren Testfotos (npm run bench, Oktober 2026), mit Entzerren und Pixelvergleich 0.2:
+ * Top-1 93,5 % (DINOv2-small vorher 69 %), automatisch speicherbar bei ≥ 95 % richtig: 93 % (vorher 54 %).
+ */
+export const MODEL: ModelSpec = { id: 'onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX', dtype: 'q8', kind: 'dino', rerank: 0.2 };
 export const MODEL_ID = MODEL.id;
 /**
  * Kennung von Modell und Vorverarbeitung; steht im Katalog und an eigenen Scans. Ändert sie sich,
@@ -52,7 +57,7 @@ export async function createEmbedder(options: EmbedderOptions = {}): Promise<Emb
 
   const processor = await AutoProcessor.from_pretrained(MODEL.id);
   // Ganzes (aufgefülltes) Quadrat auf 224 px statt Mitte ausschneiden: sonst fehlen oben Name und
-  // Kosten, unten die Sammlernummer. Gemessen: Top-1 auf schweren Testfotos 70 % → 79 %.
+  // Kosten, unten die Sammlernummer (bei DINOv2 gemessen: Top-1 70 % → 79 %).
   const ip = (processor as unknown as { image_processor: Record<string, unknown> }).image_processor;
   ip.do_center_crop = false;
   ip.size = { height: 224, width: 224 };
@@ -69,7 +74,7 @@ export async function createEmbedder(options: EmbedderOptions = {}): Promise<Emb
       const raw = new RawImage(square.data, square.width, square.height, 3);
       const output = await model(await processor(raw));
       if (MODEL.kind === 'siglip') return l2normalize(Float32Array.from(output.pooler_output.data as Float32Array));
-      // DINO: Klassen-Token (Position 0) der letzten Schicht als Bildvektor.
+      // DINO: Klassen-Token (Position 0) der letzten Schicht als Bildvektor (Register-Token danach bleiben außen vor).
       const dim = output.last_hidden_state.dims.at(-1) as number;
       return l2normalize(Float32Array.from((output.last_hidden_state.data as Float32Array).subarray(0, dim)));
     },

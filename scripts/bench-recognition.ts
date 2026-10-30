@@ -57,7 +57,7 @@ const CANDIDATES: Candidate[] = [
   { key: 'dinov2-small-fp32', id: 'Xenova/dinov2-small', dtype: 'fp32', kind: 'dino', prep: 'crop' },
   { key: 'dinov2-base', id: 'Xenova/dinov2-base', dtype: 'q8', kind: 'dino', prep: 'crop' },
   { key: 'dinov2-reg-small', id: 'onnx-community/dinov2-with-registers-small|onnx-community/dinov2-with-registers-small-ONNX', dtype: 'q8', kind: 'dino', prep: 'crop', registers: 4 },
-  { key: 'dinov3-small', id: 'onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX|onnx-community/dinov3-vits16-pretrain-lvd1689m', dtype: 'q8', kind: 'dino', prep: 'full', registers: 4 },
+  { key: 'dinov3-small', id: 'onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX', dtype: 'q8', kind: 'dino', prep: 'full', registers: 4 },
   { key: 'dinov3-small-aspect', id: 'onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX|onnx-community/dinov3-vits16-pretrain-lvd1689m', dtype: 'q8', kind: 'dino', prep: 'aspect', registers: 4 },
   { key: 'dinov3-base', id: 'onnx-community/dinov3-vitb16-pretrain-lvd1689m-ONNX|onnx-community/dinov3-vitb16-pretrain-lvd1689m', dtype: 'q8', kind: 'dino', prep: 'full', registers: 4 },
   { key: 'clip-b32', id: 'Xenova/clip-vit-base-patch32', dtype: 'q8', kind: 'clip', prep: 'full' },
@@ -388,6 +388,13 @@ async function main() {
     shot.tags = ['Fokus'];
     shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: warpShot(shot) });
   }
+  // Leerer Tisch ohne Karte: so hoch dürfen die Werte nicht kommen, sonst „erkennt“ die App Karten im Nichts
+  const transparent = await sharp({ create: { width: 63, height: 88, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const empties: Pixels[] = [];
+  for (let i = 0; i < 40; i++) {
+    const shot = await synthShot(transparent);
+    empties.push(warpShot(shot) ?? (await guideCrop(shot)));
+  }
   const found = shots.slice(0, mainCount).filter((s) => s.warp).length;
   console.log(`Karte gefunden und entzerrt: ${found}/${mainCount} (${pct(found / mainCount)})`);
 
@@ -484,6 +491,20 @@ async function main() {
       console.log(`  Zeitmessung fehlgeschlagen: ${(e as Error).message}`);
     }
     const size = modelSize(c);
+    {
+      const tops: number[] = [];
+      for (const e of empties) {
+        const v = (await embedder.embed(e)).cls;
+        const sp = patchOf(e);
+        const ranked = collapseToPrintings(topK(v, indexes.cls.out, indexes.cls.d, 24), (row) => file.refs[row].p, 8).map((m) => {
+          const rowsOf = file.refs.flatMap((r, row) => (r.p === m.index ? [row] : []));
+          return m.score + 0.2 * Math.max(...rowsOf.map((row) => (refPatches[row] ? dot(sp, refPatches[row]!) : -1)));
+        });
+        tops.push(Math.max(...ranked));
+      }
+      tops.sort((a, b) => a - b);
+      console.log(`  Leerer Tisch (40 Bilder, mit Pixelvergleich 0.2): Bestwert Median ${tops[20].toFixed(3)}, 90 % ${tops[36].toFixed(3)}, Max ${tops[39].toFixed(3)}`);
+    }
 
     const run = (label: string, index: { out: Float32Array; d: number }, vecs: (v: Vectors) => Float32Array | undefined, source: 'crop' | 'warp', rerank = 0) => {
       const results: Result[] = shots.map((s, i) => {
