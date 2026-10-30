@@ -6,13 +6,15 @@ export const COLLECTION = 'collection';
 export const SAMPLES = 'samples';
 export const OUTBOX = 'outbox';
 export const META = 'meta';
+export const DECKS = 'decks';
 
 /**
  * Eine gemeinsame Datenbank im Browser: Sammlung (v1), eigene Scans zum Lernen (v2) sowie
- * Warteschlange und Stand für den Abgleich mit dem Server (v3). v4 stellt den Zustand auf die Cardmarket-Stufen um.
+ * Warteschlange und Stand für den Abgleich mit dem Server (v3). v4 stellt den Zustand auf die Cardmarket-Stufen um,
+ * v5 bringt die Decks.
  */
 export function openAppDb(dbName = DB_NAME): Promise<IDBPDatabase> {
-  return openDB(dbName, 4, {
+  return openDB(dbName, 5, {
     async upgrade(db, oldVersion, _newVersion, tx) {
       if (oldVersion < 1) {
         const store = db.createObjectStore(COLLECTION, { keyPath: 'itemId' });
@@ -36,6 +38,7 @@ export function openAppDb(dbName = DB_NAME): Promise<IDBPDatabase> {
           if (c.value.item) await c.update({ ...c.value, item: { ...c.value.item, condition: conditionFromLegacy(c.value.item.condition) } });
         }
       }
+      if (oldVersion < 5) db.createObjectStore(DECKS, { keyPath: 'deckId' });
     },
   });
 }

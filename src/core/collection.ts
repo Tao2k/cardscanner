@@ -19,7 +19,7 @@ export interface AddResult {
   previous?: CollectionItem;
 }
 
-function newId(): string {
+export function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 

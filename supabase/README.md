@@ -13,8 +13,8 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
    Tarif **Free**.
 2. **Tabellen anlegen:** im Dashboard *SQL Editor* öffnen, den Inhalt von
    [`migrations/0001_collection.sql`](migrations/0001_collection.sql) einfügen und ausführen, danach
-   genauso [`migrations/0002_friends.sql`](migrations/0002_friends.sql) (Freunde). Die Skripte dürfen
-   mehrfach laufen.
+   genauso [`migrations/0002_friends.sql`](migrations/0002_friends.sql) (Freunde) und
+   [`migrations/0003_decks.sql`](migrations/0003_decks.sql) (Decks). Die Skripte dürfen mehrfach laufen.
 3. **Anmeldung mit Passwort:** *Authentication → Sign In / Providers → Email* öffnen und **Confirm email**
    ausschalten. Dann ist man nach „Konto erstellen“ sofort angemeldet. Supabase verschickt ohne
    eigenen E-Mail-Versand (SMTP) nur Links, und die öffnen sich auf dem iPhone in Safari statt in der
@@ -40,3 +40,5 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
   Karten, die der anderen Seite ganz fehlen.
 - **Abgleich:** Jede Änderung landet zuerst in einer Warteschlange im Browser und geht zum Server,
   sobald Netz da ist. Ändern zwei Geräte denselben Eintrag, gewinnt die spätere Änderung.
+- **Decks:** Decks liegen ebenfalls auf dem Server (Tabelle `decks`, nur für einen selbst sichtbar).
+  Fehlt die Tabelle noch, bleiben die Decks auf dem Gerät und werden hochgeladen, sobald es sie gibt.

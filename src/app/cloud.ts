@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { SyncEngine } from '../core/sync';
+import { DeckSync } from '../core/deckSync';
+import type { DeckStore } from '../storage/decks';
 import type { SyncingStore } from '../storage/outbox';
 
 import project from '../../supabase/project.json';
@@ -48,6 +50,10 @@ class Cloud {
   private client: Promise<SupabaseClient> | null = null;
   private store: SyncingStore | null = null;
   private engine: SyncEngine | null = null;
+  private decks: DeckStore | null = null;
+  private deckSync: DeckSync | null = null;
+  /** Die Tabelle für Decks fehlt auf dem Server noch: Decks bleiben bis dahin nur auf dem Gerät. */
+  private decksUnavailable = false;
   private onRemoteChange: () => void = () => {};
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> | null = null;
@@ -71,10 +77,12 @@ class Cloud {
     return this.client;
   }
 
-  async init(store: SyncingStore, onRemoteChange: () => void) {
+  async init(store: SyncingStore, decks: DeckStore, onRemoteChange: () => void) {
     this.store = store;
+    this.decks = decks;
     this.onRemoteChange = onRemoteChange;
     store.onChange = () => this.syncSoon();
+    decks.onChange = () => this.syncSoon();
     await this.countPending();
     if (!cloudConfigured) return;
     window.addEventListener('online', () => this.syncNow());
@@ -99,11 +107,14 @@ class Cloud {
   private async signedIn(user: User) {
     if (!this.store || this.userId === user.id) return;
     this.userId = user.id;
-    const { SupabaseCollection } = await import('../storage/supabase');
-    this.engine = new SyncEngine(this.store, new SupabaseCollection(await this.getClient()), user.id);
+    const { SupabaseCollection, SupabaseDecks } = await import('../storage/supabase');
+    const client = await this.getClient();
+    this.engine = new SyncEngine(this.store, new SupabaseCollection(client), user.id);
+    this.deckSync = this.decks && new DeckSync(this.decks, new SupabaseDecks(client), user.id, this.store.outbox);
     this.set({ signedIn: true, email: user.email, status: 'syncing', message: undefined });
     try {
       await this.engine.prepare();
+      await this.deckSync?.prepare();
       // Erste Anmeldung oder Kontowechsel: Karten vom Gerät hochladen bzw. Speicher geleert
       this.onRemoteChange();
       await this.syncNow();
@@ -115,6 +126,7 @@ class Cloud {
   private signedOut() {
     this.userId = undefined;
     this.engine = null;
+    this.deckSync = null;
     this.set({ status: 'signed-out', signedIn: false, message: undefined });
   }
 
@@ -155,9 +167,11 @@ class Cloud {
   async signOut() {
     if (this.engine) {
       await this.syncNow();
-      const pending = (await this.store!.outbox.list()).length;
+      const pending = (await this.store!.outbox.list()).length + (this.decksUnavailable ? 0 : ((await this.decks?.pending())?.length ?? 0));
       if (pending) throw new Error(`${pending} ${pending === 1 ? 'Änderung ist' : 'Änderungen sind'} noch nicht auf dem Server. Bitte mit Internet erneut versuchen.`);
       await this.engine.clearLocal();
+      // Ohne Tabelle auf dem Server bleiben die Decks auf dem Gerät (sie gehören weiter diesem Konto)
+      if (!this.decksUnavailable) await this.deckSync?.clearLocal();
     }
     const client = await this.getClient();
     await client.auth.signOut();
@@ -175,7 +189,25 @@ class Cloud {
   async syncNow() {
     clearTimeout(this.timer);
     if (!this.engine) return;
-    await this.run(() => this.engine!.sync());
+    await this.run(async () => {
+      const { changed } = await this.engine!.sync();
+      return { changed: (await this.syncDecks()) || changed };
+    });
+  }
+
+  /** Decks abgleichen; fehlt die Tabelle auf dem Server noch, bleiben sie still auf dem Gerät. */
+  private async syncDecks(): Promise<boolean> {
+    if (!this.deckSync) return false;
+    try {
+      const changed = await this.deckSync.sync();
+      this.decksUnavailable = false;
+      return changed;
+    } catch (e) {
+      const { DecksUnavailable } = await import('../storage/supabase');
+      if (!(e instanceof DecksUnavailable)) throw e;
+      this.decksUnavailable = true;
+      return false;
+    }
   }
 
   /** Immer nur ein Abgleich gleichzeitig; Änderungen währenddessen lösen danach einen weiteren aus. */
@@ -216,7 +248,9 @@ class Cloud {
   }
 
   private async countPending() {
-    if (this.store) this.set({ pending: (await this.store.outbox.list()).length });
+    if (!this.store) return;
+    const decks = this.engine && !this.decksUnavailable ? ((await this.decks?.pending())?.length ?? 0) : 0;
+    this.set({ pending: (await this.store.outbox.list()).length + decks });
   }
 }
 
