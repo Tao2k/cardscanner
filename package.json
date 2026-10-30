@@ -13,7 +13,8 @@
     "catalog": "tsx scripts/build-catalog.ts",
     "prices": "tsx scripts/build-prices.ts",
     "price-history": "tsx scripts/build-price-history.ts",
-    "eval": "tsx scripts/eval-recognition.ts"
+    "eval": "tsx scripts/eval-recognition.ts",
+    "bench": "tsx scripts/bench-recognition.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
