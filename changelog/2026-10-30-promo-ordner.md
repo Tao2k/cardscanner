@@ -1,0 +1,2 @@
+- Neu: Promokarten (z. B. OGNX, T1-Bundle, Arcane Box Set) lassen sich scannen und sammeln.
+- Neu: Im Binder, in der Liste und unter „Preise“ stehen alle Promos zusammen im Ordner „Promos“.
