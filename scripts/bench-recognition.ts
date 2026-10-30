@@ -365,6 +365,24 @@ function summarize(results: Result[]) {
 
 const pct = (x: number) => `${(100 * x).toFixed(1)} %`;
 
+/** Kalibrierung für die App: Abstand → Anteil richtig (mit unterer Schranke) und Lage der Bestwerte. */
+function calibration(results: Result[]) {
+  const q = (xs: number[], f: number) => xs.sort((a, b) => a - b)[Math.floor(f * (xs.length - 1))]?.toFixed(3) ?? '-';
+  const right = results.filter((r) => r.ranked[0].index === r.truth).map((r) => r.ranked[0].score);
+  const wrong = results.filter((r) => r.ranked[0].index !== r.truth).map((r) => r.ranked[0].score);
+  console.log(`    Bestwert richtig: 5 % ${q(right, 0.05)}, 10 % ${q(right, 0.1)}, Median ${q(right, 0.5)} · falsch: Median ${q(wrong, 0.5)}, 90 % ${q(wrong, 0.9)}`);
+  const EDGES = [0, 0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1, 1];
+  const list = results.map((r) => ({ margin: r.ranked[0].score - (r.ranked[1]?.score ?? 0), right: r.ranked[0].index === r.truth }));
+  const rows: string[] = [];
+  for (let b = 0; b + 1 < EDGES.length; b++) {
+    const bin = list.filter((x) => x.margin >= EDGES[b] && x.margin < EDGES[b + 1]);
+    const above = list.filter((x) => x.margin >= EDGES[b]);
+    const k = bin.filter((x) => x.right).length, ka = above.filter((x) => x.right).length;
+    rows.push(`${EDGES[b].toFixed(3)}: ${k}/${bin.length} (≥ ${(100 * wilson(k, bin.length)).toFixed(0)} %), ab hier ≥ ${(100 * wilson(ka, above.length)).toFixed(1)} %`);
+  }
+  console.log(`    Abstand → richtig: ${rows.join(' · ')}`);
+}
+
 async function main() {
   const dir = path.join('public/data', game);
   const file: CatalogFile = JSON.parse(await readFile(path.join(dir, 'catalog.json'), 'utf8'));
@@ -510,6 +528,7 @@ async function main() {
         return { truth: s.truth, ranked, tags: s.shot.tags };
       });
       const sum = summarize(results.slice(0, mainCount));
+      if (label === 'Zielrahmen' || label.endsWith('Pixelvergleich 0.2')) calibration(results.slice(0, mainCount));
       const focused = results.slice(mainCount);
       const focusTop1 = focused.length ? pct(focused.filter((r) => r.ranked[0].index === r.truth).length / focused.length) : '–';
       if (focused.length && label === 'Zielrahmen') {
