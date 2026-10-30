@@ -896,6 +896,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             <button onClick={() => setRunning(false)}>Stopp</button>
           </div>
         )}
+        {/* Nur „hinzugefügt“ wird vorgelesen, nicht jede Zwischenmeldung beim Halten */}
+        <p class="sr-only" role="status">
+          {added && `${added} hinzugefügt`}
+        </p>
       </div>
 
       {question &&

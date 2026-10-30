@@ -16,10 +16,12 @@ const CLOSE_SPEED = 0.5;
 
 /**
  * Blatt von unten wie auf dem iPhone: am Griff nach unten wischen, daneben tippen oder Escape schließt es;
- * es fährt dabei wieder hinaus statt zu verschwinden.
+ * es fährt dabei wieder hinaus statt zu verschwinden. Der Fokus springt ins Blatt und danach zurück,
+ * damit VoiceOver und Tastatur dort weitermachen, wo das Blatt geöffnet wurde.
  */
 export function Sheet({ class: cls, label, onClose, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; t: number; dy: number; id: number } | null>(null);
   const [closing, setClosing] = useState(false);
 
@@ -28,6 +30,13 @@ export function Sheet({ class: cls, label, onClose, children }: Props) {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) onClose();
     else setClosing(true);
   };
+
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    // Kein autoFocus im Blatt: dann das Blatt selbst, sonst öffnete auf dem Handy ungefragt die Tastatur
+    if (!ref.current?.contains(document.activeElement)) ref.current?.focus({ preventScroll: true });
+    return () => before?.isConnected && before.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     if (!onClose) return;
@@ -41,6 +50,12 @@ export function Sheet({ class: cls, label, onClose, children }: Props) {
     if (!el) return;
     el.style.transition = animate ? 'transform 0.22s cubic-bezier(.2, .8, .2, 1)' : 'none';
     el.style.transform = dy > 0 ? `translateY(${dy}px)` : '';
+    // Der Hintergrund hellt mit dem Weg auf, wie beim Wegwischen auf dem iPhone
+    const shade = backdrop.current;
+    if (shade) {
+      shade.style.transition = animate ? 'opacity 0.22s ease-out' : 'none';
+      shade.style.opacity = dy > 0 ? String(Math.max(0, 1 - dy / el.offsetHeight)) : '';
+    }
   };
 
   const handle = onClose && {
@@ -71,12 +86,14 @@ export function Sheet({ class: cls, label, onClose, children }: Props) {
 
   return (
     <>
-      <div class={`backdrop${closing ? ' closing' : ''}`} onClick={close} />
+      <div ref={backdrop} class={`backdrop${closing ? ' closing' : ''}`} onClick={close} />
       <div
         ref={ref}
         class={`sheet${cls ? ` ${cls}` : ''}${closing ? ' closing' : ''}`}
         role="dialog"
+        aria-modal="true"
         aria-label={label}
+        tabIndex={-1}
         onAnimationEnd={(e) => e.target === e.currentTarget && closing && onClose?.()}
       >
         <div class={`sheet-handle${handle ? ' draggable' : ''}`} {...handle}>

@@ -36,6 +36,7 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
     onLearn();
   };
   const remove = async (item: CollectionItem) => {
+    if (!confirm('Karte löschen?')) return;
     await service.remove(item.itemId);
     await learning.itemRemoved(item.itemId);
     onChange();
