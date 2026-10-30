@@ -27,7 +27,7 @@ export interface ShadingConfig {
   maxGain: number;
 }
 
-export const DEFAULT_SHADING: ShadingConfig = { cells: 10, spread: 1, maxGain: 3 };
+export const DEFAULT_SHADING: ShadingConfig = { cells: 8, spread: 2, maxGain: 3 };
 
 const luma = (d: ArrayLike<number>, o: number) => 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
 
@@ -118,3 +118,10 @@ export function evenLighting(img: Pixels, config: ShadingConfig = DEFAULT_SHADIN
   }
   return { data: out, width: w, height: h, channels: 3 };
 }
+
+/**
+ * Ab dieser Schattenstärke (in jedem der letzten SHADOW_FRAMES Frames) zeigt der Scanner einen Hinweis.
+ * Gewählt nach `npm run eval -- --shadow`: bei Karten ohne Schatten fast nie erreicht.
+ */
+export const SHADOW_HINT = 0.5;
+export const SHADOW_FRAMES = 4;

@@ -811,10 +811,7 @@ async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array
     const { p, lang } = file.refs[row];
     return readFile(path.join('.cache/images', createHash('sha1').update(imageIn(file.printings[p], lang).imageUrl).digest('hex')));
   };
-  const configs: { name: string; config: ShadingConfig }[] = [
-    { name: 'Raster 10, Nachbarn 1', config: DEFAULT_SHADING },
-    { name: 'Raster 8, Nachbarn 2', config: { ...DEFAULT_SHADING, cells: 8, spread: 2 } },
-  ];
+  const configs: { name: string; config: ShadingConfig }[] = [{ name: 'Raster 8, Nachbarn 2', config: DEFAULT_SHADING }];
   // Katalog mit Ausgleich (wie ein neu gebauter Katalog)
   const evened: Float32Array[] = [];
   for (const { name, config } of configs) {
@@ -831,6 +828,15 @@ async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array
   const variants = [
     { name: 'ohne Ausgleich', prep: (p: Pixels) => p, catalog: embeddings },
     ...configs.map((c) => ({ name: `nur Kamera (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: embeddings })),
+    // Nur ausgleichen, wenn das Bild deutlich ungleichmäßig beleuchtet ist
+    ...[0.45, 0.55].map((t) => ({
+      name: `nur Kamera ab Stärke ${t}`,
+      prep: (p: Pixels) => {
+        const field = lightField(p);
+        return shadowStrength(field) >= t ? evenLighting(p, DEFAULT_SHADING, field) : p;
+      },
+      catalog: embeddings,
+    })),
     ...configs.map((c, i) => ({ name: `Kamera + Katalog (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: evened[i] })),
   ];
   const scenes = ['ohne Schatten', 'mit Schatten'];
@@ -887,7 +893,7 @@ async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array
       const near = st.margins.filter((m) => m.margin >= DEFAULT_STABILIZER.confidentMargin && m.margin < DEFAULT_STABILIZER.confidentMargin + 0.02);
       const nearRight = near.filter((m) => m.right).length;
       console.log(
-        `  ${v.name.padEnd(34)} Top-1 ${pct(st.top1, st.n)} · automatisch ${pct(st.auto, st.n)}, davon richtig ${pct(st.autoRight, st.auto)} (≥ ${(100 * wilson(st.autoRight, st.auto)).toFixed(1)} %) · Abstand ${DEFAULT_STABILIZER.confidentMargin}–${DEFAULT_STABILIZER.confidentMargin + 0.02}: ${nearRight}/${near.length}`,
+        `  ${v.name.padEnd(30)} Top-1 ${pct(st.top1, st.n)} · automatisch ${pct(st.auto, st.n)}, davon richtig ${pct(st.autoRight, st.auto)} (≥ ${(100 * wilson(st.autoRight, st.auto)).toFixed(1)} %) · Abstand ${DEFAULT_STABILIZER.confidentMargin}–${DEFAULT_STABILIZER.confidentMargin + 0.02}: ${nearRight}/${near.length}`,
       );
     }
   }
