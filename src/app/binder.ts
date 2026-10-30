@@ -1,7 +1,10 @@
-import { compareCollectorNumbers, setRanks } from '../core/excel';
+import { folderIndex, PROMO_FOLDER, slotOrder } from '../core/folders';
 import type { CardSet, CollectionItem, Printing } from '../core/types';
 
-/** Binder je Set: jeder Druck hat einen festen Platz, sortiert nach Sammlernummer, 9 Plätze je Seite. */
+/**
+ * Binder je Set: jeder Druck hat einen festen Platz, sortiert nach Sammlernummer, 9 Plätze je Seite.
+ * Die Promo-Sets teilen sich einen Binder, darin nach Set und Nummer.
+ */
 
 export const PER_PAGE = 9;
 
@@ -18,8 +21,10 @@ export interface Binder {
   /** „gameId|setCode“, wie die eingeklappten Sets */
   key: string;
   gameId: string;
-  /** Set-Kürzel, z. B. „OGN“ */
+  /** Set-Kürzel, z. B. „OGN“, oder PROMO_FOLDER */
   code: string;
+  /** Sammelt mehrere Sets (Promos): Plätze zeigen dann auch das Set-Kürzel */
+  mixed: boolean;
   name: string;
   slots: Slot[];
   owned: number;
@@ -42,23 +47,29 @@ export function buildBinders(
   const binders: (Binder & { rank: number })[] = [];
   for (const gameId of [...new Set(gameIds)].sort()) {
     const list = sets.get(gameId) ?? [];
-    const ranks = setRanks(list);
-    const bySet = new Map<string, Printing[]>();
-    for (const p of byGame.get(gameId)?.values() ?? []) bySet.set(p.setCode, [...(bySet.get(p.setCode) ?? []), p]);
-    for (const [code, printings] of bySet) {
-      printings.sort((a, b) => compareCollectorNumbers(a.collectorNumber, b.collectorNumber) || a.cardName.localeCompare(b.cardName));
+    const folderOf = folderIndex(list);
+    const order = slotOrder(list);
+    const byFolder = new Map<string, Printing[]>();
+    for (const p of byGame.get(gameId)?.values() ?? []) {
+      const code = folderOf(p.setCode).code;
+      byFolder.set(code, [...(byFolder.get(code) ?? []), p]);
+    }
+    for (const [code, printings] of byFolder) {
+      printings.sort(order);
       const slots = printings.map((printing) => {
         const key = slotKey(gameId, printing.printingId);
         return { key, printing, quantity: owned.get(key)?.quantity ?? 0, foil: owned.get(key)?.foil ?? false };
       });
+      const folder = folderOf(printings[0].setCode);
       binders.push({
         key: `${gameId}|${code}`,
         gameId,
         code,
-        name: list.find((s) => s.code === code)?.name ?? (code || 'Ohne Set'),
+        mixed: code === PROMO_FOLDER,
+        name: folder.name,
         slots,
         owned: slots.filter((s) => s.quantity > 0).length,
-        rank: ranks.get(code) ?? Number.MAX_SAFE_INTEGER,
+        rank: folder.rank,
       });
     }
   }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { CollectionService } from '../core/collection';
-import { compareCollectorNumbers, exportOrder, exportWorkbook } from '../core/excel';
+import { compareCollectorNumbers, exportOrder, exportWorkbook, setRanks } from '../core/excel';
+import { folderIndex } from '../core/folders';
 import type { CollectionItem, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
@@ -120,9 +121,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const rows = [...ownedRows, ...(prefs.collectionOwnedOnly ? [] : catalogRows.filter((r) => matches(r.printing)))];
 
   // Je Set: wie viele verschiedene Drucke man hat, von wie vielen, und ihr Wert
+  // (die Promo-Sets zusammen, wie in groupBySet)
+  const folderOf = new Map([...catalogs.sets].map(([gameId, list]) => [gameId, folderIndex(list)]));
   const setStats = new Map<string, { owned: Set<string>; total: number; value: number }>();
   const statsOf = (gameId: string, code: string) => {
-    const key = `${gameId}|${code}`;
+    const key = `${gameId}|${folderOf.get(gameId)?.(code).code ?? code}`;
     let stats = setStats.get(key);
     if (!stats) setStats.set(key, (stats = { owned: new Set(), total: 0, value: 0 }));
     return stats;
@@ -137,7 +140,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   }
 
   const bySetOrder = exportOrder(catalogs.lookup, catalogs.sets);
+  // Im Promo-Ordner stehen mehrere Sets: erst nach Set (nach Erscheinen), dann nach Nummer
+  const ranks = new Map([...catalogs.sets].map(([gameId, list]) => [gameId, setRanks(list)]));
+  const setRank = (r: Row) => ranks.get(r.gameId)?.get(r.printing?.setCode ?? '') ?? Number.MAX_SAFE_INTEGER;
   const byNumber = (a: Row, b: Row) =>
+    setRank(a) - setRank(b) ||
     compareCollectorNumbers(a.printing?.collectorNumber ?? '', b.printing?.collectorNumber ?? '') ||
     (a.printing?.cardName ?? '').localeCompare(b.printing?.cardName ?? '') ||
     (a.item && b.item ? bySetOrder(a.item, b.item) : a.item ? -1 : b.item ? 1 : 0);

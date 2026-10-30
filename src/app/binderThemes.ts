@@ -64,6 +64,8 @@ const THEMES: Record<string, BinderTheme> = {
     ui: '#1d7590',
     motif: 'stage',
   },
+  // Promo-Ordner (Events, Bundles, Box-Sets): kein eigenes Set, daher schlicht Anthrazit mit Gold wie eine Sammlerbox
+  'riftbound|PROMO': { light: '#4d443b', base: '#2b2622', deep: '#171310', glow: '50% 32%', accent: '#d8b25a', strap: '#a8842f', ui: '#8a6a1f' },
 };
 
 /** Thema eines Binders („gameId|setCode“). */

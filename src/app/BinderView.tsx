@@ -528,6 +528,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
   const valueOf = (s: Slot) => priceFor(catalogs.price(selected.gameId, s.printing.printingId), s.foil ? 'foil' : 'normal', s.printing) ?? 0;
   const showcase = selected.slots.filter((s) => s.quantity > 0).reduce<Slot | null>((best, s) => (!best || valueOf(s) > valueOf(best) ? s : best), null);
   const isOpen = cover === 'open';
+  // Im Promo-Binder stehen mehrere Sets, die Nummer allein ist dort nicht eindeutig
+  const numberOf = (s: Slot) => (selected.mixed ? `${s.printing.setCode} ${s.printing.collectorNumber}` : s.printing.collectorNumber);
   // Farben und Motiv wie das Display des Sets
   const theme = themeOf(selected.key);
 
@@ -598,7 +600,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                 const has = quantity > 0;
                 return (
                   <li key={s.key} data-slot={s.key} class={['pocket', has ? 'filled' : 'empty', has && s.foil ? 'foil' : '', fresh.has(s.key) && has ? 'fresh' : ''].join(' ').trim()}>
-                    <button onClick={() => setOpen(s)} aria-label={`${s.printing.cardName}, ${s.printing.collectorNumber}${has ? '' : ', fehlt'}`}>
+                    <button onClick={() => setOpen(s)} aria-label={`${s.printing.cardName}, ${numberOf(s)}${has ? '' : ', fehlt'}`}>
                       <img
                         src={imageOf(s)}
                         srcset={cardSrcSet(s.printing.imageUrl, POCKET_WIDTHS)}
@@ -607,7 +609,12 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                         loading="lazy"
                         draggable={false}
                       />
-                      {!has && <span class="num">{s.printing.collectorNumber}</span>}
+                      {!has && (
+                        <span class="num">
+                          {selected.mixed && <small>{s.printing.setCode}</small>}
+                          {s.printing.collectorNumber}
+                        </span>
+                      )}
                       {quantity > 1 && <span class="pocket-qty">{quantity}×</span>}
                     </button>
                   </li>
@@ -638,7 +645,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
             {theme.motif && <CoverMotif motif={theme.motif} />}
             <span class="cover-spine" aria-hidden="true" />
             <span class="cover-face">
-              {selected.code && <small>{selected.code}</small>}
+              {selected.code && !selected.mixed && <small>{selected.code}</small>}
               <strong>{selected.name}</strong>
               {showcase && (
                 <img src={showcase.printing.imageUrl} srcset={cardSrcSet(showcase.printing.imageUrl, COVER_WIDTHS)} sizes="(min-width: 500px) 150px, 30vw" alt="" draggable={false} />
@@ -681,6 +688,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
           <div class="binder-card-info">
             <h2>{open.printing.cardName}</h2>
             <small class="muted">{printingCode(open.printing)}</small>
+            {/* Promos: woher die Karte stammt, z. B. „Origins Nexus Night Promo“ */}
+            {typeof open.printing.attributes?.event === 'string' && <small class="muted">{open.printing.attributes.event}</small>}
             <span class="line">
               {shown(open) > 0 ? <em class="tag">{shown(open)}× in der Sammlung</em> : <em class="tag">Fehlt</em>}
               {open.foil && shown(open) > 0 && <em class="tag foil">Foil</em>}
