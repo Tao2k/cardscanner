@@ -26,6 +26,11 @@ const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
 const option = (name: string, fallback: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const samples = Number(option('--samples', '400'));
 const augment = Number(option('--augment', '0'));
+/** Karten, die gezielt geprüft werden (Teil des Namens, mehrere mit |), je Druck 8 zusätzliche Testfotos */
+const focus = option('--focus', '').toLowerCase().split('|').filter(Boolean);
+/** Regel der App heute (src/core/stabilizer.ts): Mindestähnlichkeit und Abstand für automatisches Speichern */
+const APP_MIN_SCORE = 0.55;
+const APP_MARGIN = 0.06;
 // Eigener Ordner, damit die Vergleichsmodelle nicht mit der App ausgeliefert werden
 const MODEL_DIR = '.cache/bench-models';
 const CACHE = '.cache/bench';
@@ -349,7 +354,11 @@ function summarize(results: Result[]) {
     if (r.ranked[0]?.index === r.truth) s.hit++;
     byTag.set(tag, s);
   }
-  return { top1: top1 / n, top3: top3 / n, auto: autoShare(results), byTag };
+  // Wie die App heute: unter der Mindestähnlichkeit passiert nichts, sonst ab Abstand 0,06 speichern
+  const silent = results.filter((r) => r.ranked[0].score < APP_MIN_SCORE).length;
+  const appAuto = results.filter((r) => r.ranked[0].score >= APP_MIN_SCORE && r.ranked[0].score - (r.ranked[1]?.score ?? 0) >= APP_MARGIN);
+  const appRight = appAuto.filter((r) => r.ranked[0].index === r.truth).length;
+  return { top1: top1 / n, top3: top3 / n, auto: autoShare(results), byTag, silent: silent / n, appAuto: appAuto.length / n, appPrecision: appRight / (appAuto.length || 1) };
 }
 
 const pct = (x: number) => `${(100 * x).toFixed(1)} %`;
@@ -367,21 +376,33 @@ async function main() {
 
   // Testfotos einmal erzeugen, für alle Modelle dieselben
   const rows = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, samples);
+  const focusRows = file.refs.flatMap((r, row) => (focus.some((f) => file.printings[r.p].cardName.toLowerCase().includes(f)) ? [row] : []));
+  for (const row of focusRows) {
+    const p = file.printings[file.refs[row].p];
+    console.log(`Fokus: ${p.printingId} [${file.refs[row].lang}] ${p.cardName} (${p.variant})`);
+  }
   console.log(`Erzeuge ${rows.length} Testfotos …`);
   const shots: { row: number; truth: number; shot: Shot; crop: Pixels; warp: Pixels | null }[] = [];
   for (const row of rows) {
     const shot = await synthShot(await readFile(imagePath(row)));
     shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: warpShot(shot) });
   }
-  const found = shots.filter((s) => s.warp).length;
-  console.log(`Karte gefunden und entzerrt: ${found}/${shots.length} (${pct(found / shots.length)})`);
+  // Fokus-Karten kommen dazu, zählen aber nicht in die Gesamtwerte
+  const mainCount = shots.length;
+  for (const row of focusRows) for (let i = 0; i < 8; i++) {
+    const shot = await synthShot(await readFile(imagePath(row)));
+    shot.tags = ['Fokus'];
+    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: warpShot(shot) });
+  }
+  const found = shots.slice(0, mainCount).filter((s) => s.warp).length;
+  console.log(`Karte gefunden und entzerrt: ${found}/${mainCount} (${pct(found / mainCount)})`);
 
   // Vergleichsraster für das Nachsortieren
   const refPatches = await Promise.all(file.refs.map((r) => (r.g && existsSync(path.join(dir, r.g)) ? readFile(path.join(dir, r.g)).then(patchOf) : null)));
   const shotPatches = await Promise.all(shots.map((s) => patchOf(s.warp ?? s.crop)));
 
   const table: string[] = [];
-  const header = `| Modell / Verfahren | Top-1 | Top-3 | automatisch (≥95 %) | ms/Bild 1 Kern | Größe |`;
+  const header = `| Modell / Verfahren | Top-1 | Top-3 | automatisch (≥95 %) | App-Regel: stumm / gespeichert (richtig) | Fokus Top-1 | ms/Bild 1 Kern | Größe |`;
   for (const c of candidates) {
     console.log(`\n=== ${c.key} (${c.id} ${c.dtype}, ${c.prep})`);
     let embedder: BenchEmbedder;
@@ -389,7 +410,7 @@ async function main() {
       embedder = await createBenchEmbedder(c);
     } catch (e) {
       console.log(`  übersprungen: ${(e as Error).message}`);
-      table.push(`| ${c.key} | – | – | – | – | nicht ladbar |`);
+      table.push(`| ${c.key} | – | – | – | – | – | – | nicht ladbar |`);
       continue;
     }
     // Katalog einbetten (zwischengespeichert)
@@ -433,7 +454,7 @@ async function main() {
       console.log(`  Katalog eingebettet in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
     } catch (e) {
       console.log(`  Fehler beim Einbetten: ${(e as Error).message}`);
-      table.push(`| ${c.key} | – | – | – | – | Fehler |`);
+      table.push(`| ${c.key} | – | – | – | – | – | – | Fehler |`);
       continue;
     }
     const flat = (vs: Float32Array[]) => {
@@ -486,10 +507,17 @@ async function main() {
         }
         return { truth: s.truth, ranked, tags: s.shot.tags };
       });
-      const sum = summarize(results);
+      const sum = summarize(results.slice(0, mainCount));
+      const focused = results.slice(mainCount);
+      const focusTop1 = focused.length ? pct(focused.filter((r) => r.ranked[0].index === r.truth).length / focused.length) : '–';
+      if (focused.length && label === 'Zielrahmen') {
+        const name = (i: number) => `${file.printings[i].printingId} ${file.printings[i].cardName} (${file.printings[i].variant})`;
+        for (const r of focused) console.log(`    Fokus ${name(r.truth)} → ${name(r.ranked[0].index)} ${r.ranked[0].score.toFixed(3)} / ${r.ranked[1].score.toFixed(3)}`);
+      }
       console.log(`  ${label}: Top-1 ${pct(sum.top1)}, Top-3 ${pct(sum.top3)}, automatisch ${pct(sum.auto.share)} (ab Abstand ${sum.auto.margin.toFixed(3)})`);
       console.log(`    je Störung: ${[...sum.byTag].map(([t, s]) => `${t} ${pct(s.hit / s.n)} (${s.n})`).join(', ')}`);
-      table.push(`| ${c.key} ${label} | ${pct(sum.top1)} | ${pct(sum.top3)} | ${pct(sum.auto.share)} | ${ms.toFixed(0)} | ${size} |`);
+      console.log(`    App-Regel heute: stumm ${pct(sum.silent)}, gespeichert ${pct(sum.appAuto)} (davon richtig ${pct(sum.appPrecision)}), Fokus Top-1 ${focusTop1}`);
+      table.push(`| ${c.key} ${label} | ${pct(sum.top1)} | ${pct(sum.top3)} | ${pct(sum.auto.share)} | ${pct(sum.silent)} / ${pct(sum.appAuto)} (${pct(sum.appPrecision)}) | ${focusTop1} | ${ms.toFixed(0)} | ${size} |`);
     };
     run('Zielrahmen', indexes.cls, (v) => v.cls, 'crop');
     run('entzerrt', indexes.cls, (v) => v.cls, 'warp');
@@ -500,7 +528,7 @@ async function main() {
       run(`entzerrt + ${augment} Lernfotos + Pixelvergleich 0.1`, indexes.aug, (v) => v.cls, 'warp', 0.1);
     }
   }
-  console.log(`\n=== Übersicht (${shots.length} synthetische Fotos, Karte entzerrt in ${pct(found / shots.length)})\n${header}\n|---|---|---|---|---|---|\n${table.join('\n')}`);
+  console.log(`\n=== Übersicht (${mainCount} synthetische Fotos, Karte entzerrt in ${pct(found / mainCount)})\n${header}\n|---|---|---|---|---|---|---|---|\n${table.join('\n')}`);
 }
 
 if (process.argv[1]?.includes('bench-recognition')) {

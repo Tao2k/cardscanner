@@ -16,6 +16,9 @@ on:
       augment:
         description: Gestörte Lernfotos je Katalogkarte (0 = aus)
         default: '0'
+      focus:
+        description: Karten gezielt prüfen (Teil des Namens, mehrere mit |)
+        default: 'Riven'
 
 permissions:
   contents: read
@@ -52,7 +55,8 @@ jobs:
             .cache/bench-models
           key: bench-${{ github.run_id }}-${{ strategy.job-index }}
           restore-keys: bench-
-      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ matrix.augment || inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} | tee bench.log
+      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ matrix.augment || inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} ${FOCUS:+--focus "$FOCUS"} | tee bench.log
         env:
           MODELS: ${{ matrix.models || inputs.models }}
+          FOCUS: ${{ inputs.focus || 'Riven' }}
       - run: grep -A100 '=== Übersicht' bench.log >> "$GITHUB_STEP_SUMMARY"
