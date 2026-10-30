@@ -1,6 +1,10 @@
 name: Bildmodelle vergleichen
 
 on:
+  # Vorübergehend: Lauf beim Push auf den Arbeitszweig (workflow_dispatch geht erst, wenn die Datei auf main liegt)
+  push:
+    branches: [claude/project-thread-k3nj8q]
+    paths: [scripts/bench-recognition.ts, .github/workflows/bench.yml]
   workflow_dispatch:
     inputs:
       samples:
@@ -20,6 +24,11 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # Beim Push je Modell ein paralleler Lauf, dazu Lernfotos für die beiden kleinen Modelle
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"models":"dinov2-small,dinov2-small-full,dinov2-small-aspect,dinov2-small-fp32","augment":"0"},{"models":"dinov2-base","augment":"0"},{"models":"dinov2-reg-small","augment":"0"},{"models":"dinov3-small,dinov3-small-aspect","augment":"0"},{"models":"dinov3-base","augment":"0"},{"models":"clip-b32,siglip-b16","augment":"0"},{"models":"dinov2-small","augment":"4"},{"models":"dinov3-small","augment":"4"}]' || '[{"models":"","augment":""}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,9 +50,9 @@ jobs:
           path: |
             .cache/bench
             .cache/bench-models
-          key: bench-${{ github.run_id }}
+          key: bench-${{ github.run_id }}-${{ strategy.job-index }}
           restore-keys: bench-
-      - run: npm run bench -- riftbound --samples ${{ inputs.samples }} --augment ${{ inputs.augment }} ${MODELS:+--models "$MODELS"} | tee bench.log
+      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ matrix.augment || inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} | tee bench.log
         env:
-          MODELS: ${{ inputs.models }}
+          MODELS: ${{ matrix.models || inputs.models }}
       - run: grep -A100 '=== Übersicht' bench.log >> "$GITHUB_STEP_SUMMARY"
