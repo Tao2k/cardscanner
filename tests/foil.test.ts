@@ -84,6 +84,20 @@ describe('Foil-Erkennung', () => {
     expect(res.score).toBeGreaterThan(0.3);
   });
 
+  it('hält eine normale Karte mit Handyschatten nicht für Foil, Foil im Schatten aber schon', () => {
+    const shadowed = (foil: number) => {
+      const { photo, expected } = photograph(ref, foil);
+      // Untere Hälfte im Schatten: 45 % Licht, weicher Übergang
+      for (let y = 0; y < photo.height; y++) {
+        const f = 1 - 0.55 * Math.min(1, Math.max(0, (y - 260) / 40));
+        for (let x = 0; x < photo.width; x++) for (let i = 0; i < 3; i++) photo.data[(y * photo.width + x) * 3 + i] *= f;
+      }
+      return estimateFoil(photo, findCard(toGray(photo), expected)!, ref);
+    };
+    expect(shadowed(0).foil).toBe(false);
+    expect(shadowed(0.1).foil).toBe(true);
+  });
+
   it('macht ohne farbiges Original keine Aussage', () => {
     const gray: Pixels = { ...ref, data: ref.data.map((_, i) => ref.data[i - (i % 3)]) };
     const { photo, expected } = photograph(ref, 0);

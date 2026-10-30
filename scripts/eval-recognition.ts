@@ -25,7 +25,7 @@ import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 import { buildTextIndex, decide, latinMatch, matchText, textWinner, type TextMatch } from '../src/core/textmatch';
-import { DEFAULT_SHADING, evenLighting, lightField, shadowStrength, type ShadingConfig } from '../src/core/shading';
+import { DEFAULT_SHADING, evenLighting, lightField, prepareForRecognition, SHADOW_EVEN, shadowStrength, type ShadingConfig } from '../src/core/shading';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -827,16 +827,9 @@ async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array
   }
   const variants = [
     { name: 'ohne Ausgleich', prep: (p: Pixels) => p, catalog: embeddings },
-    ...configs.map((c) => ({ name: `nur Kamera (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: embeddings })),
-    // Nur ausgleichen, wenn das Bild deutlich ungleichmäßig beleuchtet ist
-    ...[0.45, 0.55].map((t) => ({
-      name: `nur Kamera ab Stärke ${t}`,
-      prep: (p: Pixels) => {
-        const field = lightField(p);
-        return shadowStrength(field) >= t ? evenLighting(p, DEFAULT_SHADING, field) : p;
-      },
-      catalog: embeddings,
-    })),
+    ...configs.map((c) => ({ name: `immer, nur Kamera (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: embeddings })),
+    // Wie in der App: nur ausgleichen, wenn das Bild deutlich ungleichmäßig beleuchtet ist
+    { name: `App (ab Stärke ${SHADOW_EVEN})`, prep: (p: Pixels) => prepareForRecognition(p).pixels, catalog: embeddings },
     ...configs.map((c, i) => ({ name: `Kamera + Katalog (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: evened[i] })),
   ];
   const scenes = ['ohne Schatten', 'mit Schatten'];

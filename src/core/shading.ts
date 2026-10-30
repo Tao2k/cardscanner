@@ -120,8 +120,19 @@ export function evenLighting(img: Pixels, config: ShadingConfig = DEFAULT_SHADIN
 }
 
 /**
- * Ab dieser Schattenstärke (in jedem der letzten SHADOW_FRAMES Frames) zeigt der Scanner einen Hinweis.
- * Gewählt nach `npm run eval -- --shadow`: bei Karten ohne Schatten fast nie erreicht.
+ * Gemessen mit `npm run eval -- --shadow 400` (synthetischer Handyschatten, Stärke mit DEFAULT_SHADING):
+ * Karten ohne Schatten liegen zu 95 % unter 0,47 und zu 99 % unter 0,55, Karten mit Schatten im Median bei 0,44.
+ * Ausgeglichen wird erst ab SHADOW_EVEN: So bleiben gleichmäßig beleuchtete Karten unverändert (dort brachte
+ * der Ausgleich nichts), mit Schatten stieg Top-1 von 87,5 auf 88,8 %, automatisch gespeichert von 42,3 auf 44,5 %.
  */
-export const SHADOW_HINT = 0.5;
+export const SHADOW_EVEN = 0.45;
+/** Ab dieser Stärke in jedem der letzten SHADOW_FRAMES Frames zeigt der Scanner einen Hinweis (ohne Schatten unter 1 %). */
+export const SHADOW_HINT = 0.55;
 export const SHADOW_FRAMES = 4;
+
+/** Wie in der App vor der Erkennung: Schattenstärke messen und nur bei deutlichem Schatten ausgleichen. */
+export function prepareForRecognition(img: Pixels): { pixels: Pixels; shadow: number } {
+  const field = lightField(img);
+  const shadow = shadowStrength(field);
+  return { pixels: shadow >= SHADOW_EVEN ? evenLighting(img, DEFAULT_SHADING, field) : img, shadow };
+}

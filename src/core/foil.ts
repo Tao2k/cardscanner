@@ -117,20 +117,25 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
   const inner: number[] = [];
   for (let y = INSET; y < H - INSET; y++) for (let x = INSET; x < W - INSET; x++) inner.push(y * W + x);
 
-  // Kleinste Quadrate: je Fotokanal eine Kombination aus allen Originalkanälen (Weißabgleich, Sättigung, Gamma)
-  const AtA = new Float64Array(N * N);
-  const Aty = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
-  const f = new Float64Array(N);
-  for (const i of inner) {
-    features(ref, i, f);
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) AtA[r * N + c] += f[r] * f[c];
-      for (let ch = 0; ch < 3; ch++) Aty[ch][r] += f[r] * photo[i * 3 + ch];
-    }
-  }
-  for (let r = 0; r < N; r++) AtA[r * N + r] += 1e-3 * inner.length;
-  const coef = Aty.map((y) => solve(AtA, y, N));
+  // Kleinste Quadrate: je Fotokanal eine Kombination aus allen Originalkanälen (Weißabgleich, Sättigung, Gamma),
+  // mal dem Licht an dieser Stelle (anfangs überall 1)
   const light = new Float32Array(W * H).fill(1);
+  const f = new Float64Array(N);
+  const fit = () => {
+    const AtA = new Float64Array(N * N);
+    const Aty = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
+    for (const i of inner) {
+      features(ref, i, f);
+      const l = light[i];
+      for (let r = 0; r < N; r++) {
+        for (let c = 0; c < N; c++) AtA[r * N + c] += l * l * f[r] * f[c];
+        for (let ch = 0; ch < 3; ch++) Aty[ch][r] += l * f[r] * photo[i * 3 + ch];
+      }
+    }
+    for (let r = 0; r < N; r++) AtA[r * N + r] += 1e-3 * inner.length;
+    return Aty.map((y) => solve(AtA, y, N));
+  };
+  let coef = fit();
   const predict = (i: number, out: number[], at = i) => {
     features(ref, i, f);
     for (let ch = 0; ch < 3; ch++) {
@@ -140,7 +145,13 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
       out[ch] = Math.max(0, Math.min(255, s * light[at]));
     }
   };
-  shadowField(photo, inner, predict, light);
+  // Schatten schätzen, Farbumrechnung damit neu bestimmen, noch einmal verfeinern
+  for (let round = 0; round < 2; round++) {
+    light.fill(1);
+    shadowField(photo, inner, predict, light);
+    if (light.every((l) => l === 1)) break;
+    coef = fit();
+  }
   // Helligkeitsumfang des Fotos: Weiß minus Schwarz des Originals, umgerechnet
   const span = (c: Float64Array) => c.reduce((s, x, k) => (k < N - 1 ? s + x : s), 0);
   const range = Math.max(20, coef.reduce((s, c) => s + span(c), 0) / 3);
@@ -176,8 +187,7 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
  * Handyschatten: Ein Schatten macht eine Fläche dunkler, nach der Farbumrechnung bleibt dort sonst eine
  * Farbabweichung übrig, die wie Schimmer zählt. Deshalb das Helligkeitsverhältnis Foto zu umgerechnetem
  * Original messen, stark glätten (Radius 8 mm, Schatten sind weich, Schimmer wechselt schneller und
- * ändert vor allem die Farbe) und die Vorhersage damit skalieren, aber nie über das Licht auf dem
- * größten Teil der Karte hinaus (Spiegelungen). Schreibt in light.
+ * ändert vor allem die Farbe) und die Vorhersage damit skalieren. Schreibt in light.
  */
 function shadowField(photo: RGB, inner: number[], predict: (i: number, out: number[]) => void, light: Float32Array) {
   const ratio = new Float32Array(W * H), weight = new Float32Array(W * H);
@@ -191,7 +201,7 @@ function shadowField(photo: RGB, inner: number[], predict: (i: number, out: numb
     ratio[i] = lc / lp;
     weight[i] = lp;
   }
-  const R = 8;
+  const R = 3;
   // Gleitendes Mittel in x, dann in y (gewichtet)
   const sx = new Float32Array(W * H), wx = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -211,9 +221,10 @@ function shadowField(photo: RGB, inner: number[], predict: (i: number, out: numb
     }
     light[y * W + x] = w > 0 ? Math.min(1.5, Math.max(0.2, s / w)) : 1;
   }
-  // Nur abdunkeln: Wo es heller ist als auf dem größten Teil der Karte, ist es eher eine Spiegelung als Licht
-  const cap = Float32Array.from(inner, (i) => light[i]).sort()[Math.floor(0.8 * inner.length)];
-  for (let i = 0; i < light.length; i++) light[i] = Math.min(light[i], cap);
+  // Nur bei einem deutlich dunkleren Bereich ausgleichen: Eine helle Spiegelung allein ist kein Schatten
+  // und würde sonst die übrige Karte scheinbar abdunkeln
+  const sorted = Float32Array.from(inner, (i) => light[i]).sort();
+  if (sorted[Math.floor(0.1 * sorted.length)] / sorted[sorted.length >> 1] > 0.85) light.fill(1);
 }
 
 /**

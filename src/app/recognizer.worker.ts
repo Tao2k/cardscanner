@@ -5,7 +5,7 @@ import { AdaptiveIndex } from '../core/learning';
 import type { Match } from '../core/matcher';
 import type { Pixels } from '../core/imageops';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
-import { lightField, shadowStrength } from '../core/shading';
+import { prepareForRecognition } from '../core/shading';
 
 /**
  * Erkennung im Hintergrund-Thread, damit die Kameravorschau flüssig bleibt.
@@ -63,9 +63,10 @@ onmessage = async (event: MessageEvent<WorkerRequest>) => {
       const entry = indexes.get(msg.gameId);
       if (!embedder || !entry) throw new Error('Erkennung ist noch nicht bereit.');
       const start = performance.now();
-      const shadow = shadowStrength(lightField(msg.pixels));
+      // Handyschatten auf der Karte vor der Erkennung ausgleichen (nur wenn deutlich, siehe SHADOW_EVEN)
+      const { pixels, shadow } = prepareForRecognition(msg.pixels);
       // Kopie, damit der Vektor nicht an einem größeren Puffer des Modells hängt
-      const vector = Float32Array.from(await embedder.embed(msg.pixels));
+      const vector = Float32Array.from(await embedder.embed(pixels));
       const matches = entry.index.search(vector, msg.k);
       // Wie ähnlich ist das Foto den Bildern der einzelnen Sprachfassungen des besten Treffers?
       const imageLanguages = matches[0]
