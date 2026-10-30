@@ -60,7 +60,9 @@ const CANDIDATES: Candidate[] = [
   { key: 'dinov3-small-aspect', id: 'onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX|onnx-community/dinov3-vits16-pretrain-lvd1689m', dtype: 'q8', kind: 'dino', prep: 'aspect', registers: 4 },
   { key: 'dinov3-base', id: 'onnx-community/dinov3-vitb16-pretrain-lvd1689m-ONNX|onnx-community/dinov3-vitb16-pretrain-lvd1689m', dtype: 'q8', kind: 'dino', prep: 'full', registers: 4 },
   { key: 'clip-b32', id: 'Xenova/clip-vit-base-patch32', dtype: 'q8', kind: 'clip', prep: 'full' },
-  { key: 'siglip-b16', id: 'Xenova/siglip-base-patch16-224|onnx-community/siglip2-base-patch16-224-ONNX', dtype: 'q8', kind: 'siglip', prep: 'full' },
+  { key: 'siglip-b16', id: 'Xenova/siglip-base-patch16-224', dtype: 'q8', kind: 'siglip', prep: 'full' },
+  { key: 'siglip-b16-fp16', id: 'Xenova/siglip-base-patch16-224', dtype: 'fp16', kind: 'siglip', prep: 'full' },
+  { key: 'siglip2-b16', id: 'onnx-community/siglip2-base-patch16-224-ONNX|onnx-community/siglip2-base-patch16-224', dtype: 'q8', kind: 'siglip', prep: 'full' },
 ];
 
 interface Vectors {
