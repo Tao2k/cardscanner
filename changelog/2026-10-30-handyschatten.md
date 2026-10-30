@@ -1,0 +1,2 @@
+- Verbessert: Der Schatten deines Handys auf der Karte stört die Erkennung kaum noch. Auch Foil und Zustand werden trotz Schatten richtig eingeschätzt.
+- Neu: Liegt ein starker Schatten auf der Karte, gibt der Scanner einen Hinweis.

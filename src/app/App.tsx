@@ -18,6 +18,7 @@ import { PriceView } from './PriceView';
 import { FriendsView, takeInvite } from './FriendsView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
+import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -134,6 +135,8 @@ export function App() {
     [items, histories, catalogs, prefs.pricePeriod],
   );
   // Preiswarnungen: deutlich gestiegene eigene Karten, seit der letzten Warnung zu dieser Karte
+  // Erster Start nach einem Update: einmal zeigen, was sich geändert hat
+  const [news, setNews] = useState(pendingChanges);
   const [seenPrices, setSeenPrices] = useState<Record<string, number>>(loadSeenPrices);
   const alerts = useMemo(() => priceAlerts(movers, seenPrices), [movers, seenPrices]);
   /** Warnungen, die beim Öffnen von „Preise“ neu waren; dort als „Neu“ markiert, bis man den Tab verlässt. */
@@ -259,6 +262,15 @@ export function App() {
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
         </button>
       </nav>
+      {news.length > 0 && (
+        <WhatsNewSheet
+          entries={news}
+          onClose={() => {
+            markChangesSeen();
+            setNews([]);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@ Sammelkarten mit der Handykamera erkennen und als eigene Sammlung erfassen. Star
 - **Daten bleiben lokal:** Jede Person hat ihre Sammlung nur im Browser ihres Geräts. Export und Import als Excel (`.xlsx`).
 - **Preise:** Euro-Preise von Cardmarket pro Karte, als Gesamtwert der Sammlung und als Spalten „Preis (€)“, „Wert (€)“ und „Preisstand“ im Excel. Quelle ist Cardmarkets öffentlicher Preisguide (Trendpreis, Near Mint, ohne Unterschied nach Sprache oder Zustand), täglich erneuert.
 
+- **Was ist neu:** Nach einem Update zeigt die App beim ersten Öffnen alle Änderungen seit dem letzten Besuch, gepflegt als eine Datei pro Änderung in [`changelog/`](changelog/README.md).
+
 ## Aufbau
 
 ```
