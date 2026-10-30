@@ -409,7 +409,7 @@ async function main() {
       continue;
     }
     // Katalog einbetten (zwischengespeichert)
-    const cacheFile = path.join(CACHE, `v2-${c.key}${augment ? `-aug${augment}` : ''}.json`);
+    const cacheFile = path.join(CACHE, `v2-${file.refs.length}-${c.key}${augment ? `-aug${augment}` : ''}.json`);
     let refCls: Float32Array[], refMix: (Float32Array | undefined)[], refAug: Float32Array[] | null = null;
     try {
       const t0 = Date.now();

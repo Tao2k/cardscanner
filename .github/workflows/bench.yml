@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         # Beim Push je Modell ein paralleler Lauf, dazu Lernfotos für die beiden kleinen Modelle
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"models":"siglip-b16,dinov2-small,dinov2-small-full","augment":"0"},{"models":"siglip2-b16,siglip-b16-fp16","augment":"0"},{"models":"dinov3-small","augment":"0"},{"models":"siglip-b16","augment":"4"}]' || '[{"models":"","augment":""}]') }}
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"models":"siglip-b16","augment":"0"},{"models":"dinov2-small-full","augment":"0"},{"models":"dinov2-small","augment":"0"},{"models":"dinov3-small","augment":"0"}]' || '[{"models":"","augment":""}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
