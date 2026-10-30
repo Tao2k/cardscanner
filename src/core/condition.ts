@@ -371,7 +371,7 @@ const LIGHT_CELL = 4 * MM;
  * Rechnet einen Schatten heraus: Verhältnis Foto zu angeglichenem Original je 4-mm-Zelle im Innenbereich
  * (Median, nur Stellen, die im Original nicht fast schwarz sind), geglättet und bis an den Rand
  * fortgesetzt. Der Kantenstreifen fließt nicht ein, weiße Abnutzung dort bleibt also erhalten.
- * null, wenn die Beleuchtung gleichmäßig ist (höchstens 8 % Unterschied).
+ * null, wenn die Beleuchtung gleichmäßig ist (höchstens 20 % Unterschied); dann bleibt alles wie bisher.
  */
 function relight(card: Gray, ref: Gray, fit: { a: number; b: number; dx: number; dy: number }): Gray | null {
   const cols = Math.ceil(CARD_W / LIGHT_CELL), rows = Math.ceil(CARD_H / LIGHT_CELL);
@@ -417,7 +417,7 @@ function relight(card: Gray, ref: Gray, fit: { a: number; b: number; dx: number;
     light = next;
   }
   const top = Math.max(...light);
-  if (top <= 0 || Math.min(...light) / top > 0.92) return null;
+  if (top <= 0 || Math.min(...light) / top > 0.8) return null;
   const out = new Float32Array(card.data.length);
   for (let y = 0; y < card.height; y++) {
     const fy = Math.min(rows - 1, Math.max(0, (y - PAD - fit.dy) / LIGHT_CELL - 0.5));

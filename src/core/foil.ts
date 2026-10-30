@@ -176,7 +176,8 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
  * Handyschatten: Ein Schatten macht eine Fläche dunkler, nach der Farbumrechnung bleibt dort sonst eine
  * Farbabweichung übrig, die wie Schimmer zählt. Deshalb das Helligkeitsverhältnis Foto zu umgerechnetem
  * Original messen, stark glätten (Radius 8 mm, Schatten sind weich, Schimmer wechselt schneller und
- * ändert vor allem die Farbe) und die Vorhersage damit skalieren. Schreibt in light.
+ * ändert vor allem die Farbe) und die Vorhersage damit skalieren, aber nie über das Licht auf dem
+ * größten Teil der Karte hinaus (Spiegelungen). Schreibt in light.
  */
 function shadowField(photo: RGB, inner: number[], predict: (i: number, out: number[]) => void, light: Float32Array) {
   const ratio = new Float32Array(W * H), weight = new Float32Array(W * H);
@@ -210,6 +211,9 @@ function shadowField(photo: RGB, inner: number[], predict: (i: number, out: numb
     }
     light[y * W + x] = w > 0 ? Math.min(1.5, Math.max(0.2, s / w)) : 1;
   }
+  // Nur abdunkeln: Wo es heller ist als auf dem größten Teil der Karte, ist es eher eine Spiegelung als Licht
+  const cap = Float32Array.from(inner, (i) => light[i]).sort()[Math.floor(0.8 * inner.length)];
+  for (let i = 0; i < light.length; i++) light[i] = Math.min(light[i], cap);
 }
 
 /**
