@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
+import { Sheet } from './Sheet';
 
 /** Mit Supabase-Projekt ist die Anmeldung Pflicht: bis dahin zeigt die App nur diese Seite. */
 export function needsLogin(state: CloudState): boolean {
@@ -183,31 +184,27 @@ function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }
   };
 
   return (
-    <>
-      <div class="backdrop" onClick={onClose} />
-      <div class="sheet account-sheet" role="dialog" aria-label="Konto">
-        <div class="grabber" />
-        <div class="account">
-          <h2>Konto</h2>
-          <p>{state.email}</p>
-          <p class="muted">
-            {lineText(state)}
-            {state.pending > 0 && state.status !== 'offline' ? ` · ${state.pending} ${state.pending === 1 ? 'Änderung wartet' : 'Änderungen warten'}` : ''}
-          </p>
-          {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
-          <button class="primary" disabled={busy || state.status === 'syncing'} onClick={act(() => cloud.syncNow())}>
-            Jetzt abgleichen
-          </button>
-          <button disabled={busy} onClick={act(() => cloud.signOut())}>
-            Abmelden
-          </button>
-        </div>
-        {error && <p class="banner error">{error}</p>}
-        <button class="link close" onClick={onClose}>
-          Schließen
+    <Sheet class="account-sheet" label="Konto" onClose={onClose}>
+      <div class="account">
+        <h2>Konto</h2>
+        <p>{state.email}</p>
+        <p class="muted">
+          {lineText(state)}
+          {state.pending > 0 && state.status !== 'offline' ? ` · ${state.pending} ${state.pending === 1 ? 'Änderung wartet' : 'Änderungen warten'}` : ''}
+        </p>
+        {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
+        <button class="primary" disabled={busy || state.status === 'syncing'} onClick={act(() => cloud.syncNow())}>
+          Jetzt abgleichen
+        </button>
+        <button disabled={busy} onClick={act(() => cloud.signOut())}>
+          Abmelden
         </button>
       </div>
-    </>
+      {error && <p class="banner error">{error}</p>}
+      <button class="link close" onClick={onClose}>
+        Schließen
+      </button>
+    </Sheet>
   );
 }
 

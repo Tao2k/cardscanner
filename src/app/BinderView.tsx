@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
+import { Sheet } from './Sheet';
 import { pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
 import { CoverMotif } from './BinderMotif';
@@ -669,33 +670,29 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
         </button>
       )}
       {open && (
-        <>
-          <div class="backdrop" onClick={() => setOpen(null)} />
-          <div class="sheet binder-card" role="dialog" aria-label={open.printing.cardName}>
-            <div class="grabber" />
-            <img
-              class={shown(open) > 0 ? '' : 'missing'}
-              src={open.printing.imageUrl}
-              srcset={cardSrcSet(open.printing.imageUrl, SHEET_WIDTHS)}
-              sizes="(min-width: 420px) 260px, 62vw"
-              alt=""
-            />
-            <div class="binder-card-info">
-              <h2>{open.printing.cardName}</h2>
-              <small class="muted">{printingCode(open.printing)}</small>
-              <span class="line">
-                {shown(open) > 0 ? <em class="tag">{shown(open)}× in der Sammlung</em> : <em class="tag">Fehlt</em>}
-                {open.foil && shown(open) > 0 && <em class="tag foil">Foil</em>}
-                {openPrice !== undefined && <span class="price">{formatEur(openPrice)}</span>}
-              </span>
-              {openEntry?.url && (
-                <a href={openEntry.url} target="_blank" rel="noopener">
-                  Bei Cardmarket ansehen ↗
-                </a>
-              )}
-            </div>
+        <Sheet class="binder-card" label={open.printing.cardName} onClose={() => setOpen(null)}>
+          <img
+            class={shown(open) > 0 ? '' : 'missing'}
+            src={open.printing.imageUrl}
+            srcset={cardSrcSet(open.printing.imageUrl, SHEET_WIDTHS)}
+            sizes="(min-width: 420px) 260px, 62vw"
+            alt=""
+          />
+          <div class="binder-card-info">
+            <h2>{open.printing.cardName}</h2>
+            <small class="muted">{printingCode(open.printing)}</small>
+            <span class="line">
+              {shown(open) > 0 ? <em class="tag">{shown(open)}× in der Sammlung</em> : <em class="tag">Fehlt</em>}
+              {open.foil && shown(open) > 0 && <em class="tag foil">Foil</em>}
+              {openPrice !== undefined && <span class="price">{formatEur(openPrice)}</span>}
+            </span>
+            {openEntry?.url && (
+              <a href={openEntry.url} target="_blank" rel="noopener">
+                Bei Cardmarket ansehen ↗
+              </a>
+            )}
           </div>
-        </>
+        </Sheet>
       )}
     </div>
   );

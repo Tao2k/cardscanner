@@ -92,6 +92,7 @@ export function ReviewView({ items, catalogs, service, learning, learned, gameId
               <>
                 <input
                   type="search"
+                  enterkeyhint="search"
                   placeholder="Name oder Nummer"
                   value={query}
                   autoFocus
