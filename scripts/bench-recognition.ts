@@ -17,7 +17,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { imageIn, type CatalogFile } from '../src/core/catalog';
-import { findCard, squareToQuad, toGray, type Quad } from '../src/core/condition';
+import { squareToQuad, type Quad } from '../src/core/condition';
+import { patchOf, warpCardView } from '../src/core/cardview';
 import { letterboxToSquare, type Pixels } from '../src/core/imageops';
 import { collapseToPrintings, l2normalize, topK, type Match } from '../src/core/matcher';
 
@@ -277,44 +278,17 @@ async function guideCrop(shot: Shot): Promise<Pixels> {
   return { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 };
 }
 
-/** Karte entzerren: Kanten wie bei der Zustandsschätzung suchen, dann auf 229 × 320 px ziehen. */
+/** Karte entzerren wie in der App (src/core/cardview.ts). */
 export function warpShot(shot: Shot): Pixels | null {
-  const quad = findCard(toGray(shot.frame), shot.guide);
-  if (!quad) return null;
-  const m = squareToQuad(quad);
-  const W = 229, H = 320;
-  const out = new Uint8ClampedArray(W * H * 3);
-  const f = shot.frame;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const u = (x + 0.5) / W, v = (y + 0.5) / H;
-    const w = m[6] * u + m[7] * v + 1;
-    const sx = Math.max(0, Math.min(f.width - 1, (m[0] * u + m[1] * v + m[2]) / w - 0.5));
-    const sy = Math.max(0, Math.min(f.height - 1, (m[3] * u + m[4] * v + m[5]) / w - 0.5));
-    const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0 + 1, f.width - 1), y1 = Math.min(y0 + 1, f.height - 1);
-    const fx = sx - x0, fy = sy - y0;
-    for (let ch = 0; ch < 3; ch++) {
-      const p = (yy: number, xx: number) => f.data[(yy * f.width + xx) * 3 + ch];
-      out[(y * W + x) * 3 + ch] = (p(y0, x0) * (1 - fx) + p(y0, x1) * fx) * (1 - fy) + (p(y1, x0) * (1 - fx) + p(y1, x1) * fx) * fy;
-    }
-  }
-  return { data: out, width: W, height: H, channels: 3 };
+  return warpCardView(shot.frame, shot.guide);
 }
 
 // --- Nachsortieren der besten Treffer per Pixelvergleich ----------------------------------------
 
-const CW = 32, CH = 44;
-
-/** Graustufen-Raster der Karte, mittelwertfrei und auf Länge 1, für die Korrelation. */
-async function patchOf(img: Buffer | Pixels): Promise<Float32Array> {
-  const s = Buffer.isBuffer(img)
-    ? sharp(img).flatten({ background: '#808080' })
-    : sharp(Buffer.from(img.data.buffer, img.data.byteOffset, img.data.length), { raw: { width: img.width, height: img.height, channels: img.channels } });
-  const { data } = await s.resize(CW, CH, { fit: 'fill' }).grayscale().normalise().raw().toBuffer({ resolveWithObject: true });
-  // Rand (3 Pixel) weglassen, dort liegen bei ungenauem Ausschnitt Tisch oder Kartenkante
-  const v: number[] = [];
-  for (let y = 3; y < CH - 3; y++) for (let x = 3; x < CW - 3; x++) v.push(data[y * CW + x]);
-  const mean = v.reduce((a, b) => a + b, 0) / v.length;
-  return l2normalize(Float32Array.from(v, (x) => x - mean));
+/** Referenzbild dekodieren wie im Katalog-Build (Alpha weg, sRGB). */
+async function decodeRef(buf: Buffer): Promise<Pixels> {
+  const { data, info } = await sharp(buf).removeAlpha().toColourspace('srgb').resize({ height: 320 }).raw().toBuffer({ resolveWithObject: true });
+  return { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 };
 }
 
 const dot = (a: Float32Array, b: Float32Array) => a.reduce((s, x, i) => s + x * b[i], 0);
@@ -418,8 +392,9 @@ async function main() {
   console.log(`Karte gefunden und entzerrt: ${found}/${mainCount} (${pct(found / mainCount)})`);
 
   // Vergleichsraster für das Nachsortieren
-  const refPatches = await Promise.all(file.refs.map((r) => (r.g && existsSync(path.join(dir, r.g)) ? readFile(path.join(dir, r.g)).then(patchOf) : null)));
-  const shotPatches = await Promise.all(shots.map((s) => patchOf(s.warp ?? s.crop)));
+  const refPatches: (Float32Array | null)[] = [];
+  for (let row = 0; row < file.refs.length; row++) refPatches.push(patchOf(await decodeRef(await readFile(imagePath(row)))));
+  const shotPatches = shots.map((s) => patchOf(s.warp ?? s.crop));
 
   const table: string[] = [];
   const header = `| Modell / Verfahren | Top-1 | Top-3 | automatisch (≥95 %) | App-Regel: stumm / gespeichert (richtig) | Fokus Top-1 | ms/Bild 1 Kern | Größe |`;
@@ -434,7 +409,7 @@ async function main() {
       continue;
     }
     // Katalog einbetten (zwischengespeichert)
-    const cacheFile = path.join(CACHE, `${c.key}${augment ? `-aug${augment}` : ''}.json`);
+    const cacheFile = path.join(CACHE, `v2-${c.key}${augment ? `-aug${augment}` : ''}.json`);
     let refCls: Float32Array[], refMix: (Float32Array | undefined)[], refAug: Float32Array[] | null = null;
     try {
       const t0 = Date.now();
@@ -449,8 +424,7 @@ async function main() {
         const aug: Float32Array[] = [];
         for (let row = 0; row < file.refs.length; row++) {
           const buf = await readFile(imagePath(row));
-          const { data, info } = await sharp(buf).flatten({ background: '#808080' }).resize({ height: 320 }).raw().toBuffer({ resolveWithObject: true });
-          const v = await embedder.embed({ data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 });
+          const v = await embedder.embed(await decodeRef(buf));
           refCls.push(v.cls);
           refMix.push(v.mix);
           if (augment) {

@@ -1,9 +1,11 @@
+import { parsePatches } from './cardview';
 import type { Catalog, CatalogMeta, Language, Printing, PrintingImage, ReferenceRow } from './types';
 
 /**
  * Dateiformat eines gebauten Katalogs (pro Spiel ein Ordner unter `data/<gameId>/`):
  *   catalog.json    { meta, printings, refs }
  *   embeddings.f32  Float32 little-endian, count × dim, Zeile i ↔ printings[refs[i].p] in Sprache refs[i].lang
+ *   patches.i8      Int8, count × PATCH_DIM: Graustufenraster je Referenzbild für den Pixelvergleich (fehlt bei alten Katalogen)
  * `data/games.json` listet alle verfügbaren Spiele.
  */
 export interface CatalogFile {
@@ -33,18 +35,30 @@ export async function loadGames(baseUrl: string): Promise<GameEntry[]> {
   return res.json();
 }
 
-export async function loadCatalog(baseUrl: string, gameId: string): Promise<Catalog> {
-  const [json, bin] = await Promise.all([
-    fetch(`${baseUrl}data/${gameId}/catalog.json`).then((r) => {
+/**
+ * Lädt Katalog, Embeddings und Vergleichsraster. `model` hängt als Version an den Adressen: Nach einem
+ * Modellwechsel holt der Service Worker die Dateien dann frisch statt alte Vektoren aus dem Cache zu nehmen.
+ */
+export async function loadCatalog(baseUrl: string, gameId: string, model?: string): Promise<Catalog> {
+  const v = model ? `?v=${encodeURIComponent(model)}` : '';
+  const [json, bin, patchBin] = await Promise.all([
+    fetch(`${baseUrl}data/${gameId}/catalog.json${v}`).then((r) => {
       if (!r.ok) throw new Error(`Katalog ${gameId} nicht gefunden`);
       return r.json() as Promise<CatalogFile>;
     }),
-    fetch(`${baseUrl}data/${gameId}/embeddings.f32`).then((r) => {
+    fetch(`${baseUrl}data/${gameId}/embeddings.f32${v}`).then((r) => {
       if (!r.ok) throw new Error(`Embeddings für ${gameId} nicht gefunden`);
       return r.arrayBuffer();
     }),
+    fetch(`${baseUrl}data/${gameId}/patches.i8${v}`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .catch(() => null),
   ]);
-  return { meta: json.meta, printings: json.printings, refs: json.refs, embeddings: parseEmbeddings(bin, json.meta) };
+  if (model && json.meta.model !== model) {
+    throw new Error(`Der Kartenkatalog passt nicht zum Erkennungsmodell (${json.meta.model} statt ${model}). Bitte die App in ein paar Minuten neu laden.`);
+  }
+  const patches = patchBin ? parsePatches(patchBin, json.meta.count) : undefined;
+  return { meta: json.meta, printings: json.printings, refs: json.refs, embeddings: parseEmbeddings(bin, json.meta), patches };
 }
 
 /** Name eines Drucks in der gewünschten Sprache, sonst Englisch. */

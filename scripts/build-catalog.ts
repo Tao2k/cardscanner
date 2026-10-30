@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import { createEmbedder, MODEL_ID } from '../src/core/embedder';
+import { patchOf, PATCH_DIM, quantizePatch } from '../src/core/cardview';
 import type { CatalogFile, GameEntry } from '../src/core/catalog';
 import type { Pixels } from '../src/core/imageops';
 import type { ReferenceRow } from '../src/core/types';
@@ -101,6 +102,7 @@ async function main() {
   const embedder = await createEmbedder({ cacheDir: MODEL_DIR });
   const keptRows: ReferenceRow[] = [];
   const vectors: Float32Array[] = [];
+  const patches: Int8Array[] = [];
   const failed: string[] = [];
   let done = 0;
   for await (const { index, result } of imagesInOrder(urls)) {
@@ -108,7 +110,9 @@ async function main() {
     const row = rows[index];
     try {
       if (result instanceof Error) throw result;
-      vectors.push(await embedder.embed(await decode(result)));
+      const pixels = await decode(result);
+      vectors.push(await embedder.embed(pixels));
+      patches.push(quantizePatch(patchOf(pixels)));
       const compare = `ref/${createHash('sha1').update(urls[index]).digest('hex').slice(0, 16)}.webp`;
       await compareReference(result).webp({ quality: 85 }).toFile(path.join(outDir, compare));
       keptRows.push({ ...row, g: compare });
@@ -142,6 +146,10 @@ async function main() {
   };
   await writeFile(path.join(outDir, 'catalog.json'), JSON.stringify(file));
   await writeFile(path.join(outDir, 'embeddings.f32'), Buffer.from(embeddings.buffer));
+  // Graustufenraster je Referenzbild für den Pixelvergleich der besten Treffer (src/core/cardview.ts)
+  const patchFile = new Int8Array(keptRows.length * PATCH_DIM);
+  patches.forEach((v, i) => patchFile.set(v, i * PATCH_DIM));
+  await writeFile(path.join(outDir, 'patches.i8'), Buffer.from(patchFile.buffer));
 
   const gamesFile = path.join(args.out, 'games.json');
   const games: GameEntry[] = existsSync(gamesFile) ? JSON.parse(await readFile(gamesFile, 'utf8')) : [];

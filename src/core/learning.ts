@@ -27,6 +27,8 @@ export interface Sample {
   vector: Float32Array;
   source: SampleSource;
   createdAt: string;
+  /** Modell und Vorverarbeitung des Vektors (MODEL_KEY); fehlt bei Scans vor Oktober 2026. */
+  model?: string;
 }
 
 export interface LearningConfig {
@@ -144,7 +146,7 @@ export class LearningService {
   constructor(private readonly store: SampleStore, private readonly now: () => Date = () => new Date()) {}
 
   /** Speichert den Scan; sichere Treffer helfen sofort bei der Kamera-Verschiebung. */
-  async recordScan(input: { gameId: string; printingId: string; itemId: string; vector: Float32Array; confident: boolean }): Promise<Sample> {
+  async recordScan(input: { gameId: string; printingId: string; itemId: string; vector: Float32Array; confident: boolean; model?: string }): Promise<Sample> {
     const sample: Sample = {
       sampleId: newId(),
       gameId: input.gameId,
@@ -153,6 +155,7 @@ export class LearningService {
       vector: input.vector,
       source: input.confident ? 'auto' : 'pending',
       createdAt: this.now().toISOString(),
+      ...(input.model ? { model: input.model } : {}),
     };
     await this.store.put(sample);
     return sample;

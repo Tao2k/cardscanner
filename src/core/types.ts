@@ -92,6 +92,8 @@ export interface Catalog {
   refs: ReferenceRow[];
   /** L2-normalisierte Embeddings, Länge count × dim. */
   embeddings: Float32Array;
+  /** Graustufenraster je Referenzbild für den Pixelvergleich (fehlt bei alten Katalogen). */
+  patches?: Float32Array[];
 }
 
 /** Zustandsstufen wie bei Cardmarket, von gut nach schlecht: Near Mint, Excellent, Good, Light Played, Played, Poor. */

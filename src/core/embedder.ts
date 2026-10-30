@@ -2,11 +2,31 @@ import { l2normalize } from './matcher';
 import { letterboxToSquare, toPortrait, type Pixels } from './imageops';
 
 /**
- * Bildmodell für die Erkennung. Katalog-Build und App müssen exakt dasselbe Modell
- * mit derselben Quantisierung verwenden, sonst passen die Vektoren nicht zusammen.
+ * Bildmodell für die Erkennung. Katalog-Build und App müssen exakt dasselbe Modell mit derselben
+ * Quantisierung und Vorverarbeitung verwenden, sonst passen die Vektoren nicht zusammen.
+ * Verglichen mit `npm run bench` (scripts/bench-recognition.ts).
  */
-export const MODEL_ID = 'Xenova/dinov2-small';
-export const MODEL_DTYPE = 'q8';
+export interface ModelSpec {
+  id: string;
+  dtype: 'q8' | 'fp16' | 'fp32';
+  /** dino: Klassen-Token, siglip: gepoolter Bildvektor */
+  kind: 'dino' | 'siglip';
+  /**
+   * Gewicht des Pixelvergleichs beim Nachsortieren der besten Treffer (0 = aus).
+   * Die Korrelation (−1 bis 1) wird mit diesem Faktor zur Bildähnlichkeit addiert.
+   */
+  rerank: number;
+}
+
+export const MODEL: ModelSpec = { id: 'Xenova/dinov2-small', dtype: 'q8', kind: 'dino', rerank: 0.2 };
+export const MODEL_ID = MODEL.id;
+/**
+ * Kennung von Modell und Vorverarbeitung; steht im Katalog und an eigenen Scans. Ändert sie sich,
+ * passen alte Lernfotos nicht mehr und werden ignoriert. „/full“: ganzes Quadrat statt Mitte ausschneiden.
+ */
+export const MODEL_KEY = `${MODEL.id}@${MODEL.dtype}/full`;
+/** Kennung der Scans, die vor dem Wechsel gespeichert wurden (ohne Angabe). */
+export const LEGACY_MODEL_KEY = 'Xenova/dinov2-small@q8';
 
 export interface Embedder {
   model: string;
@@ -22,29 +42,36 @@ export interface EmbedderOptions {
 }
 
 export async function createEmbedder(options: EmbedderOptions = {}): Promise<Embedder> {
-  const { AutoModel, AutoProcessor, RawImage, env } = await import('@huggingface/transformers');
+  const t = await import('@huggingface/transformers');
+  const { AutoModel, AutoProcessor, RawImage, SiglipVisionModel, env } = t;
   if (options.localModelPath) {
     env.localModelPath = options.localModelPath;
     env.allowLocalModels = true;
   }
   if (options.cacheDir) env.cacheDir = options.cacheDir;
 
-  const processor = await AutoProcessor.from_pretrained(MODEL_ID);
-  const model = await AutoModel.from_pretrained(MODEL_ID, {
-    dtype: MODEL_DTYPE,
+  const processor = await AutoProcessor.from_pretrained(MODEL.id);
+  // Ganzes (aufgefülltes) Quadrat auf 224 px statt Mitte ausschneiden: sonst fehlen oben Name und
+  // Kosten, unten die Sammlernummer. Gemessen: Top-1 auf schweren Testfotos 70 % → 79 %.
+  const ip = (processor as unknown as { image_processor: Record<string, unknown> }).image_processor;
+  ip.do_center_crop = false;
+  ip.size = { height: 224, width: 224 };
+  const Model = MODEL.kind === 'siglip' ? SiglipVisionModel : AutoModel;
+  const model = await (Model as typeof AutoModel).from_pretrained(MODEL.id, {
+    dtype: MODEL.dtype,
     ...(options.device ? { device: options.device } : {}),
   });
 
   return {
-    model: `${MODEL_ID}@${MODEL_DTYPE}`,
+    model: MODEL_KEY,
     async embed(img: Pixels): Promise<Float32Array> {
       const square = letterboxToSquare(toPortrait(img));
       const raw = new RawImage(square.data, square.width, square.height, 3);
-      const inputs = await processor(raw);
-      const output = await model(inputs);
-      // DINOv2: Klassen-Token (Position 0) der letzten Schicht als Bildvektor.
-      const pooled = output.pooler_output ?? output.last_hidden_state.slice(null, 0, null);
-      return l2normalize(Float32Array.from(pooled.data as Float32Array));
+      const output = await model(await processor(raw));
+      if (MODEL.kind === 'siglip') return l2normalize(Float32Array.from(output.pooler_output.data as Float32Array));
+      // DINO: Klassen-Token (Position 0) der letzten Schicht als Bildvektor.
+      const dim = output.last_hidden_state.dims.at(-1) as number;
+      return l2normalize(Float32Array.from((output.last_hidden_state.data as Float32Array).subarray(0, dim)));
     },
   };
 }
