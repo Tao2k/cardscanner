@@ -130,15 +130,17 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
   }
   for (let r = 0; r < N; r++) AtA[r * N + r] += 1e-3 * inner.length;
   const coef = Aty.map((y) => solve(AtA, y, N));
-  const predict = (i: number, out: number[]) => {
+  const light = new Float32Array(W * H).fill(1);
+  const predict = (i: number, out: number[], at = i) => {
     features(ref, i, f);
     for (let ch = 0; ch < 3; ch++) {
       let s = 0;
       for (let k = 0; k < N; k++) s += coef[ch][k] * f[k];
       // Die Kamera schneidet zu helle oder zu dunkle Farben ab
-      out[ch] = Math.max(0, Math.min(255, s));
+      out[ch] = Math.max(0, Math.min(255, s * light[at]));
     }
   };
+  shadowField(photo, inner, predict, light);
   // Helligkeitsumfang des Fotos: Weiß minus Schwarz des Originals, umgerechnet
   const span = (c: Float64Array) => c.reduce((s, x, k) => (k < N - 1 ? s + x : s), 0);
   const range = Math.max(20, coef.reduce((s, c) => s + span(c), 0) / 3);
@@ -158,7 +160,7 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
     let best = Math.hypot(a[0], a[1], a[2]);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue;
-      predict((y + dy) * W + (x + dx), pk);
+      predict((y + dy) * W + (x + dx), pk, i);
       const d = chroma([pk[0] - p0[0], pk[1] - p0[1], pk[2] - p0[2]]);
       const dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
       const t = dd ? Math.max(0, Math.min(1, (a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / dd)) : 0;
@@ -168,6 +170,46 @@ export function chromaResidual(photo: RGB, ref: RGB): Float32Array {
     out[n] = best / range;
   });
   return out;
+}
+
+/**
+ * Handyschatten: Ein Schatten macht eine Fläche dunkler, nach der Farbumrechnung bleibt dort sonst eine
+ * Farbabweichung übrig, die wie Schimmer zählt. Deshalb das Helligkeitsverhältnis Foto zu umgerechnetem
+ * Original messen, stark glätten (Radius 8 mm, Schatten sind weich, Schimmer wechselt schneller und
+ * ändert vor allem die Farbe) und die Vorhersage damit skalieren. Schreibt in light.
+ */
+function shadowField(photo: RGB, inner: number[], predict: (i: number, out: number[]) => void, light: Float32Array) {
+  const ratio = new Float32Array(W * H), weight = new Float32Array(W * H);
+  const p = [0, 0, 0];
+  for (const i of inner) {
+    predict(i, p);
+    const lp = (p[0] + p[1] + p[2]) / 3;
+    const lc = (photo[i * 3] + photo[i * 3 + 1] + photo[i * 3 + 2]) / 3;
+    // Dunkle Stellen sagen wenig über das Licht; Spiegelungen (viel heller als erwartet) nicht mitzählen
+    if (lp < 25 || lc > 1.6 * lp + 20) continue;
+    ratio[i] = lc / lp;
+    weight[i] = lp;
+  }
+  const R = 8;
+  // Gleitendes Mittel in x, dann in y (gewichtet)
+  const sx = new Float32Array(W * H), wx = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let s = 0, w = 0;
+    for (let k = Math.max(0, x - R); k <= Math.min(W - 1, x + R); k++) {
+      s += ratio[y * W + k] * weight[y * W + k];
+      w += weight[y * W + k];
+    }
+    sx[y * W + x] = s;
+    wx[y * W + x] = w;
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let s = 0, w = 0;
+    for (let k = Math.max(0, y - R); k <= Math.min(H - 1, y + R); k++) {
+      s += sx[k * W + x];
+      w += wx[k * W + x];
+    }
+    light[y * W + x] = w > 0 ? Math.min(1.5, Math.max(0.2, s / w)) : 1;
+  }
 }
 
 /**
