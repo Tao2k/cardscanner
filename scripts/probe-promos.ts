@@ -1,38 +1,25 @@
-// Vorübergehend: welche Promo-Sets kennen Riot-Galerie und dotgg?
-import { extractGallery, parseNextData } from './adapters/riftbound';
+// Vorübergehend: welche Promo-Karten kennt dotgg?
 import { DOTGG_URL, PRODUCT_LIST_URL } from './adapters/riftbound-prices';
 
 const UA = 'Mozilla/5.0 (compatible; ScannR/0.1; +https://github.com/Tao2k/cardscanner)';
-const html = await (await fetch('https://playriftbound.com/en-us/card-gallery/', { headers: { 'User-Agent': UA } })).text();
-const g = extractGallery(parseNextData(html));
-console.log('GALLERY sets', JSON.stringify(g.sets).slice(0, 3000));
-const bySet = new Map<string, number>();
-for (const c of g.cards) bySet.set(`${c.set?.value?.id}|${c.set?.value?.label}`, (bySet.get(`${c.set?.value?.id}|${c.set?.value?.label}`) ?? 0) + 1);
-console.log('GALLERY cards by set', [...bySet]);
-const odd = g.cards.filter((c) => !/^[A-Z]{3}-\d+[a-z]?\*?\/\d+$/.test(c.publicCode ?? ''));
-console.log('GALLERY odd codes', odd.length, odd.slice(0, 40).map((c) => `${c.publicCode} ${c.name} ${c.set?.value?.id}`));
-
 const d = (await (await fetch(DOTGG_URL, { headers: { 'User-Agent': UA } })).json()) as { names: string[]; data: unknown[][] };
-console.log('DOTGG names', d.names);
-console.log('DOTGG rows', d.data.length, 'sample', JSON.stringify(d.data[0]).slice(0, 2000));
-const idCol = d.names.indexOf('id');
-const prefixes = new Map<string, number>();
-for (const r of d.data) {
-  const p = String(r[idCol]).split('-')[0];
-  prefixes.set(p, (prefixes.get(p) ?? 0) + 1);
+const col = (n: string) => d.names.indexOf(n);
+const rows = d.data.map((r) => Object.fromEntries(d.names.map((n, i) => [n, r[i]])) as Record<string, unknown>);
+const groups = new Map<string, string[]>();
+for (const r of rows) {
+  const id = String(r.id);
+  const shape = id.replace(/\d+/g, '#');
+  const k = `${r.set_name} | promo=${r.promo} | ${shape}`;
+  groups.set(k, [...(groups.get(k) ?? []), `${id} ${r.name}`]);
 }
-console.log('DOTGG prefixes', [...prefixes]);
-const known = new Set(['OGN', 'OGS', 'SFD', 'UNL', 'VEN', 'RAD']);
-const promo = d.data.filter((r) => !known.has(String(r[idCol]).split('-')[0].toUpperCase()));
-console.log('DOTGG non-main', promo.length);
-for (const r of promo.slice(0, 60)) console.log(' ', JSON.stringify(Object.fromEntries(d.names.map((n, i) => [n, r[i]]).filter(([n]) => !/text|effect|flavor/i.test(n as string)))).slice(0, 900));
-// auch hinten: verschiedene Gruppen
-for (const p of [...prefixes.keys()].filter((p) => !known.has(p.toUpperCase()))) {
-  const r = d.data.find((x) => String(x[idCol]).split('-')[0] === p)!;
-  console.log('FIRST', p, JSON.stringify(Object.fromEntries(d.names.map((n, i) => [n, r[i]]))).slice(0, 1500));
+for (const [k, v] of [...groups].sort()) console.log('G', k, v.length, JSON.stringify(v.slice(0, 4)));
+const promos = rows.filter((r) => String(r.promo) === '1');
+console.log('PROMO', promos.length);
+for (const r of promos) console.log('P', r.id, '|', r.name, '|', r.set_name, '|', r.rarity, '| cmid', r.cmid, '| mk', r.marketIds, '| n', r.hasNormal, 'f', r.hasFoil, '|', r.image);
+void col;
+const pl = (await (await fetch(PRODUCT_LIST_URL)).json()) as { products: Record<string, unknown>[] };
+console.log('CM keys', Object.keys(pl.products[0]));
+for (const e of [6322, 6480, 6938, 6921, 6567, 6588, 6483, 6289, 6681, 6705]) {
+  const ps = pl.products.filter((p) => p.idExpansion === e);
+  console.log('CM', e, ps.length, JSON.stringify(ps.slice(0, 3)), JSON.stringify(ps.map((p) => p.name)).slice(0, 1500));
 }
-
-const pl = (await (await fetch(PRODUCT_LIST_URL)).json()) as { products: { idProduct: number; name: string; idExpansion: number }[] };
-const exp = new Map<number, string[]>();
-for (const p of pl.products) exp.set(p.idExpansion, [...(exp.get(p.idExpansion) ?? []), p.name]);
-for (const [e, names] of exp) console.log('CM expansion', e, names.length, names.slice(0, 6));
