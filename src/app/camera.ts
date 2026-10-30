@@ -1,6 +1,7 @@
 import { boxToVideo, guideRect, type Rect } from '../core/geometry';
 import type { Pixels } from '../core/imageops';
 import { meanLuma } from '../core/light';
+import { VIEW_MARGIN } from '../core/cardview';
 
 /** Kantenlänge (Höhe) des Ausschnitts, der an die Erkennung geht. Größer bringt nichts, das Modell rechnet mit 224 px. */
 const CROP_HEIGHT = 320;
@@ -51,12 +52,15 @@ export function drawAroundCard(video: HTMLVideoElement, canvas: HTMLCanvasElemen
   return { ctx, guide };
 }
 
-/** Schneidet den Bereich des Zielrahmens für die Bilderkennung aus. */
-export function grabCard(video: HTMLVideoElement, canvas: HTMLCanvasElement): Pixels | null {
-  const ctx = drawCard(video, canvas, CROP_HEIGHT);
-  if (!ctx) return null;
-  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return { data, width: canvas.width, height: canvas.height, channels: 4 };
+/**
+ * Kamerabild für die Bilderkennung: Zielrahmen plus Rand, damit die Erkennung die Kartenkanten
+ * finden und die Karte entzerren kann. Der Zielrahmen ist darin etwa CROP_HEIGHT hoch.
+ */
+export function grabCard(video: HTMLVideoElement, canvas: HTMLCanvasElement): { frame: Pixels; guide: Rect } | null {
+  const shot = drawAroundCard(video, canvas, Math.round(CROP_HEIGHT * (1 + 2 * VIEW_MARGIN)), VIEW_MARGIN);
+  if (!shot) return null;
+  const { data } = shot.ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return { frame: { data, width: canvas.width, height: canvas.height, channels: 4 }, guide: shot.guide };
 }
 
 /** Höhere Auflösung für die Texterkennung; Kartentext ist klein. */

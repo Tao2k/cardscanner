@@ -18,6 +18,7 @@ import { cropTextRegion, cropView, readText, warmUpOcr, type Script } from './oc
 import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
+import { MODEL_KEY } from '../core/embedder';
 import { printingCode, printingLabel } from './format';
 import { formatEur, itemPrice } from '../core/prices';
 import { captureFx, snapshotOf, type CaptureFx } from './captureFx';
@@ -405,7 +406,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     // Den Scan merken: bestätigst oder korrigierst du ihn später, lernt die Erkennung daraus
     const sample = vector
       ? await learning
-          .recordScan({ gameId, printingId: printing.printingId, itemId: result.item.itemId, vector, confident: true })
+          .recordScan({ gameId, printingId: printing.printingId, itemId: result.item.itemId, vector, confident: true, model: MODEL_KEY })
           .catch(() => undefined)
       : undefined;
     // Von dir gewählt: Der Scan wird sofort zum eigenen Referenzbild
@@ -461,12 +462,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           continue;
         }
         const { gameId } = prefsRef.current;
-        const pixels = videoRef.current && canvasRef.current ? grabCard(videoRef.current, canvasRef.current) : null;
-        if (!pixels || !gameId) {
+        const grabbed = videoRef.current && canvasRef.current ? grabCard(videoRef.current, canvasRef.current) : null;
+        if (!grabbed || !gameId) {
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms, vector, imageLanguages, shadow } = await recognizer.match(gameId, pixels, 8);
+        const { matches, ms, vector, imageLanguages, shadow } = await recognizer.match(gameId, grabbed.frame, grabbed.guide, 8);
         if (!active) break;
         shadows.current = [...shadows.current, shadow].slice(-SHADOW_FRAMES);
         setShaded(shadows.current.length === SHADOW_FRAMES && shadows.current.every((s) => s >= SHADOW_HINT));

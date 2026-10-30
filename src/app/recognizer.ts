@@ -1,5 +1,6 @@
 import type { Match } from '../core/matcher';
 import type { Pixels } from '../core/imageops';
+import type { Rect } from '../core/geometry';
 import type { WorkerRequest, WorkerResponse } from './recognizer.worker';
 
 export interface MatchResult {
@@ -9,6 +10,8 @@ export interface MatchResult {
   vector: Float32Array | null;
   /** Ähnlichkeit zu den Bildern je Sprachfassung des besten Treffers. */
   imageLanguages: { lang: string; score: number }[];
+  /** true, wenn die Kartenkanten gefunden und die Karte entzerrt wurde. */
+  warped: boolean;
   /** Wie ungleichmäßig die Karte beleuchtet ist (0 = gleichmäßig), siehe shadowStrength. */
   shadow: number;
 }
@@ -45,11 +48,11 @@ export class Recognizer {
     this.post({ type: 'init', baseUrl, gameIds });
   }
 
-  match(gameId: string, pixels: Pixels, k = 4): Promise<MatchResult> {
-    return this.request((id) => ({ type: 'match', id, gameId, pixels, k }), [pixels.data.buffer as ArrayBuffer]).then((r) =>
+  match(gameId: string, frame: Pixels, guide: Rect, k = 4): Promise<MatchResult> {
+    return this.request((id) => ({ type: 'match', id, gameId, frame, guide, k }), [frame.data.buffer as ArrayBuffer]).then((r) =>
       r.type === 'result'
-        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages, shadow: r.shadow }
-        : { matches: [], ms: 0, vector: null, imageLanguages: [], shadow: 0 },
+        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages, warped: r.warped, shadow: r.shadow }
+        : { matches: [], ms: 0, vector: null, imageLanguages: [], warped: false, shadow: 0 },
     );
   }
 

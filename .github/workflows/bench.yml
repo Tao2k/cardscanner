@@ -1,0 +1,53 @@
+name: Bildmodelle vergleichen
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Anzahl synthetischer Testfotos
+        default: '400'
+      models:
+        description: Modelle (Komma-getrennt, leer = alle aus scripts/bench-recognition.ts)
+        default: ''
+      augment:
+        description: Gestörte Lernfotos je Katalogkarte (0 = aus)
+        default: '0'
+      focus:
+        description: Karten gezielt prüfen (Teil des Namens, mehrere mit |)
+        default: 'Riven'
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/images
+            public/models
+          key: catalog-none
+          restore-keys: catalog-
+      - run: npm run catalog -- riftbound
+      - name: Modelle und Embeddings früherer Läufe
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/bench
+            .cache/bench-models
+          key: bench-${{ github.run_id }}
+          restore-keys: bench-
+      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} ${FOCUS:+--focus "$FOCUS"} | tee bench.log
+        env:
+          MODELS: ${{ inputs.models }}
+          FOCUS: ${{ inputs.focus || 'Riven' }}
+      - run: grep -A100 '=== Übersicht' bench.log >> "$GITHUB_STEP_SUMMARY"
