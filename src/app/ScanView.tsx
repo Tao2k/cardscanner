@@ -6,6 +6,7 @@ import { guideRect } from '../core/geometry';
 import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
+import { ChangelogSheet } from './WhatsNew';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
 import { SHADOW_FRAMES, SHADOW_HINT } from '../core/shading';
@@ -207,6 +208,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [fixQuery, setFixQuery] = useState('');
   /** Einstellungen (Spiel, Sprache, Foil, Zustand) sind nur bei Bedarf offen. */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   /** Scan, dessen Details (Sicherheit, Hinweise, Rückgängig) aufgeklappt sind. */
   const [details, setDetails] = useState<string | null>(null);
   const textIndexes = useRef(new Map<string, TextIndex>());
@@ -785,6 +787,16 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <button class="link" disabled={updateCheck === 'checking'} onClick={checkForUpdate}>
             {updateCheck === 'checking' ? 'Suche …' : updateCheck === 'found' ? 'Update wird geladen …' : updateCheck === 'none' ? 'Neueste Version ✓' : 'Nach Updates suchen'}
           </button>
+          {' · '}
+          <button
+            class="link"
+            onClick={() => {
+              setSettingsOpen(false);
+              setChangelogOpen(true);
+            }}
+          >
+            Was ist neu?
+          </button>
         </p>
         <button class="primary" onClick={close}>Fertig</button>
       </>,
@@ -924,6 +936,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
       {fixing && fixed && renderFix(fixed, fixing.kind)}
       {settingsOpen && renderSettings()}
+      {changelogOpen && <ChangelogSheet onClose={() => setChangelogOpen(false)} />}
 
       {recent.length > 0 && (
         <div class="section-title">

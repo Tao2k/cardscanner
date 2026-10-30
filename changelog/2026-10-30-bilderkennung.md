@@ -1,0 +1,1 @@
+- Verbessert: Neue, genauere Bilderkennung. Die Karte wird an ihren Kanten gefunden und gerade gerückt, auch wenn du sie schräg hältst.

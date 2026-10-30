@@ -1,0 +1,4 @@
+- Verbessert: Fenster von unten lassen sich wie auf dem iPhone nach unten wegwischen.
+- Verbessert: Sammlung, Preise und Prüfen zeigen beim Laden eine Ladeanzeige statt einer leeren Seite.
+- Neu: Löschen unter „Prüfen“ fragt jetzt nach, wie in der Sammlung.
+- Verbessert: Bessere Unterstützung für VoiceOver.

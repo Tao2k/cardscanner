@@ -1,0 +1,1 @@
+- Neu: Nach einem Update zeigt ScannR beim ersten Öffnen, was sich geändert hat. Den ganzen Verlauf findest du unter Einstellungen → „Was ist neu?“.
