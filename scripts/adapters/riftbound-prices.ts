@@ -161,7 +161,7 @@ export interface MatchReport {
 /**
  * Ordnet jedem Druck eine Cardmarket-Produktnummer zu und holt den Preis.
  * 1. dotgg-Nummer = Set + Nummer des Drucks und der Name passt (siehe sameName).
- * 2. Sonst (nur normale Drucke): genau ein Produkt mit gleichem Namen in derselben Cardmarket-Erweiterung.
+ * 2. Sonst (nur normale Drucke und Promos): genau ein Produkt mit gleichem Namen in derselben Cardmarket-Erweiterung.
  * Was nicht eindeutig passt, bleibt ohne Preis, statt falsch bepreist zu werden.
  */
 export function matchPrices(
@@ -177,7 +177,8 @@ export function matchPrices(
 
   const linked = new Map<string, { idProduct: number; url?: string }>();
   for (const p of printings) {
-    const card = byKey.get(dotggKey(p));
+    // Promos kommen selbst von dotgg und kennen ihre Nummer dort
+    const card = byKey.get(p.externalIds?.dotgg?.toLowerCase() ?? dotggKey(p));
     if (!card?.cmid) continue;
     if (!sameName(card.name, p.cardName)) {
       report.rejected.push(`${p.printingId}: dotgg ${card.id} heißt „${card.name}“, nicht „${p.cardName}“`);
@@ -202,7 +203,7 @@ export function matchPrices(
   const expansionOf = new Map([...votes].map(([set, v]) => [set, [...v].sort((a, b) => b[1] - a[1])[0][0]]));
   const used = new Set([...linked.values()].map((l) => l.idProduct));
   for (const p of printings) {
-    if (linked.has(p.printingId) || p.variant !== 'normal') continue;
+    if (linked.has(p.printingId) || (p.variant !== 'normal' && p.variant !== 'promo')) continue;
     const exp = expansionOf.get(p.setCode);
     if (exp === undefined) continue;
     const candidates = products.filter((c) => c.idExpansion === exp && !used.has(c.idProduct) && sameName(c.name, p.cardName));
@@ -223,7 +224,7 @@ export function matchPrices(
   return { prices, report };
 }
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch(url, { headers: { 'User-Agent': 'ScannR/0.1 (+https://github.com/Tao2k/cardscanner)', Accept: 'application/json' } });
     if (res.ok) return (await res.json()) as T;

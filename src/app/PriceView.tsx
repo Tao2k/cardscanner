@@ -1,5 +1,5 @@
 import { useId, useState } from 'preact/hooks';
-import { compareCollectorNumbers } from '../core/excel';
+import { compareCollectorNumbers, setRanks } from '../core/excel';
 import { averageValue, collectionMovers, collectionSeries, dayOf, moverOrder, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { collectionValue, formatAsOf, formatEur } from '../core/prices';
 import type { CollectionItem } from '../core/types';
@@ -64,7 +64,10 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
   const list = movers.filter((m) => filter === 'all' || (m.strong && (filter === 'up' ? m.delta > 0 : m.delta < 0)));
 
   const number = (m: Mover) => catalogs.lookup(m.gameId, m.printingId)?.collectorNumber ?? '';
-  const byNumber = (a: Mover, b: Mover) => compareCollectorNumbers(number(a), number(b)) || a.finish.localeCompare(b.finish);
+  // Im Promo-Ordner stehen mehrere Sets: erst nach Set (nach Erscheinen), dann nach Nummer
+  const ranks = new Map([...catalogs.sets].map(([gameId, list]) => [gameId, setRanks(list)]));
+  const setRank = (m: Mover) => ranks.get(m.gameId)?.get(catalogs.lookup(m.gameId, m.printingId)?.setCode ?? '') ?? Number.MAX_SAFE_INTEGER;
+  const byNumber = (a: Mover, b: Mover) => setRank(a) - setRank(b) || compareCollectorNumbers(number(a), number(b)) || a.finish.localeCompare(b.finish);
 
   // Sets wie in der Sammlung und im Export: nach Erscheinen, die Karten darin nach der gewählten Sortierung
   const sets = groupBySet(list, (m) => ({ gameId: m.gameId, code: catalogs.lookup(m.gameId, m.printingId)?.setCode ?? '' }), catalogs.sets);

@@ -31,7 +31,7 @@ describe('Binder-Themen', () => {
   });
 
   it('hält Schrift und Set-Kürzel auf dem Deckel und die Set-Farbe in der App lesbar', () => {
-    for (const code of sets) {
+    for (const code of [...sets, 'PROMO']) {
       const t = themeOf(`riftbound|${code}`);
       expect(contrast(t.ink ?? '#ffffff', t.base), code).toBeGreaterThanOrEqual(4.5);
       expect(contrast(t.accent, t.base), code).toBeGreaterThanOrEqual(3);

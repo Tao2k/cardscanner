@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { setRanks } from '../core/excel';
+import { folderIndex } from '../core/folders';
 import type { Mover } from '../core/priceHistory';
 import type { CardSet } from '../core/types';
 
@@ -18,22 +18,26 @@ export interface SetGroup<T> {
   rows: T[];
 }
 
-/** Zeilen nach Set gruppieren; Sets in derselben Reihenfolge wie im Excel-Export (nach Erscheinen). */
+/** Zeilen nach Set gruppieren (Promo-Sets zusammen); Sets in derselben Reihenfolge wie im Excel-Export (nach Erscheinen). */
 export function groupBySet<T>(rows: T[], setOf: (row: T) => { gameId: string; code: string }, sets: Map<string, CardSet[]>): SetGroup<T>[] {
-  const groups = new Map<string, SetGroup<T>>();
+  const folders = new Map<string, ReturnType<typeof folderIndex>>();
+  const folderOf = (gameId: string, code: string) => {
+    let index = folders.get(gameId);
+    if (!index) folders.set(gameId, (index = folderIndex(sets.get(gameId) ?? [])));
+    return index(code);
+  };
+  const groups = new Map<string, SetGroup<T> & { rank: number }>();
   for (const row of rows) {
     const { gameId, code } = setOf(row);
-    const key = `${gameId}|${code}`;
+    const folder = folderOf(gameId, code);
+    const key = `${gameId}|${folder.code}`;
     let group = groups.get(key);
-    if (!group) {
-      const name = sets.get(gameId)?.find((s) => s.code === code)?.name ?? (code || 'Ohne Set');
-      groups.set(key, (group = { key, gameId, code, name, rows: [] }));
-    }
+    if (!group) groups.set(key, (group = { key, gameId, code: folder.code, name: folder.name, rank: folder.rank, rows: [] }));
     group.rows.push(row);
   }
-  const ranks = new Map([...sets].map(([gameId, list]) => [gameId, setRanks(list)]));
-  const rankOf = (g: SetGroup<T>) => ranks.get(g.gameId)?.get(g.code) ?? Number.MAX_SAFE_INTEGER;
-  return [...groups.values()].sort((a, b) => a.gameId.localeCompare(b.gameId) || rankOf(a) - rankOf(b) || a.code.localeCompare(b.code));
+  return [...groups.values()]
+    .sort((a, b) => a.gameId.localeCompare(b.gameId) || a.rank - b.rank || a.code.localeCompare(b.code))
+    .map(({ rank: _, ...g }) => g);
 }
 
 /** Änderung (Anteil) einer Gruppe von Karten, gewichtet mit der Stückzahl; undefined ohne Vergleichspreis. */

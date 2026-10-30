@@ -1,5 +1,6 @@
 import type { CardSet, Finish, Printing, Variant } from '../../src/core/types';
-import { fetchRiftboundPrices } from './riftbound-prices';
+import { DOTGG_URL, fetchRiftboundPrices, getJson } from './riftbound-prices';
+import { dotggRows, promoCatalog } from './riftbound-promos';
 import type { GameAdapter } from './types';
 
 /**
@@ -231,10 +232,13 @@ export const riftbound: GameAdapter = {
         byId.set(card.id, p);
       }
     }
-    const printings = [...byId.values()].slice(0, limit ?? Infinity);
     // Datum aus der Galerie, sonst aus RELEASE_DATES
     const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name, releaseDate: releaseDateOf(s) ?? RELEASE_DATES[s.id] }));
     console.log(`Sets in der Galerie: ${cardSets.map((s) => `${s.code} „${s.name}“ ${s.releaseDate ?? 'ohne Datum'}`).join(' · ')}`);
-    return { sets: cardSets, printings };
+    // Promos stehen nicht in der Galerie, nur bei dotgg
+    const promo = promoCatalog(dotggRows(await getJson(DOTGG_URL)), cardSets, [...byId.values()]);
+    console.log(`Promo-Sets von dotgg: ${promo.sets.map((s) => `${s.code} „${s.name}“ (${promo.printings.filter((p) => p.setCode === s.code).length})`).join(' · ')}`);
+    const printings = [...byId.values(), ...promo.printings].slice(0, limit ?? Infinity);
+    return { sets: [...cardSets, ...promo.sets], printings };
   },
 };
