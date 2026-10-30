@@ -51,3 +51,12 @@ for (const c of [first((c) => is(c, 'Legend')), first((c) => sup(c, 'Champion') 
   const { text, cardImage, ...rest } = c as any;
   console.log(JSON.stringify(rest));
 }
+console.log('--- DUMP');
+for (const c of cards as any[]) {
+  console.log('DUMP ' + JSON.stringify({
+    id: c.id, code: c.publicCode, n: c.name, s: c.subtitle ?? null, set: c.set?.value?.id,
+    t: (c.cardType?.type ?? []).map(lbl), st: (c.cardType?.superType ?? []).map(lbl),
+    d: (c.domain?.values ?? []).map(lbl), tg: c.tags?.tags ?? c.tags?.values?.map(lbl) ?? [], r: c.rarity?.value?.label, e: c.energy?.value?.id ?? null, m: c.might?.value?.id ?? null, p: c.power?.value?.id ?? null,
+    img: c.cardImage?.url, o: c.orientation,
+  }));
+}
