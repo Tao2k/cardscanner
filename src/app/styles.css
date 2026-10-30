@@ -13,8 +13,9 @@
   --success: #43d504;
   --success-text: #2b7d05;
   --success-soft: #e8f8de;
-  --warn: #b86a00;
+  --warn: #9a5700;
   --warn-soft: #fdf0dc;
+  --on-warn: #ffffff;
   --error: #c0392b;
   --down: #c0392b;
   --down-soft: #fbe9e7;
@@ -28,6 +29,9 @@
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
+  /* Keine Schriftvergrößerung im Querformat */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -44,6 +48,7 @@
     --success-soft: #1d3314;
     --warn: #f0a340;
     --warn-soft: #3a2a12;
+    --on-warn: #241500;
     --error: #ff7b6b;
     --down: #ff7b6b;
     --down-soft: #3a1c19;
@@ -55,8 +60,10 @@
   }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
-#app, .app { height: 100%; display: flex; flex-direction: column; }
+/* Gescrollt wird nur in main: kein Neuladen per Herunterziehen, kein Gummiband der ganzen Seite */
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overscroll-behavior: none; }
+/* dvh folgt der sichtbaren Höhe, wenn Safari seine Leisten ein- und ausblendet */
+#app, .app { height: 100%; height: 100dvh; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 20px 6px; }
 .brand img { border-radius: 8px; }
 .brand span { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; }
@@ -76,7 +83,10 @@ button, .button, select, input {
   border: none; border-radius: 999px; padding: 12px 18px; min-height: 48px;
 }
 button, .button { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600;
-  transition: transform 0.12s ease, background-color 0.15s ease, color 0.15s ease; }
+  transition: transform 0.12s ease-out, background-color 0.15s ease-out, color 0.15s ease-out;
+  /* Wie native Bedienelemente: sofort reagieren (kein Warten auf Doppeltipp), Beschriftung nicht markierbar */
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+button img { -webkit-touch-callout: none; -webkit-user-drag: none; }
 button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled, .button.disabled { opacity: 0.5; cursor: default; }
 button svg, .button svg { flex: none; }
@@ -94,6 +104,10 @@ select { appearance: none; padding-right: 36px;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 
+/* Nur für Bildschirmleser */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.loading { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 48px 16px; color: var(--muted); font-size: 0.95rem; }
+.loading .spinner { border-color: color-mix(in srgb, var(--muted) 30%, transparent); border-top-color: var(--muted); }
 .banner { margin: 0; padding: 12px 16px; border-radius: var(--r-row); background: var(--accent-soft); display: flex; gap: 10px; align-items: flex-start; }
 .banner svg { flex: none; margin-top: 1px; color: var(--accent-text); }
 main > .banner { margin: 8px 16px 0; }
@@ -102,7 +116,7 @@ main > .banner { margin: 8px 16px 0; }
 .banner.error { background: color-mix(in srgb, var(--error) 12%, var(--bg)); color: var(--error); }
 
 /* Kamera */
-.viewfinder { position: relative; background: #000; height: min(58vh, 600px); overflow: hidden; margin: 0 12px; border-radius: 28px; }
+.viewfinder { position: relative; background: #000; height: min(58vh, 600px); height: min(58svh, 600px); overflow: hidden; margin: 0 12px; border-radius: 28px; }
 .viewfinder video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .guide { position: absolute; border: 3px solid rgba(255, 255, 255, 0.95); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); pointer-events: none; }
 .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; padding: 24px;
@@ -144,7 +158,7 @@ main > .banner { margin: 8px 16px 0; }
 .recent img, .items img { width: 44px; height: 61px; object-fit: cover; border-radius: 7px; flex: none; background: var(--raised); box-shadow: var(--shadow-soft); }
 .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 button.info { align-items: flex-start; justify-content: center; text-align: left; background: none; padding: 0; min-height: 0; border-radius: 0; font-weight: 400; color: inherit; }
-button.info:active:not(:disabled) { transform: none; }
+button.info:active:not(:disabled) { transform: none; opacity: 0.6; }
 .price { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
 .price small { font-weight: 400; }
 .recent .main > .price { flex: none; }
@@ -174,7 +188,7 @@ button.icon.open svg { transform: rotate(180deg); }
 .details a { color: var(--accent-text); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; }
 
 .qty { display: flex; align-items: center; gap: 0; background: var(--raised); border-radius: 999px; padding: 2px; flex: none; box-shadow: var(--shadow-soft); }
-.qty button { width: 34px; min-height: 36px; padding: 0; background: transparent; font-size: 1.1rem; color: var(--muted); }
+.qty button { width: 40px; min-height: 40px; padding: 0; background: transparent; font-size: 1.1rem; color: var(--muted); }
 .qty span { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
 select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; background-color: var(--raised); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; }
 
@@ -233,11 +247,18 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 
 /* Blätter von unten: Nachfrage, Korrektur, Einstellungen */
 .backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(10, 14, 10, 0.4); animation: fade-in 0.2s ease-out; }
-.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 85vh; overflow-y: auto; max-width: 640px; margin: 0 auto;
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 85vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain; max-width: 640px; margin: 0 auto;
   display: flex; flex-direction: column; gap: 14px; padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
   background: var(--raised); border-radius: 28px 28px 0 0; box-shadow: var(--shadow); animation: sheet-in 0.28s cubic-bezier(.2, .8, .2, 1); }
 .sheet p { margin: 0; }
-.sheet .grabber { width: 40px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 4px; flex: none; }
+.sheet:focus { outline: none; }
+/* Griff oben: breite Fläche zum Herunterwischen (Sheet.tsx), der Strich selbst gut sichtbar */
+.sheet-handle { flex: none; margin: -8px -20px -4px; padding: 8px 0 10px; }
+.sheet-handle.draggable { touch-action: none; cursor: grab; }
+.sheet .grabber { width: 40px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, transparent); margin: 0 auto; }
+/* Beim Hinausfahren gehen Tipps schon an die App darunter */
+.sheet.closing { animation: sheet-out 0.22s cubic-bezier(.4, 0, 1, 1) forwards; pointer-events: none; }
+.backdrop.closing { animation: fade-out 0.22s ease-in forwards; pointer-events: none; }
 .sheet .chips button { background: var(--surface); }
 .sheet .chips button.active { background: var(--accent); }
 .sheet .candidate { background: var(--surface); }
@@ -269,6 +290,8 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .account input[type='password'] { -webkit-appearance: none; appearance: none; }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+@keyframes fade-out { to { opacity: 0; } }
 
 /* Navigation unten */
 .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
@@ -282,9 +305,9 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .tab-icon { display: inline-flex; padding: 3px 16px; border-radius: 999px; transition: background-color 0.2s; }
 .tabs.five { grid-template-columns: repeat(5, 1fr); }
 .tabs.five .tab-icon { padding: 3px 12px; }
-.count { position: absolute; top: 2px; left: calc(50% + 8px); font-size: 0.68rem; line-height: 1; background: var(--text); color: var(--bg);
+.count { position: absolute; top: 2px; left: calc(50% + 8px); font-size: 0.7rem; line-height: 1; background: var(--text); color: var(--bg);
   border-radius: 999px; padding: 3px 6px; font-weight: 700; border: 2px solid var(--bg); }
-.count.warn { background: var(--warn); color: #fff; }
+.count.warn { background: var(--warn); color: var(--on-warn); }
 .count.accent { background: var(--accent); color: var(--on-accent); }
 
 /* Hinzufügen-Animation: Blitz, Vorschaubild, Zähler springt */
@@ -367,6 +390,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .set-group { display: flex; flex-direction: column; gap: 8px; }
 .set-group + .set-group { margin-top: 4px; }
 .set-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 4px; background: transparent; color: inherit; border-radius: 14px; text-align: left; justify-content: flex-start; min-height: 0; }
+.set-head:active:not(:disabled) { transform: none; background: var(--surface); }
 .set-head .chev { flex: none; color: var(--muted); transition: transform 0.15s ease; }
 .set-head[aria-expanded='true'] .chev { transform: rotate(90deg); }
 .set-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -400,7 +424,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 /* Unter der Überschrift eine Zeile: Binder/Liste links, Wolke und Excel rechts */
 .title-actions { display: flex; align-items: center; gap: 8px; }
 .view-switch { flex: none; margin-right: auto; }
-.view-switch button { min-height: 34px; padding: 6px 14px; }
+.view-switch button { min-height: 38px; padding: 6px 14px; }
 .binder-view { display: flex; flex-direction: column; gap: 10px; }
 /* Farben des Sets wie sein Display (binderThemes.ts); ohne Eintrag das Violett der App */
 .binder-view { --set-light: #8d2bb0; --set-base: #5c0477; --set-deep: #3c0350; --set-glow: 72% 18%; --set-accent: #ffffff; --set-second: #ffffff;
@@ -460,7 +484,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .pocket.empty img { opacity: 0.13; filter: grayscale(1); }
 .pocket .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem;
   color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-.pocket-qty { position: absolute; right: 4px; bottom: 4px; z-index: 2; padding: 3px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; line-height: 1;
+.pocket-qty { position: absolute; right: 4px; bottom: 4px; z-index: 2; padding: 3px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; line-height: 1;
   background: var(--set-ui); color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 .pocket.fresh button { animation: pocket-glow 2.4s ease-out; }
 .pocket.fresh button::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; transform: translateX(-120%);
@@ -493,7 +517,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 /* Geschlossener Binder: Deckel über Seite 1, klappt um den Rücken links auf */
 .binder-stage { position: relative; }
 .binder-head .binder-pct { margin-left: auto; }
-.binder-close { flex: none; min-height: 36px; padding: 6px 14px; font-size: 0.85rem; background: var(--surface); }
+.binder-close { flex: none; min-height: 40px; padding: 6px 14px; font-size: 0.85rem; background: var(--surface); }
 .binder-cover, .binder-shade { position: absolute; inset: 0; max-width: 460px; margin: 0 auto; }
 .binder-shade { z-index: 3; pointer-events: none; border-radius: 8px var(--r-card) var(--r-card) 8px;
   background: linear-gradient(90deg, rgba(10, 6, 14, 0.42), rgba(10, 6, 14, 0.14) 55%, rgba(10, 6, 14, 0.04)); }

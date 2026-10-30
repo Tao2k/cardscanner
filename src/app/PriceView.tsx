@@ -4,6 +4,7 @@ import { averageValue, collectionMovers, collectionSeries, dayOf, moverOrder, va
 import { collectionValue, formatAsOf, formatEur } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
+import { Sheet } from './Sheet';
 import { printingCode } from './format';
 import { PRICE_PERIODS, type Prefs, type PriceSort } from './prefs';
 import { arrow, groupBySet, groupChange, MoveCol, PCT, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
@@ -203,29 +204,25 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
       )}
 
       {sorting && (
-        <>
-          <div class="backdrop" onClick={() => setSorting(false)} />
-          <div class="sheet" role="dialog" aria-label="Sortieren">
-            <div class="grabber" />
-            <h2>Sortieren</h2>
-            <div class="options" role="radiogroup" aria-label="Sortieren nach">
-              {SORTS.map((o) => (
-                <button
-                  role="radio"
-                  aria-checked={prefs.priceSort === o.value}
-                  class={prefs.priceSort === o.value ? 'active' : ''}
-                  onClick={() => {
-                    setPrefs({ priceSort: o.value });
-                    setSorting(false);
-                  }}
-                >
-                  {o.label}
-                  {prefs.priceSort === o.value && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
+        <Sheet label="Sortieren" onClose={() => setSorting(false)}>
+          <h2>Sortieren</h2>
+          <div class="options" role="radiogroup" aria-label="Sortieren nach">
+            {SORTS.map((o) => (
+              <button
+                role="radio"
+                aria-checked={prefs.priceSort === o.value}
+                class={prefs.priceSort === o.value ? 'active' : ''}
+                onClick={() => {
+                  setPrefs({ priceSort: o.value });
+                  setSorting(false);
+                }}
+              >
+                {o.label}
+                {prefs.priceSort === o.value && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
           </div>
-        </>
+        </Sheet>
       )}
     </section>
   );

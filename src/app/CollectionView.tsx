@@ -3,6 +3,7 @@ import type { CollectionService } from '../core/collection';
 import { compareCollectorNumbers, exportOrder, exportWorkbook } from '../core/excel';
 import type { CollectionItem, Finish, Printing } from '../core/types';
 import type { Catalogs } from './App';
+import { Sheet } from './Sheet';
 import { downloadBlob, printingCode } from './format';
 import { nameIn } from '../core/catalog';
 import { formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
@@ -282,7 +283,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
       )}
       {view === 'list' && <>
       <div class="find">
-        <input type="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+        <input type="search" enterkeyhint="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
         <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -325,29 +326,25 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
       </div>
       </>}
       {sorting && (
-        <>
-          <div class="backdrop" onClick={() => setSorting(false)} />
-          <div class="sheet" role="dialog" aria-label="Sortieren">
-            <div class="grabber" />
-            <h2>Sortieren</h2>
-            <div class="options" role="radiogroup" aria-label="Sortieren nach">
-              {SORTS.map((o) => (
-                <button
-                  role="radio"
-                  aria-checked={prefs.collectionSort === o.value}
-                  class={prefs.collectionSort === o.value ? 'active' : ''}
-                  onClick={() => {
-                    setPrefs({ collectionSort: o.value });
-                    setSorting(false);
-                  }}
-                >
-                  {o.label}
-                  {prefs.collectionSort === o.value && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
+        <Sheet label="Sortieren" onClose={() => setSorting(false)}>
+          <h2>Sortieren</h2>
+          <div class="options" role="radiogroup" aria-label="Sortieren nach">
+            {SORTS.map((o) => (
+              <button
+                role="radio"
+                aria-checked={prefs.collectionSort === o.value}
+                class={prefs.collectionSort === o.value ? 'active' : ''}
+                onClick={() => {
+                  setPrefs({ collectionSort: o.value });
+                  setSorting(false);
+                }}
+              >
+                {o.label}
+                {prefs.collectionSort === o.value && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
           </div>
-        </>
+        </Sheet>
       )}
       <footer class="legal">
         ScannR was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games

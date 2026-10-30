@@ -5,6 +5,7 @@ import type { LearningService, Sample } from '../core/learning';
 import { guideRect } from '../core/geometry';
 import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Printing } from '../core/types';
 import type { Catalogs } from './App';
+import { Sheet } from './Sheet';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
 import { SHADOW_FRAMES, SHADOW_HINT } from '../core/shading';
@@ -675,13 +676,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   /** Blatt, das von unten hereinfährt; ohne onClose schließt ein Tipp daneben es nicht. */
   const sheet = (cls: string, title: string, body: ComponentChildren, onClose?: () => void) => (
-    <>
-      <div class="backdrop" onClick={onClose} />
-      <div class={`sheet ${cls}`} role="dialog" aria-label={title}>
-        <div class="grabber" />
-        {body}
-      </div>
-    </>
+    <Sheet class={cls} label={title} onClose={onClose}>
+      {body}
+    </Sheet>
   );
 
   /** „Falsch“: erst fragen, was falsch war, dann genau das korrigieren. */
@@ -708,7 +705,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         {kind === 'card' && (
           <>
             {alternatives.length > 0 && candidateButtons(alternatives, (p) => correctCard(s, p))}
-            <input type="search" placeholder="Name oder Nummer" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
+            <input type="search" enterkeyhint="search" placeholder="Name oder Nummer" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
             {candidateButtons(searchCatalog(s.input.gameId, fixQuery), (p) => correctCard(s, p))}
             <button onClick={() => flag(s)}>Später prüfen</button>
           </>
@@ -899,6 +896,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             <button onClick={() => setRunning(false)}>Stopp</button>
           </div>
         )}
+        {/* Nur „hinzugefügt“ wird vorgelesen, nicht jede Zwischenmeldung beim Halten */}
+        <p class="sr-only" role="status">
+          {added && `${added} hinzugefügt`}
+        </p>
       </div>
 
       {question &&
@@ -915,7 +916,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                   : `${Math.round(question.captured.stable.confidence * 100)} % sicher`}
             </p>
             {candidateButtons(question.candidates, (p) => answer(p))}
-            <input type="search" placeholder="Name oder Nummer" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
+            <input type="search" enterkeyhint="search" placeholder="Name oder Nummer" value={searchQuery} onInput={(e) => setSearchQuery(e.currentTarget.value)} />
             {searchResults.length > 0 && candidateButtons(searchResults, (p) => answer(p))}
             <button class="ghost" onClick={() => answer(null)}>Nicht speichern, neu scannen</button>
           </>,

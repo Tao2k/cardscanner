@@ -171,6 +171,9 @@ export function FriendsView({ items, catalogs, invite, onInviteUsed }: Props) {
           placeholder="Code eines Freundes"
           autocapitalize="characters"
           autocomplete="off"
+          autocorrect="off"
+          spellcheck={false}
+          enterkeyhint="done"
           maxLength={6}
           required
         />

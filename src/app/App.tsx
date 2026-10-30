@@ -184,7 +184,8 @@ export function App() {
         </span>
       </header>
       <main>
-        {error && <p class="banner error">{error}</p>}
+        {/* Auf „Scannen“ steht derselbe Fehler schon unter dem Startknopf */}
+        {error && !(tab === 'scan' && status.startsWith('Fehler')) && <p class="banner error">{error}</p>}
         {updatePending && (
           <p class="banner update" role="status">
             Neue Version verfügbar.
@@ -215,6 +216,12 @@ export function App() {
         {tab === 'friends' && catalogs && account.signedIn && (
           <FriendsView items={items} catalogs={catalogs} invite={invite} onInviteUsed={() => setInvite(null)} />
         )}
+        {tab !== 'scan' && !catalogs && !error && (
+          <p class="loading" role="status">
+            <span class="spinner" />
+            Lade Katalog …
+          </p>
+        )}
         {tab === 'review' && catalogs && (
           <ReviewView
             items={items}
@@ -228,26 +235,26 @@ export function App() {
           />
         )}
       </main>
-      <nav class={`tabs${account.signedIn ? ' five' : ''}`}>
-        <button class={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>
+      <nav class={`tabs${account.signedIn ? ' five' : ''}`} aria-label="Bereiche">
+        <button class={tab === 'scan' ? 'active' : ''} aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
           {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
           Scannen
         </button>
-        <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}>
+        <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} aria-current={tab === 'collection' ? 'page' : undefined} onClick={() => setTab('collection')}>
           {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
           Sammlung {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
         </button>
-        <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>
+        <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} aria-current={tab === 'prices' ? 'page' : undefined} onClick={() => setTab('prices')}>
           {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
           Preise {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
         </button>
         {account.signedIn && (
-          <button data-tab="friends" class={tab === 'friends' ? 'active' : ''} onClick={() => setTab('friends')}>
+          <button data-tab="friends" class={tab === 'friends' ? 'active' : ''} aria-current={tab === 'friends' ? 'page' : undefined} onClick={() => setTab('friends')}>
             {tabIcon('M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.13a4 4 0 0 1 0 7.75M22 21v-2a4 4 0 0 0-3-3.87')}
             Freunde
           </button>
         )}
-        <button class={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
+        <button class={tab === 'review' ? 'active' : ''} aria-current={tab === 'review' ? 'page' : undefined} onClick={() => setTab('review')}>
           {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
         </button>
