@@ -13,6 +13,8 @@ export interface CardSet {
   code: string;
   name: string;
   releaseDate?: string;
+  /** Promo-, Event- und Bundle-Karten; die App fasst alle diese Sets in einem Ordner „Promos“ zusammen. */
+  promo?: boolean;
 }
 
 export type Variant = 'normal' | 'alt_art' | 'overnumbered' | 'signature' | 'promo';
