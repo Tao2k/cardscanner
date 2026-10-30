@@ -7,6 +7,7 @@ import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Prin
 import type { Catalogs } from './App';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
+import { SHADOW_FRAMES, SHADOW_HINT } from '../core/shading';
 import { CONDITION_MARGIN, learnConditionScale, scaleThresholds } from '../core/condition';
 import { finishesOf, learnFoilShare } from '../core/foil';
 import { conditionFeedback, foilFeedback, languageFeedback } from './feedback';
@@ -250,6 +251,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const torchManual = useRef(false);
   /** Zu dunkel und kein Licht verfügbar (oder aus): Hinweis zeigen. */
   const [dark, setDark] = useState(false);
+  /** Starker Schatten auf der Karte in den letzten Frames: Hinweis zeigen. */
+  const [shaded, setShaded] = useState(false);
+  const shadows = useRef<number[]>([]);
 
   const switchTorch = async (on: boolean) => {
     if (await setTorch(streamRef.current, on)) setTorchOn(on);
@@ -290,6 +294,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       setTorchAvailable(false);
       setTorchOn(false);
       setDark(false);
+      setShaded(false);
+      shadows.current = [];
     };
   }, [running]);
 
@@ -461,8 +467,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms, vector, imageLanguages } = await recognizer.match(gameId, grabbed.frame, grabbed.guide, 8);
+        const { matches, ms, vector, imageLanguages, shadow } = await recognizer.match(gameId, grabbed.frame, grabbed.guide, 8);
         if (!active) break;
+        shadows.current = [...shadows.current, shadow].slice(-SHADOW_FRAMES);
+        setShaded(shadows.current.length === SHADOW_FRAMES && shadows.current.every((s) => s >= SHADOW_HINT));
         const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
         // Bildähnlichkeit je Sprachfassung über die Frames desselben Treffers mitteln
@@ -875,6 +883,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               </span>
             ) : holding ? (
               <span>Gespeichert. Nächste Karte.</span>
+            ) : shaded ? (
+              <span>{torchAvailable && !torchOn ? 'Schatten auf der Karte. Tippe auf den Blitz.' : 'Schatten auf der Karte.'}</span>
             ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (
               <span>Karte ruhig halten …</span>
             ) : guess ? (

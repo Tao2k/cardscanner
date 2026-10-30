@@ -364,6 +364,76 @@ function alignToReference(card: Gray, ref: Gray) {
   return best;
 }
 
+/** Rastergröße für den Schattenausgleich (4 mm). */
+const LIGHT_CELL = 4 * MM;
+
+/**
+ * Rechnet einen Schatten heraus: Verhältnis Foto zu angeglichenem Original je 4-mm-Zelle im Innenbereich
+ * (Median, nur Stellen, die im Original nicht fast schwarz sind), geglättet und bis an den Rand
+ * fortgesetzt. Der Kantenstreifen fließt nicht ein, weiße Abnutzung dort bleibt also erhalten.
+ * null, wenn die Beleuchtung gleichmäßig ist (höchstens 20 % Unterschied); dann bleibt alles wie bisher.
+ */
+function relight(card: Gray, ref: Gray, fit: { a: number; b: number; dx: number; dy: number }): Gray | null {
+  const cols = Math.ceil(CARD_W / LIGHT_CELL), rows = Math.ceil(CARD_H / LIGHT_CELL);
+  const W = card.width;
+  const ratio = new Float32Array(cols * rows).fill(NaN);
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    const values: number[] = [];
+    for (let y = r * LIGHT_CELL; y < Math.min(CARD_H * 0.92, (r + 1) * LIGHT_CELL); y += 2) {
+      if (y < CARD_H * 0.08) continue;
+      for (let x = q * LIGHT_CELL; x < Math.min(CARD_W * 0.92, (q + 1) * LIGHT_CELL); x += 2) {
+        if (x < CARD_W * 0.08) continue;
+        const p = fit.a * ref.data[y * CARD_W + x] + fit.b;
+        const c = card.data[(y + fit.dy + PAD) * W + (x + fit.dx + PAD)];
+        if (p > 40) values.push(c / p);
+      }
+    }
+    if (values.length >= 8) ratio[r * cols + q] = median(values);
+  }
+  // Zellen ohne Messung (Rand, dunkle Stellen) von den Nachbarn übernehmen
+  for (let pass = 0; pass < cols + rows && ratio.some(Number.isNaN); pass++) {
+    const prev = Float32Array.from(ratio);
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+      if (!Number.isNaN(prev[r * cols + q])) continue;
+      let s = 0, n = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+        const rr = r + j, qq = q + i;
+        if (rr < 0 || qq < 0 || rr >= rows || qq >= cols || Number.isNaN(prev[rr * cols + qq])) continue;
+        s += prev[rr * cols + qq];
+        n++;
+      }
+      if (n) ratio[r * cols + q] = s / n;
+    }
+  }
+  if (ratio.some(Number.isNaN)) return null;
+  let light = ratio;
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+      let s = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) s += light[Math.min(rows - 1, Math.max(0, r + j)) * cols + Math.min(cols - 1, Math.max(0, q + i))];
+      next[r * cols + q] = s / 9;
+    }
+    light = next;
+  }
+  const top = Math.max(...light);
+  if (top <= 0 || Math.min(...light) / top > 0.8) return null;
+  const out = new Float32Array(card.data.length);
+  for (let y = 0; y < card.height; y++) {
+    const fy = Math.min(rows - 1, Math.max(0, (y - PAD - fit.dy) / LIGHT_CELL - 0.5));
+    const r0 = Math.floor(fy), r1 = Math.min(rows - 1, r0 + 1), ty = fy - r0;
+    for (let x = 0; x < W; x++) {
+      const fx = Math.min(cols - 1, Math.max(0, (x - PAD - fit.dx) / LIGHT_CELL - 0.5));
+      const q0 = Math.floor(fx), q1 = Math.min(cols - 1, q0 + 1), tx = fx - q0;
+      const l =
+        (light[r0 * cols + q0] * (1 - tx) + light[r0 * cols + q1] * tx) * (1 - ty) +
+        (light[r1 * cols + q0] * (1 - tx) + light[r1 * cols + q1] * tx) * ty;
+      out[y * W + x] = Math.min(255, card.data[y * W + x] * (top / Math.max(0.05, l)));
+    }
+  }
+  return { data: out, width: W, height: card.height };
+}
+
 /**
  * Schätzt den Zustand.
  * @param photo    Kamerabild (Graustufen) mit etwas Rand um die Karte
@@ -386,7 +456,15 @@ export function estimateCondition(
     const card = warpCard(photo, quad);
     return { quad, card, fit: alignToReference(card, ref) };
   });
-  const { quad, card, fit: best } = candidates[0].fit.r >= candidates[1].fit.r ? candidates[0] : candidates[1];
+  const chosen = candidates[0].fit.r >= candidates[1].fit.r ? candidates[0] : candidates[1];
+  const { quad } = chosen;
+  let { card, fit: best } = chosen;
+  // Liegt ein Schatten auf der Karte, ihn herausrechnen und neu angleichen
+  const relit = relight(card, ref, best);
+  if (relit) {
+    const fit = alignToReference(relit, ref);
+    if (fit.r > best.r) ({ card, best } = { card: relit, best: fit });
+  }
   const W = card.width;
   const at = (x: number, y: number) => card.data[(y + PAD) * W + (x + PAD)];
 

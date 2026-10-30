@@ -7,6 +7,7 @@ import { AdaptiveIndex } from '../core/learning';
 import type { Match } from '../core/matcher';
 import type { Pixels } from '../core/imageops';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
+import { prepareForRecognition } from '../core/shading';
 
 /**
  * Erkennung im Hintergrund-Thread, damit die Kameravorschau flüssig bleibt.
@@ -24,7 +25,7 @@ export type WorkerResponse =
   | { type: 'ready'; model: string }
   | { type: 'progress'; message: string }
   | { type: 'error'; message: string }
-  | { type: 'result'; id: number; matches: Match[]; ms: number; vector: Float32Array; imageLanguages: { lang: string; score: number }[]; warped: boolean }
+  | { type: 'result'; id: number; matches: Match[]; ms: number; vector: Float32Array; imageLanguages: { lang: string; score: number }[]; warped: boolean; shadow: number }
   | { type: 'learned'; id: number; userSamples: number; shiftSamples: number };
 
 let embedder: Embedder | null = null;
@@ -76,7 +77,8 @@ onmessage = async (event: MessageEvent<WorkerRequest>) => {
       if (!embedder || !entry) throw new Error('Erkennung ist noch nicht bereit.');
       const start = performance.now();
       const warp = warpCardView(msg.frame, msg.guide);
-      const view = warp ?? cropGuide(msg.frame, msg.guide);
+      // Handyschatten auf der Karte vor der Erkennung ausgleichen (nur wenn deutlich, siehe SHADOW_EVEN)
+      const { pixels: view, shadow } = prepareForRecognition(warp ?? cropGuide(msg.frame, msg.guide));
       // Kopie, damit der Vektor nicht an einem größeren Puffer des Modells hängt
       const vector = Float32Array.from(await embedder.embed(view));
       let matches = entry.index.search(vector, msg.k);
@@ -95,7 +97,7 @@ onmessage = async (event: MessageEvent<WorkerRequest>) => {
       const imageLanguages = matches[0]
         ? entry.index.rowScores(vector, matches[0].index).map((r) => ({ lang: entry.refLangs[r.row], score: r.score }))
         : [];
-      post({ type: 'result', id: msg.id, matches, ms: Math.round(performance.now() - start), vector, imageLanguages, warped: !!warp }, [vector.buffer as ArrayBuffer]);
+      post({ type: 'result', id: msg.id, matches, ms: Math.round(performance.now() - start), vector, imageLanguages, warped: !!warp, shadow }, [vector.buffer as ArrayBuffer]);
     } else if (msg.type === 'samples') {
       post({ type: 'learned', id: msg.id, ...(await loadSamples(msg.gameId)) });
     }
