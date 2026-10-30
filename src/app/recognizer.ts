@@ -9,6 +9,8 @@ export interface MatchResult {
   vector: Float32Array | null;
   /** Ähnlichkeit zu den Bildern je Sprachfassung des besten Treffers. */
   imageLanguages: { lang: string; score: number }[];
+  /** Wie ungleichmäßig die Karte beleuchtet ist (0 = gleichmäßig), siehe shadowStrength. */
+  shadow: number;
 }
 
 export interface Learned {
@@ -46,8 +48,8 @@ export class Recognizer {
   match(gameId: string, pixels: Pixels, k = 4): Promise<MatchResult> {
     return this.request((id) => ({ type: 'match', id, gameId, pixels, k }), [pixels.data.buffer as ArrayBuffer]).then((r) =>
       r.type === 'result'
-        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages }
-        : { matches: [], ms: 0, vector: null, imageLanguages: [] },
+        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages, shadow: r.shadow }
+        : { matches: [], ms: 0, vector: null, imageLanguages: [], shadow: 0 },
     );
   }
 
