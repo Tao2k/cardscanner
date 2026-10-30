@@ -1,10 +1,6 @@
 name: Bildmodelle vergleichen
 
 on:
-  # Vorübergehend: Lauf beim Push auf den Arbeitszweig (workflow_dispatch geht erst, wenn die Datei auf main liegt)
-  push:
-    branches: [claude/project-thread-k3nj8q]
-    paths: [scripts/bench-recognition.ts, .github/workflows/bench.yml]
   workflow_dispatch:
     inputs:
       samples:
@@ -27,11 +23,6 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix:
-        # Beim Push je Modell ein paralleler Lauf, dazu Lernfotos für die beiden kleinen Modelle
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"models":"dinov3-small","augment":"0"}]' || '[{"models":"","augment":""}]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,10 +44,10 @@ jobs:
           path: |
             .cache/bench
             .cache/bench-models
-          key: bench-${{ github.run_id }}-${{ strategy.job-index }}
+          key: bench-${{ github.run_id }}
           restore-keys: bench-
-      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ matrix.augment || inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} ${FOCUS:+--focus "$FOCUS"} | tee bench.log
+      - run: npm run bench -- riftbound --samples ${{ inputs.samples || '400' }} --augment ${{ inputs.augment || '0' }} ${MODELS:+--models "$MODELS"} ${FOCUS:+--focus "$FOCUS"} | tee bench.log
         env:
-          MODELS: ${{ matrix.models || inputs.models }}
+          MODELS: ${{ inputs.models }}
           FOCUS: ${{ inputs.focus || 'Riven' }}
       - run: grep -A100 '=== Übersicht' bench.log >> "$GITHUB_STEP_SUMMARY"

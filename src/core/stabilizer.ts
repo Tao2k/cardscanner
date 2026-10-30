@@ -9,8 +9,8 @@ export interface StabilizerConfig {
   minScore: number;
   /**
    * Abstand Platz 1 zu Platz 2 (gemittelt über die Frames), ab dem ohne Nachfrage gespeichert wird.
-   * Kalibriert mit `npm run eval` (siehe CALIBRATION): ab 0,06 waren in jedem Abstandsbereich
-   * mindestens 96,5 % richtig, auch nach unterer 95-%-Schranke. Darunter wird nachgefragt.
+   * Kalibriert mit `npm run bench` (siehe CALIBRATION): ab 0,06 waren 98,9 % richtig (untere
+   * 95-%-Schranke), und das schon mit einem Frame; die App mittelt über mindestens drei. Darunter wird nachgefragt.
    */
   confidentMargin: number;
   /** So viele Kandidaten werden beim Nachfragen gezeigt. */
@@ -62,22 +62,24 @@ export function averageMatches(frames: Match[][]): Match[] {
 }
 
 /**
- * Wie oft ein Treffer mit diesem Abstand zum Zweitbesten richtig war: gemessen an 1500 verzerrten
- * Kartenbildern (`npm run eval -- --samples 1500`, Oktober 2026), Bereiche geglättet, damit größerer
- * Abstand nie weniger Sicherheit bedeutet. Echte Handyfotos können schlechter abschneiden; deshalb
- * zählt die App zusätzlich mit, wie oft du Treffer als falsch meldest (strictness).
+ * Wie oft ein Treffer mit diesem Abstand zum Zweitbesten richtig war: gemessen an 400 schweren
+ * synthetischen Handyfotos (`npm run bench`, Oktober 2026: DINOv3-small, entzerrt, Pixelvergleich),
+ * je ein Frame, Bereiche geglättet, damit größerer Abstand nie weniger Sicherheit bedeutet. Auf einem
+ * leeren Tisch lag der Bestwert höchstens bei 0,46, richtige Treffer zu 95 % über 0,83 (minScore 0,55
+ * passt also weiterhin). Echte Handyfotos können anders abschneiden; deshalb zählt die App zusätzlich
+ * mit, wie oft du Treffer als falsch meldest (strictness).
  */
 export const CALIBRATION: { margin: number; p: number }[] = [
   { margin: 0, p: 0.4 },
-  { margin: 0.01, p: 0.48 },
-  { margin: 0.015, p: 0.6 },
-  { margin: 0.02, p: 0.73 },
-  { margin: 0.025, p: 0.79 },
-  { margin: 0.03, p: 0.86 },
-  { margin: 0.04, p: 0.98 },
-  { margin: 0.05, p: 0.99 },
-  { margin: 0.06, p: 0.995 },
-  { margin: 0.08, p: 0.999 },
+  { margin: 0.01, p: 0.45 },
+  { margin: 0.015, p: 0.5 },
+  { margin: 0.02, p: 0.75 },
+  { margin: 0.03, p: 0.8 },
+  { margin: 0.04, p: 0.88 },
+  { margin: 0.05, p: 0.95 },
+  { margin: 0.06, p: 0.98 },
+  { margin: 0.08, p: 0.99 },
+  { margin: 0.1, p: 0.995 },
 ];
 
 /** Wahrscheinlichkeit richtig für einen Abstand (Stufen aus CALIBRATION). */
