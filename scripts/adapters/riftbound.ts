@@ -48,7 +48,10 @@ export interface GalleryCard {
   might?: Labeled<Option>;
   power?: Labeled<Option>;
   text?: { richText?: { body?: string } };
-  tags?: unknown;
+  /** Titel eines Champions, z. B. „Rebel“ bei der Einheit „Jinx“. */
+  subtitle?: string;
+  /** Schlagwörter, z. B. { tags: ['Jinx', 'Zaun'] }; der Champion-Name verbindet Legende, Champions und Signature-Karten. */
+  tags?: { tags?: string[]; values?: Option[] } | string[];
 }
 
 export interface GallerySet {
@@ -152,6 +155,15 @@ export function plainText(card: GalleryCard): string {
 
 const optionId = (l?: Labeled<Option>) => (l?.value?.id === undefined ? null : l.value.id);
 
+/** Schlagwörter als Liste, egal in welcher Form die Galerie sie liefert. */
+export function tagsOf(card: GalleryCard): string[] {
+  const t = card.tags;
+  if (!t) return [];
+  if (Array.isArray(t)) return t.filter((x) => typeof x === 'string');
+  if (Array.isArray(t.tags)) return t.tags.filter((x) => typeof x === 'string');
+  return (t.values ?? []).map((v) => v.label);
+}
+
 export function normalizeCard(card: GalleryCard, setMax?: number): Printing | null {
   const imageUrl = card.cardImage?.url;
   if (!card.id || !card.name || !imageUrl) return null;
@@ -175,6 +187,8 @@ export function normalizeCard(card: GalleryCard, setMax?: number): Printing | nu
       power: optionId(card.power),
       domains: card.domain?.values?.map((d) => d.label) ?? [],
       supertypes: card.cardType?.superType?.map((t) => t.label) ?? [],
+      tags: tagsOf(card),
+      subtitle: card.subtitle || null,
       artist: card.illustrator?.values?.map((a) => a.label).join(', ') || null,
       orientation: card.orientation ?? 'portrait',
     },

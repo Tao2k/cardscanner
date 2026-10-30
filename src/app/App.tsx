@@ -6,6 +6,8 @@ import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHi
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
 import { SyncingStore } from '../storage/outbox';
+import { DeckStore } from '../storage/decks';
+import type { Deck } from '../core/deck';
 import { cloud, cloudConfigured, useCloud } from './cloud';
 import { LoginScreen, needsLogin } from './AccountView';
 import { LearningService } from '../core/learning';
@@ -16,6 +18,7 @@ import { CollectionView } from './CollectionView';
 import { ReviewView } from './ReviewView';
 import { PriceView } from './PriceView';
 import { FriendsView, takeInvite } from './FriendsView';
+import { DECK_ICON_PATH, DeckView } from './DeckView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
@@ -38,11 +41,13 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'prices' | 'friends' | 'review';
+type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'review';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
   const service = useMemo(() => new CollectionService(store), []);
+  const deckStore = useMemo(() => new DeckStore(), []);
+  const [decks, setDecks] = useState<Deck[]>([]);
   const learning = useMemo(() => new LearningService(new IndexedDbSampleStore()), []);
   const [learned, setLearned] = useState<Learned | null>(null);
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
@@ -67,6 +72,17 @@ export function App() {
     });
   };
   const refresh = () => service.list().then(setItems);
+  const refreshDecks = () => deckStore.list().then(setDecks);
+  /** Sofort anzeigen, im Hintergrund speichern (und später mit dem Server abgleichen). */
+  const saveDeck = (deck: Deck) => {
+    const saved = { ...deck, updatedAt: new Date().toISOString() };
+    setDecks((list) => [saved, ...list.filter((d) => d.deckId !== deck.deckId)]);
+    deckStore.save(saved);
+  };
+  const deleteDeck = (deckId: string) => {
+    setDecks((list) => list.filter((d) => d.deckId !== deckId));
+    deckStore.remove(deckId);
+  };
   /** Nach Bestätigen/Korrigieren: Erkennung liest die eigenen Scans neu ein. */
   const relearn = async () => {
     if (recognizer && prefs.gameId) setLearned(await recognizer.reloadSamples(prefs.gameId));
@@ -74,8 +90,12 @@ export function App() {
 
   useEffect(() => {
     refresh();
-    // Angemeldet: Sammlung mit dem Server abgleichen; Änderungen von anderen Geräten neu anzeigen
-    cloud.init(store, refresh);
+    refreshDecks();
+    // Angemeldet: Sammlung und Decks mit dem Server abgleichen; Änderungen von anderen Geräten neu anzeigen
+    cloud.init(store, deckStore, () => {
+      refresh();
+      refreshDecks();
+    });
     (async () => {
       try {
         const games = await loadGames(BASE);
@@ -213,6 +233,9 @@ export function App() {
         {tab === 'collection' && catalogs && (
           <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} />
         )}
+        {tab === 'decks' && catalogs && (
+          <DeckView catalogs={catalogs} items={items} decks={decks} gameId={prefs.gameId} onSave={saveDeck} onDelete={deleteDeck} />
+        )}
         {tab === 'prices' && catalogs && (
           <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} fresh={freshAlerts} />
         )}
@@ -238,7 +261,7 @@ export function App() {
           />
         )}
       </main>
-      <nav class={`tabs${account.signedIn ? ' five' : ''}`} aria-label="Bereiche">
+      <nav class={`tabs ${account.signedIn ? 'six' : 'five'}`} aria-label="Bereiche">
         <button class={tab === 'scan' ? 'active' : ''} aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
           {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
           Scannen
@@ -246,6 +269,10 @@ export function App() {
         <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} aria-current={tab === 'collection' ? 'page' : undefined} onClick={() => setTab('collection')}>
           {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
           Sammlung {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
+        </button>
+        <button data-tab="decks" class={tab === 'decks' ? 'active' : ''} aria-current={tab === 'decks' ? 'page' : undefined} onClick={() => setTab('decks')}>
+          {tabIcon(DECK_ICON_PATH)}
+          Deck
         </button>
         <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} aria-current={tab === 'prices' ? 'page' : undefined} onClick={() => setTab('prices')}>
           {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}

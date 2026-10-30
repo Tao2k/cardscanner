@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { addLocale, extractGallery, normalizeCard, parseNextData } from '../scripts/adapters/riftbound';
+import { addLocale, extractGallery, normalizeCard, parseNextData, type GalleryCard } from '../scripts/adapters/riftbound';
 
 const html = readFileSync(new URL('./fixtures/riftbound-gallery.html', import.meta.url), 'utf8');
 const { cards, sets } = extractGallery(parseNextData(html));
@@ -35,6 +35,23 @@ describe('Riftbound-Adapter (offizielle Galerie)', () => {
     expect(normalizeCard(cards[3], max('OGN'))).toMatchObject({ variant: 'alt_art', collectorNumber: '066a' });
     // Showcase-Drucke gibt es nur als Foil
     expect(normalizeCard(cards[1], max('UNL'))?.finishes).toEqual(['foil']);
+  });
+
+  it('übernimmt Titel und Schlagwörter für den Deckbau', () => {
+    // Ausschnitt einer Champion-Einheit, wie sie in der Galerie steht
+    const jinx: GalleryCard = {
+      id: 'ogn-202-298',
+      name: 'Jinx',
+      subtitle: 'Rebel',
+      publicCode: 'OGN-202/298',
+      set: { value: { id: 'OGN', label: 'Origins' } },
+      cardType: { type: [{ id: 'unit', label: 'Unit' }], superType: [{ id: 'champion', label: 'Champion' }] },
+      domain: { values: [{ id: 'chaos', label: 'Chaos' }] },
+      tags: { tags: ['Jinx', 'Zaun'] },
+      cardImage: { url: 'https://cmsassets.rgpub.io/sanity/images/jinx.png' },
+    };
+    expect(normalizeCard(jinx)?.attributes).toMatchObject({ subtitle: 'Rebel', tags: ['Jinx', 'Zaun'], supertypes: ['Champion'] });
+    expect(normalizeCard(cards[0], max('UNL'))?.attributes).toMatchObject({ subtitle: null, tags: [] });
   });
 
   it('überspringt Karten ohne Bild', () => {

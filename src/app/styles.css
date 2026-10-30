@@ -217,7 +217,7 @@ select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; 
 
 /* Leere Zustände */
 .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 32px 24px; background: var(--surface); border-radius: var(--r-card); }
-.empty-state svg { width: 44px; height: 44px; color: var(--accent-text); padding: 10px; background: var(--accent-soft); border-radius: 50%; box-sizing: content-box; }
+.empty-state > svg { width: 44px; height: 44px; color: var(--accent-text); padding: 10px; background: var(--accent-soft); border-radius: 50%; box-sizing: content-box; }
 .empty-state p { margin: 0; color: var(--muted); max-width: 300px; }
 .empty-state strong { font-size: 1.05rem; }
 
@@ -598,3 +598,146 @@ button.link.remove-friend { align-self: center; margin-top: 8px; padding: 0; col
 .tag.change-neu { background: var(--accent-soft); color: var(--accent-text); }
 .tag.change-verbessert { background: var(--surface); color: var(--muted); }
 .tag.change-behoben { background: var(--success-soft); color: var(--success-text); }
+
+/* Decks: Legende und Champion wählen, Karten, Runen und Battlefields zusammenstellen */
+.tabs.six { grid-template-columns: repeat(6, 1fr); gap: 0; padding-left: 4px; padding-right: 4px; }
+.tabs.six .tab-icon { padding: 3px 10px; }
+.tabs.six button { font-size: 0.68rem; letter-spacing: -0.01em; }
+.new-deck { align-self: flex-start; }
+.deck-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.deck-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; background: var(--surface); border-radius: var(--r-row);
+  font-weight: 400; text-align: left; justify-content: flex-start; }
+.deck-row img { width: 44px; height: 61px; object-fit: cover; border-radius: 7px; flex: none; background: var(--raised); box-shadow: var(--shadow-soft); }
+.deck-row .chev { flex: none; color: var(--muted); }
+.deck-row .line small { font-size: 0.8rem; }
+.tag.ok { background: var(--success-soft); color: var(--success-text); }
+.tag.accent { background: var(--accent-soft); color: var(--accent-text); }
+.empty-state button { margin-top: 8px; }
+.legend-line { margin: 2px 0 0; display: flex; align-items: center; gap: 6px; font-size: 0.92rem; }
+
+/* Domains als Farbpunkte, Farben wie auf den Karten */
+.domains { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: 0; }
+.domain-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
+.chips .domain-dot { margin-right: 7px; }
+.domain-dot.fury { background: #d7263d; }
+.domain-dot.calm { background: #2e9e57; }
+.domain-dot.mind { background: #2f7bd8; }
+.domain-dot.body { background: #e5862a; }
+.domain-dot.chaos { background: #8b3fc9; }
+.domain-dot.order { background: #d6ae08; }
+
+/* Legende und Champion als Kartenraster; Tipp wählt, Lupe zeigt die Karte groß */
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.pick { position: relative; min-width: 0; }
+.pick-main { width: 100%; flex-direction: column; align-items: stretch; gap: 3px; padding: 5px 5px 9px; min-height: 0; border-radius: 16px; background: var(--surface);
+  font-weight: 400; text-align: left; }
+.pick-main img { width: 100%; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 10px; background: var(--raised); margin-bottom: 4px; }
+.pick-main strong { font-size: 0.86rem; font-weight: 700; padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-main small { font-size: 0.72rem; color: var(--muted); padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; }
+.pick-main small .domains { margin-right: 4px; }
+.pick.active .pick-main { box-shadow: 0 0 0 2.5px var(--accent); background: var(--accent-soft); }
+.pick-zoom { position: absolute; top: 9px; right: 9px; min-height: 0; width: 32px; height: 32px; padding: 0; border-radius: 50%;
+  background: rgba(16, 12, 20, 0.55); color: #fff; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+/* Deck bearbeiten wie im Deckbau von Master Duel: das Deck als Kartenraster (Handy hochkant oben, breit links),
+   daneben bzw. darunter die Karten zum Antippen. Beide Hälften scrollen für sich, die Seite selbst steht still. */
+main:has(> .deck-edit) { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+section.deck-edit { flex: 1; min-height: 0; padding: 2px 16px 10px; gap: 8px; }
+.builder-head { flex: none; flex-direction: row; align-items: center; gap: 6px; margin-top: 0; }
+.builder-head .link.back { flex: none; min-height: 44px; padding: 0 4px 0 0; text-decoration: none; font-weight: 600; }
+.deck-name { flex: 1; min-width: 0; width: auto; min-height: 40px; padding: 4px 8px; margin: 0; border-radius: 12px; background: transparent;
+  font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; text-align: center; text-overflow: ellipsis; }
+.deck-name:focus { background: var(--surface); }
+button.tool { flex: none; position: relative; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; background: var(--surface); color: var(--text); }
+button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
+.tool-badge { position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent);
+  font-size: 0.7rem; font-weight: 800; line-height: 18px; text-align: center; }
+
+.builder { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 46fr) minmax(0, 54fr); gap: 10px; }
+/* Genug Breite (Tablet, Handy quer): nebeneinander, Deck links wie bei Master Duel */
+@media (min-width: 720px), (min-width: 560px) and (max-height: 520px) {
+  .builder { grid-template-rows: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 14px; }
+}
+/* Auf dem Tablet nutzt der Deckbau die Breite, die übrigen Seiten bleiben schmal */
+@media (min-width: 720px) {
+  main > section.deck-edit { max-width: 1100px; }
+}
+/* Handy quer: wenig Höhe, also ohne Markenzeile; die Notch liegt dann links oder rechts */
+@media (max-height: 520px) {
+  .app:has(.deck-edit) > .brand { display: none; }
+  section.deck-edit { padding: 6px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left)); }
+  .list-grid { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); }
+}
+.deck-pane { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 10px 12px; background: var(--surface); border-radius: 20px; }
+.deck-top { display: flex; align-items: center; gap: 8px; }
+.deck-legend { flex: 1; min-width: 0; min-height: 44px; justify-content: flex-start; gap: 8px; padding: 0; background: none; font-weight: 400; text-align: left; border-radius: 6px; }
+.deck-legend img { width: 30px; height: 42px; flex: none; object-fit: cover; border-radius: 4px; background: var(--raised); }
+.deck-legend > span { display: flex; flex-direction: column; min-width: 0; }
+.deck-legend small { display: flex; align-items: center; font-size: 0.72rem; color: var(--muted); }
+.deck-legend small .domains { margin-right: 4px; }
+.deck-legend strong { font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.deck-meta small { font-size: 0.75rem; color: var(--muted); }
+.deck-problems { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--warn); }
+.pane-head { display: flex; align-items: baseline; gap: 6px; margin: 2px 2px 0; font-size: 0.82rem; font-weight: 700; letter-spacing: 0; }
+.pane-head b { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pane-head b.done { color: var(--success-text); }
+.pane-head small { margin-left: auto; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.pane-hint { margin: 2px 2px 0; font-size: 0.75rem; color: var(--muted); }
+.deck-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.deck-grid.runes { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.deck-grid.fields { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+/* Freie Plätze: zeigen, wie viel noch fehlt */
+.slot { display: block; aspect-ratio: 63 / 88; border-radius: 3px; border: 1.5px dashed color-mix(in srgb, var(--muted) 38%, transparent); }
+.slot.landscape { aspect-ratio: 88 / 63; }
+
+/* Karte als Kachel; Tippen legt hinein oder nimmt heraus, Halten zeigt sie groß */
+.tile { position: relative; display: block; width: 100%; min-height: auto; padding: 0; border-radius: 5px; background: var(--raised);
+  box-shadow: 0 1px 2px rgba(22, 19, 26, 0.2); }
+.tile:active:not(:disabled) { transform: scale(0.94); }
+/* Seitenverhältnis am Bild; min-height: auto an der Kachel, sonst rechnet das scrollende Raster die Zeilen auf 0 */
+.tile img { display: block; width: 100%; height: auto; aspect-ratio: 63 / 88; object-fit: cover; border-radius: inherit; pointer-events: none; }
+.tile.landscape img { aspect-ratio: 88 / 63; }
+.deck-grid .tile { border-radius: 3px; }
+.tile.champ { box-shadow: 0 0 0 2px var(--accent); }
+.tile-champ { position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 1.5px var(--surface); }
+/* Kopien, die dir noch fehlen: blass wie bei Deck-Rezepten in Master Duel */
+.tile.lacking { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 40%, transparent); }
+.tile.lacking img { opacity: 0.4; filter: grayscale(0.7); }
+.tile.fresh { animation: tile-in 0.24s cubic-bezier(.2, .8, .2, 1); }
+@keyframes tile-in { from { transform: scale(0.4); opacity: 0; } }
+.tile.blocked img { opacity: 0.35; }
+.tile-count { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px; display: grid; place-items: center; border-radius: 11px;
+  background: var(--accent); color: var(--on-accent); font-size: 0.78rem; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg); }
+.tile-count.pop { animation: count-pop 0.35s ease-out; }
+.tile-own { position: absolute; left: 3px; bottom: 3px; display: inline-flex; align-items: center; gap: 2px; padding: 2px 5px 2px 4px; border-radius: 999px;
+  background: rgba(16, 12, 20, 0.74); color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+.list-pane { position: relative; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.deck-parts { flex: none; }
+.deck-parts button { flex-direction: column; gap: 0; min-height: 44px; padding: 4px; line-height: 1.15; }
+.deck-parts small { font-size: 0.72rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.deck-parts small.done { color: var(--success-text); }
+.list-tools { flex: none; display: flex; gap: 8px; }
+.list-tools input { flex: 1; min-width: 0; min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+.list-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  align-content: start; gap: 10px 8px; padding: 6px 6px 64px 2px; }
+.list-grid.landscape { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.list-pane .none { margin: 8px 2px; }
+.even-runes { flex: none; align-self: flex-start; min-height: 40px; padding: 8px 16px; background: var(--surface); }
+/* Hinweis, wenn ein Tipp nichts bewirkt (z. B. schon 3×), unten über der Liste */
+.builder-hint { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 2; width: max-content; max-width: calc(100% - 16px); margin: 0 auto; padding: 10px 14px;
+  border-radius: 14px; background: var(--text); color: var(--bg); font-size: 0.85rem; font-weight: 600; line-height: 1.3; text-align: center; box-shadow: var(--shadow);
+  animation: hint-in 0.2s ease-out; pointer-events: none; }
+@keyframes hint-in { from { opacity: 0; transform: translateY(8px); } }
+.sheet-qty { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 18px; border-radius: 999px; background: var(--surface); font-weight: 600; }
+.chips.energy button { min-width: 44px; padding: 8px 12px; }
+button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .tile.fresh, .tile-count.pop, .builder-hint { animation: none; }
+}
+.binder-card img.landscape { width: min(86vw, 420px); aspect-ratio: 88 / 63; }
+.binder-card-info h2 { margin: 0; }
+.binder-card-info small { display: flex; align-items: center; flex-wrap: wrap; }
