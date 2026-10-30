@@ -25,6 +25,7 @@ import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 import { buildTextIndex, decide, latinMatch, matchText, textWinner, type TextMatch } from '../src/core/textmatch';
+import { DEFAULT_SHADING, evenLighting, lightField, shadowStrength, type ShadingConfig } from '../src/core/shading';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -39,6 +40,7 @@ const learnSamples = option('--learn', 200);
 const conditionSamples = option('--condition', 40);
 const foilSamples = option('--foil', 60);
 const textSamples = option('--text', 200);
+const shadowSamples = option('--shadow', 200);
 const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
 /** Sprache wie in der App prüfen: Karten, deren Name oder Typ das enthält (z. B. "Battlefield"), plus Stichprobe. */
 const langCheck = args.includes('--langcheck') ? args[args.indexOf('--langcheck') + 1] : '';
@@ -201,6 +203,7 @@ async function main() {
       );
     }
   }
+  if (shadowSamples) await evalShadow(file, shadowSamples, embeddings, embedder);
   if (conditionSamples) await evalCondition(file, conditionSamples);
   if (foilSamples) await evalFoil(file, foilSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
@@ -746,6 +749,156 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+/**
+ * Schatten des Handys auf der Karte, direkt ins Bild gerechnet (RGB oder RGBA, verändert data).
+ * Entweder eine weiche Schattenkante quer über die Karte oder der Umriss des Handys (abgerundetes
+ * Rechteck, größer als die Karte, weil das Handy über ihr schwebt), der die Karte teilweise bedeckt.
+ * Im Schatten bleibt 35–75 % des Lichts, leicht bläulich (Licht von Fenster und Raum).
+ */
+function addShadow(data: Uint8Array | Uint8ClampedArray | Buffer, w: number, h: number, channels: number) {
+  const keep = between(0.35, 0.75);
+  const soft = between(0.03, 0.15) * h;
+  const smooth = (t: number) => (t <= -1 ? 0 : t >= 1 ? 1 : 0.5 + 0.5 * Math.sin((t * Math.PI) / 2));
+  let mask: (x: number, y: number) => number;
+  if (rand() < 0.55) {
+    // Schattenkante: Richtung beliebig, bedeckt 20–70 % der Karte
+    const a = rand() * Math.PI * 2, nx = Math.cos(a), ny = Math.sin(a);
+    const proj = (x: number, y: number) => (x - w / 2) * nx + (y - h / 2) * ny;
+    const extent = Math.abs(nx) * (w / 2) + Math.abs(ny) * (h / 2);
+    const cut = extent * (1 - 2 * between(0.2, 0.7));
+    mask = (x, y) => smooth((proj(x, y) - cut) / soft);
+  } else {
+    // Handy-Umriss: 0,8–1,1 × Kartenbreite breit, 1,3–1,8 × Kartenhöhe hoch, seitlich oder nach oben/unten versetzt
+    const rw = between(0.8, 1.1) * w / 2, rh = between(1.3, 1.8) * h / 2, radius = 0.15 * w;
+    const a = rand() * Math.PI * 2, shift = between(0.45, 0.85);
+    const cx = w / 2 + Math.cos(a) * shift * (rw + w / 2), cy = h / 2 + Math.sin(a) * shift * (rh + h / 2);
+    mask = (x, y) => {
+      const dx = Math.max(0, Math.abs(x - cx) - (rw - radius)), dy = Math.max(0, Math.abs(y - cy) - (rh - radius));
+      return smooth((Math.hypot(dx, dy) - radius) / -soft);
+    };
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const m = mask(x + 0.5, y + 0.5);
+    if (!m) continue;
+    const f = 1 - (1 - keep) * m;
+    const k = (y * w + x) * channels;
+    data[k] = Math.round(data[k] * f * (1 - 0.04 * m));
+    data[k + 1] = Math.round(data[k + 1] * f);
+    data[k + 2] = Math.min(255, Math.round(data[k + 2] * f * (1 + 0.04 * m)));
+  }
+}
+
+/**
+ * Handyschatten: dieselben verzerrten Karten mit und ohne Schatten, erkannt ohne Ausgleich, mit Ausgleich
+ * nur im Kamerabild und mit Ausgleich in Kamerabild und Katalog (dafür wird der Katalog hier neu berechnet).
+ * Entscheidung wie in der App aus 3 Frames; dazu Kalibrierung Abstand → richtig für die 95-%-Regel.
+ */
+async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array, embedder: Embedder) {
+  const refRows = file.refs.map((r) => r.p);
+  const imageOfRow = (row: number) => {
+    const { p, lang } = file.refs[row];
+    return readFile(path.join('.cache/images', createHash('sha1').update(imageIn(file.printings[p], lang).imageUrl).digest('hex')));
+  };
+  const configs: { name: string; config: ShadingConfig }[] = [
+    { name: 'Raster 10, Nachbarn 1', config: DEFAULT_SHADING },
+    { name: 'Raster 8, Nachbarn 2', config: { ...DEFAULT_SHADING, cells: 8, spread: 2 } },
+  ];
+  // Katalog mit Ausgleich (wie ein neu gebauter Katalog)
+  const evened: Float32Array[] = [];
+  for (const { name, config } of configs) {
+    const started = Date.now();
+    const out = new Float32Array(embeddings.length);
+    for (let row = 0; row < file.refs.length; row++) {
+      const { data, info } = await sharp(await imageOfRow(row)).removeAlpha().toColourspace('srgb').raw().toBuffer({ resolveWithObject: true });
+      const px: Pixels = { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: info.width, height: info.height, channels: 3 };
+      out.set(await embedder.embed(evenLighting(px, config)), row * file.meta.dim);
+    }
+    evened.push(out);
+    console.log(`Katalog mit Ausgleich (${name}): ${file.refs.length} Bilder in ${Math.round((Date.now() - started) / 1000)} s`);
+  }
+  const variants = [
+    { name: 'ohne Ausgleich', prep: (p: Pixels) => p, catalog: embeddings },
+    ...configs.map((c) => ({ name: `nur Kamera (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: embeddings })),
+    ...configs.map((c, i) => ({ name: `Kamera + Katalog (${c.name})`, prep: (p: Pixels) => evenLighting(p, c.config), catalog: evened[i] })),
+  ];
+  const scenes = ['ohne Schatten', 'mit Schatten'];
+  type Stat = { n: number; top1: number; auto: number; autoRight: number; margins: { margin: number; right: boolean }[] };
+  const stats = new Map<string, Stat>();
+  const strength = new Map<string, number[]>();
+  const rows = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, n);
+  for (const row of rows) {
+    const truth = file.refs[row].p;
+    const base = await (await distortTo(await imageOfRow(row), 320)).jpeg({ quality: 90 }).toBuffer();
+    for (const scene of scenes) {
+      let shot = base;
+      if (scene === 'mit Schatten') {
+        const { data, info } = await sharp(base).raw().toBuffer({ resolveWithObject: true });
+        addShadow(data, info.width, info.height, info.channels);
+        shot = await sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).jpeg({ quality: 90 }).toBuffer();
+      }
+      const frames: Pixels[] = [];
+      for (let f = 0; f < 3; f++) frames.push(await rawOf(f === 0 ? sharp(shot) : await nextFrame(shot)));
+      strength.set(scene, [...(strength.get(scene) ?? []), shadowStrength(lightField(frames[0]))]);
+      for (const v of variants) {
+        const matches: Match[][] = [];
+        for (const fr of frames) {
+          const q = await embedder.embed(v.prep(fr));
+          matches.push(collapseToPrintings(topK(q, v.catalog, file.meta.dim, 24), (r) => refRows[r], 8));
+        }
+        const avg = averageMatches(matches);
+        const key = `${scene}|${v.name}`;
+        const st = stats.get(key) ?? { n: 0, top1: 0, auto: 0, autoRight: 0, margins: [] };
+        st.n++;
+        if (matches[0][0]?.index === truth) st.top1++;
+        const right = avg[0]?.index === truth;
+        if (isConfident(avg, { minScore: DEFAULT_STABILIZER.minScore, confidentMargin: DEFAULT_STABILIZER.confidentMargin })) {
+          st.auto++;
+          if (right) st.autoRight++;
+        }
+        st.margins.push({ margin: avg[0].score - (avg[1]?.score ?? 0), right });
+        stats.set(key, st);
+      }
+    }
+  }
+  const wilson = (k: number, m: number) => {
+    if (!m) return 0;
+    const z = 1.96, p = k / m;
+    return (p + (z * z) / (2 * m) - z * Math.sqrt((p * (1 - p)) / m + (z * z) / (4 * m * m))) / (1 + (z * z) / m);
+  };
+  const pct = (k: number, m: number) => `${m ? ((100 * k) / m).toFixed(1) : '-'} %`;
+  console.log(`\n=== Handyschatten: ${rows.length} Karten, je ohne und mit Schatten, 3 Frames, Abstand ${DEFAULT_STABILIZER.confidentMargin}`);
+  for (const scene of scenes) {
+    console.log(`${scene}:`);
+    for (const v of variants) {
+      const st = stats.get(`${scene}|${v.name}`)!;
+      // Für die 95-%-Regel: richtig ab dem Speicher-Abstand, und im schwächsten Bereich direkt darüber
+      const near = st.margins.filter((m) => m.margin >= DEFAULT_STABILIZER.confidentMargin && m.margin < DEFAULT_STABILIZER.confidentMargin + 0.02);
+      const nearRight = near.filter((m) => m.right).length;
+      console.log(
+        `  ${v.name.padEnd(34)} Top-1 ${pct(st.top1, st.n)} · automatisch ${pct(st.auto, st.n)}, davon richtig ${pct(st.autoRight, st.auto)} (≥ ${(100 * wilson(st.autoRight, st.auto)).toFixed(1)} %) · Abstand ${DEFAULT_STABILIZER.confidentMargin}–${DEFAULT_STABILIZER.confidentMargin + 0.02}: ${nearRight}/${near.length}`,
+      );
+    }
+  }
+  // Kalibrierung über beide Szenen für die Varianten mit Ausgleich (Abstand → richtig)
+  const EDGES = [0, 0.02, 0.04, 0.05, 0.06, 0.07, 0.08, 0.1, 1];
+  for (const v of variants) {
+    const all = scenes.flatMap((s) => stats.get(`${s}|${v.name}`)!.margins);
+    const cells = [];
+    for (let b = 0; b + 1 < EDGES.length; b++) {
+      const bin = all.filter((m) => m.margin >= EDGES[b] && m.margin < EDGES[b + 1]);
+      const k = bin.filter((m) => m.right).length;
+      cells.push(`${EDGES[b].toFixed(2)}+: ${k}/${bin.length} (≥ ${(100 * wilson(k, bin.length)).toFixed(0)} %)`);
+    }
+    console.log(`  Kalibrierung ${v.name}: ${cells.join(' | ')}`);
+  }
+  console.log('Schattenstärke (dunkelste 10 % zu hellsten 10 %), Quantile 10/50/90/95/99 %:');
+  for (const scene of scenes) {
+    const s = [...strength.get(scene)!].sort((a, b) => a - b);
+    const q = (f: number) => s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(2);
+    console.log(`  ${scene.padEnd(14)} ${q(0.1)}, ${q(0.5)}, ${q(0.9)}, ${q(0.95)}, ${q(0.99)}`);
+  }
+}
 
 /**
  * Spracherkennung wie in der App, mit dem Kamerabild statt des Originals: Querformat-Karten (Battlefields)
