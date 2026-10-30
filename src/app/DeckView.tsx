@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   battlefieldsOf,
+  byCost,
   championsFor,
   checkDeck,
+  COLORLESS,
   copiesOf,
   DECK_GAMES,
   DECK_RULES,
@@ -14,6 +17,7 @@ import {
   newDeck,
   ownedByCard,
   room,
+  runeCount,
   runesFor,
   toggleBattlefield,
   withCard,
@@ -42,16 +46,27 @@ interface Props {
 
 type Screen = { kind: 'list' } | { kind: 'legend' } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
 type Part = 'cards' | 'runes' | 'battlefields';
-type Filter = 'all' | 'deck' | 'unit' | 'spell' | 'gear';
+type Kind = 'all' | 'unit' | 'spell' | 'gear';
+type Sort = 'energy' | 'kind' | 'name' | 'owned';
 
 const KIND_LABEL: Record<CardKind, string> = { legend: 'Legende', unit: 'Einheit', spell: 'Zauber', gear: 'Ausrüstung', rune: 'Rune', battlefield: 'Battlefield' };
-const FILTERS: { value: Filter; label: string }[] = [
+const KINDS: { value: Kind; label: string }[] = [
   { value: 'all', label: 'Alle' },
-  { value: 'deck', label: 'Im Deck' },
   { value: 'unit', label: 'Einheiten' },
   { value: 'spell', label: 'Zauber' },
   { value: 'gear', label: 'Ausrüstung' },
 ];
+const SORTS: { value: Sort; label: string }[] = [
+  { value: 'energy', label: 'Energie' },
+  { value: 'kind', label: 'Kartenart' },
+  { value: 'name', label: 'Name' },
+  { value: 'owned', label: 'Aus der Sammlung zuerst' },
+];
+/** Höchste Stufe im Energie-Filter, zählt als „7+“. */
+const MAX_ENERGY = 7;
+/** Im Deck wie bei Master Duel nach Art gruppiert: erst Einheiten, dann Zauber, dann Ausrüstung, jeweils nach Kosten. */
+const KIND_ORDER: Record<CardKind, number> = { legend: 0, unit: 1, spell: 2, gear: 3, rune: 4, battlefield: 5 };
+const byKind = (a: DeckCard, b: DeckCard) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byCost(a, b);
 /** Reihenfolge der Domains wie auf dem Farbrad des Spiels. */
 const DOMAINS = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
 
@@ -128,24 +143,22 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
     const deck = decks.find((d) => d.deckId === screen.deckId);
     if (deck) {
       return (
-        <>
-          <DeckEditor
-            key={deck.deckId}
-            initial={deck}
-            pool={pool}
-            owned={owned}
-            onSave={onSave}
-            onBack={() => setScreen({ kind: 'list' })}
-            onChangeChampion={() => setScreen({ kind: 'champion', legend: deck.legend, deckId: deck.deckId })}
-            onDelete={() => {
-              if (!confirm(`Deck „${deck.name}“ löschen?`)) return;
-              onDelete(deck.deckId);
-              setScreen({ kind: 'list' });
-            }}
-            onShow={setShown}
-          />
-          {sheet}
-        </>
+        <DeckEditor
+          key={deck.deckId}
+          initial={deck}
+          pool={pool}
+          owned={owned}
+          priceOf={priceOf}
+          urlOf={(card) => catalogs.price(gameId, card.printing.printingId)?.url}
+          onSave={onSave}
+          onBack={() => setScreen({ kind: 'list' })}
+          onChangeChampion={() => setScreen({ kind: 'champion', legend: deck.legend, deckId: deck.deckId })}
+          onDelete={() => {
+            if (!confirm(`Deck „${deck.name}“ löschen?`)) return;
+            onDelete(deck.deckId);
+            setScreen({ kind: 'list' });
+          }}
+        />
       );
     }
   }
@@ -320,97 +333,297 @@ function PickCard({ card, title, detail, active, onPick, onShow }: { card: DeckC
   );
 }
 
+/** So lange halten, bis eine Karte groß aufgeht. */
+const HOLD_MS = 450;
+const hold = { timer: 0, fired: false, x: 0, y: 0 };
+
+/**
+ * Tippen und Halten auf einer Karte: Tippen legt sie ins Deck oder nimmt sie heraus, Halten (Rechtsklick,
+ * Kontextmenü-Taste) zeigt sie groß. Wer beim Halten scrollt, öffnet nichts.
+ */
+function press(onTap: () => void, onHold: () => void) {
+  return {
+    onPointerDown: (e: PointerEvent) => {
+      clearTimeout(hold.timer);
+      hold.fired = false;
+      hold.x = e.clientX;
+      hold.y = e.clientY;
+      if (e.pointerType === 'mouse') return;
+      hold.timer = window.setTimeout(() => {
+        hold.fired = true;
+        navigator.vibrate?.(8);
+        onHold();
+      }, HOLD_MS);
+    },
+    onPointerMove: (e: PointerEvent) => {
+      if (Math.abs(e.clientX - hold.x) + Math.abs(e.clientY - hold.y) > 10) clearTimeout(hold.timer);
+    },
+    onPointerUp: () => {
+      clearTimeout(hold.timer);
+      // Nach dem Halten kommt auf manchen Geräten noch ein Klick, auf anderen nicht
+      if (hold.fired) setTimeout(() => (hold.fired = false), 400);
+    },
+    onPointerCancel: () => clearTimeout(hold.timer),
+    onClick: () => {
+      if (hold.fired) hold.fired = false;
+      else onTap();
+    },
+    onContextMenu: (e: MouseEvent) => {
+      e.preventDefault();
+      clearTimeout(hold.timer);
+      if (!hold.fired) onHold();
+    },
+  };
+}
+
+const thumb = (c: DeckCard) => c.printing.thumbUrl ?? c.printing.imageUrl;
+
+/**
+ * Deck bearbeiten wie im Deckbau von Master Duel: das Deck als Kartenraster (oben, im Querformat links),
+ * darunter die passenden Karten zum Antippen. Leere Plätze zeigen, wie viel noch fehlt.
+ */
 function DeckEditor(props: {
   initial: Deck;
   pool: DeckPool;
   owned: Map<string, number>;
+  priceOf(card: DeckCard): number | undefined;
+  urlOf(card: DeckCard): string | undefined;
   onSave(deck: Deck): void;
   onBack(): void;
   onChangeChampion(): void;
   onDelete(): void;
-  onShow(card: DeckCard): void;
 }) {
-  const { initial, pool, owned, onSave, onBack, onChangeChampion, onDelete, onShow } = props;
+  const { initial, pool, owned, priceOf, urlOf, onSave, onBack, onChangeChampion, onDelete } = props;
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
   const current = useRef(initial);
   const change = (update: (d: Deck) => Deck) => {
     const next = update(current.current);
-    if (next === current.current) return;
+    if (next === current.current) return false;
     current.current = next;
     setDeck(next);
     onSave(next);
+    return true;
   };
   const [part, setPart] = useState<Part>('cards');
-  const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [bfQuery, setBfQuery] = useState('');
-  const [bfChosenOnly, setBfChosenOnly] = useState(false);
+  const [kind, setKind] = useState<Kind>('all');
+  const [energy, setEnergy] = useState<number | null>(null);
+  const [domain, setDomain] = useState<string | null>(null);
+  const [ownedOnly, setOwnedOnly] = useState(false);
+  const [sort, setSort] = useState<Sort>('energy');
+  const [sheet, setSheet] = useState<'sort' | 'filter' | 'more' | null>(null);
+  const [shown, setShown] = useState<DeckCard | null>(null);
+  // Zuletzt hineingelegte Kopie: springt ins Deck und wird sichtbar gescrollt
+  const [fresh, setFresh] = useState<{ id: string; n: number } | null>(null);
+  const [hint, setHint] = useState<{ text: string; at: number } | null>(null);
+  const [spoken, setSpoken] = useState('');
+  const pane = useRef<HTMLDivElement>(null);
+  const hintTimer = useRef(0);
 
   const legend = pool.cards.get(deck.legend);
   const champion = pool.cards.get(deck.champion);
   const mainCards = useMemo(() => (legend ? mainCardsFor(legend, pool) : []), [legend, pool]);
+  const allowed = useMemo(() => new Set(mainCards.map((c) => c.id)), [mainCards]);
   const runes = useMemo(() => (legend ? runesFor(legend, pool) : []), [legend, pool]);
   const battlefields = useMemo(() => battlefieldsOf(pool), [pool]);
   const check = checkDeck(deck, pool);
+  const missing = missingCount(deck, owned);
+  const value = deckValue(deck, pool, priceOf);
+  const ownedOf = (c: DeckCard) => owned.get(c.id) ?? 0;
 
-  const q = query.trim().toLowerCase();
-  const shownCards = mainCards.filter((c) => {
-    if (q && !c.id.toLowerCase().includes(q)) return false;
-    if (filter === 'deck') return copiesOf(deck, c.id) > 0;
-    if (filter !== 'all') return c.kind === filter;
-    return true;
-  });
-  const bq = bfQuery.trim().toLowerCase();
-  const shownBattlefields = battlefields.filter((b) => (!bfChosenOnly || deck.battlefields.includes(b.id)) && (!bq || b.name.toLowerCase().includes(bq)));
-  const inDeck = check.main;
+  /** Kurzer Hinweis unten in der Kartenliste, wenn ein Tipp nichts bewirkt. */
+  const warn = (text: string) => {
+    clearTimeout(hintTimer.current);
+    setHint({ text, at: Date.now() });
+    hintTimer.current = window.setTimeout(() => setHint(null), 2800);
+  };
+  useEffect(() => () => clearTimeout(hintTimer.current), []);
 
-  const has = (c: DeckCard, needed: number) => {
-    const n = owned.get(c.id) ?? 0;
-    return n >= needed ? null : <em class="tag">{n ? `${n} in Sammlung` : 'nicht in Sammlung'}</em>;
+  useEffect(() => {
+    const box = pane.current;
+    const tile = box?.querySelector<HTMLElement>('.fresh');
+    if (!box || !tile) return;
+    const b = box.getBoundingClientRect();
+    const t = tile.getBoundingClientRect();
+    const dy = t.top < b.top ? t.top - b.top - 12 : t.bottom > b.bottom ? t.bottom - b.bottom + 12 : 0;
+    if (dy) box.scrollBy({ top: dy, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [fresh]);
+
+  const addCard = (c: DeckCard) => {
+    if (!change((d) => withCard(d, c, 1, pool))) {
+      warn(
+        copiesOf(current.current, c.id) >= DECK_RULES.copies
+          ? `${cardTitle(c)} ist schon ${DECK_RULES.copies}× im Deck`
+          : `Schon ${DECK_RULES.signatures} Signature-Karten im Deck`,
+      );
+      return;
+    }
+    const n = copiesOf(current.current, c.id);
+    setFresh({ id: c.id, n: n - 1 });
+    setSpoken(`${cardTitle(c)} hinzugefügt, ${n} im Deck`);
+  };
+  const removeCard = (c: DeckCard) => {
+    if (!change((d) => withCard(d, c, -1, pool))) return;
+    setFresh(null);
+    setSpoken(`${cardTitle(c)} herausgenommen, ${copiesOf(current.current, c.id)} im Deck`);
+  };
+  const addRune = (r: DeckCard) => {
+    const full = runeCount(current.current) >= DECK_RULES.runes;
+    if (!change((d) => withRune(d, r, 1, runes))) {
+      warn(`Schon ${DECK_RULES.runes} Runen im Deck`);
+      return;
+    }
+    const n = current.current.runes[r.id] ?? 0;
+    setFresh({ id: r.id, n: n - 1 });
+    // Bei 12 Runen verschiebt ein Tipp die Aufteilung; das soll nicht unbemerkt passieren
+    if (full) warn(`Dafür ist eine andere Rune herausgegangen`);
+    setSpoken(`${r.name}: ${n} im Deck`);
+  };
+  const removeRune = (r: DeckCard) => {
+    if (!change((d) => withRune(d, r, -1, runes))) return;
+    setFresh(null);
+    setSpoken(`${r.name}: ${current.current.runes[r.id] ?? 0} im Deck`);
+  };
+  const toggleField = (b: DeckCard) => {
+    const chosen = current.current.battlefields.includes(b.id);
+    if (!change((d) => toggleBattlefield(d, b))) {
+      warn(`Schon ${DECK_RULES.battlefields} Battlefields. Tippe eins im Deck an, um es herauszunehmen.`);
+      return;
+    }
+    setFresh(chosen ? null : { id: b.id, n: 0 });
+    setSpoken(`${b.name} ${chosen ? 'herausgenommen' : 'hinzugefügt'}`);
   };
 
-  const cardRow = (c: DeckCard) => {
-    const copies = copiesOf(deck, c.id);
-    const isChampion = c.id === deck.champion;
+  // Deck als Raster: Champion zuerst, dann Einheiten, Zauber, Ausrüstung je nach Kosten; jede Kopie einzeln
+  const seen = new Map<string, number>();
+  const deckTile = (c: DeckCard, label: string, onTap: () => void, extra = '') => {
+    const i = seen.get(c.id) ?? 0;
+    seen.set(c.id, i + 1);
+    const lacking = i >= ownedOf(c);
+    const isFresh = fresh?.id === c.id && fresh.n === i;
     return (
-      <li key={c.id} class={copies ? 'in-deck' : ''}>
-        <div class="main">
-          <button class="thumb" onClick={() => onShow(c)} aria-label={`${cardTitle(c)} groß ansehen`}>
-            <img src={c.printing.thumbUrl ?? c.printing.imageUrl} alt="" loading="lazy" />
-          </button>
-          <button class="info" onClick={() => onShow(c)}>
-            <strong>{cardTitle(c)}</strong>
-            <small>
-              <Domains domains={c.domains} />
-              {KIND_LABEL[c.kind]}
-              {c.energy !== null ? ` · ${c.energy} Energie` : ''}
-            </small>
-            {(isChampion || c.signature || copies > 0) && (
-              <span class="line">
-                {isChampion && <em class="tag accent">Champion</em>}
-                {c.signature && <em class="tag">Signature</em>}
-                {copies > 0 && has(c, copies)}
-              </span>
-            )}
-          </button>
+      <button
+        key={`${c.id}#${i}`}
+        class={`tile${extra}${lacking ? ' lacking' : ''}${isFresh ? ' fresh' : ''}`}
+        aria-label={`${label}${lacking ? ' (fehlt dir)' : ''}`}
+        {...press(onTap, () => setShown(c))}
+      >
+        <img src={thumb(c)} alt="" loading="lazy" draggable={false} />
+        {extra === ' champ' && <b class="tile-champ">{starIcon}</b>}
+      </button>
+    );
+  };
+  const slots = (n: number, cls = '') => Array.from({ length: Math.max(0, n) }, (_, i) => <i key={`slot-${i}`} class={`slot${cls}`} aria-hidden="true" />);
+  const inDeck = Object.entries(deck.cards)
+    .map(([id, n]) => ({ card: pool.cards.get(id), n }))
+    .filter((e): e is { card: DeckCard; n: number } => !!e.card)
+    .sort((a, b) => byKind(a.card, b.card));
+  const runeOrder = (id: string) => {
+    const i = runes.findIndex((r) => r.id === id);
+    return i < 0 ? runes.length : i;
+  };
+  const runesIn = Object.entries(deck.runes)
+    .map(([id, n]) => ({ card: pool.cards.get(id), n }))
+    .filter((e): e is { card: DeckCard; n: number } => !!e.card)
+    .sort((a, b) => runeOrder(a.card.id) - runeOrder(b.card.id));
+  const fieldsIn = deck.battlefields.map((id) => pool.cards.get(id)).filter((b): b is DeckCard => !!b);
+  const broken = check.problems.filter((p) => !p.startsWith('Noch '));
+
+  // Kartenliste: Suche, Filter und Sortierung
+  const q = query.trim().toLowerCase();
+  const filters = (kind !== 'all' ? 1 : 0) + (energy !== null ? 1 : 0) + (domain ? 1 : 0) + (ownedOnly ? 1 : 0);
+  const order: Record<Sort, (a: DeckCard, b: DeckCard) => number> = {
+    energy: byCost,
+    kind: byKind,
+    name: (a, b) => cardTitle(a).localeCompare(cardTitle(b)),
+    owned: (a, b) => Number(ownedOf(b) > 0) - Number(ownedOf(a) > 0) || byCost(a, b),
+  };
+  const listed = mainCards
+    .filter(
+      (c) =>
+        (kind === 'all' || c.kind === kind) &&
+        (energy === null || (energy === MAX_ENERGY ? (c.energy ?? -1) >= MAX_ENERGY : c.energy === energy)) &&
+        (!domain || (domain === COLORLESS ? c.domains.every((d) => d === COLORLESS) : c.domains.includes(domain))) &&
+        (!ownedOnly || ownedOf(c) > 0) &&
+        (!q || `${cardTitle(c)} ${c.tags.join(' ')}`.toLowerCase().includes(q)),
+    )
+    .sort(order[sort]);
+  const bq = bfQuery.trim().toLowerCase();
+  const listedFields = battlefields.filter((b) => !bq || b.name.toLowerCase().includes(bq));
+
+  const listTile = (c: DeckCard, count: number, blocked: boolean, onTap: () => void, landscape = false) => {
+    const own = ownedOf(c);
+    const name = c.kind === 'unit' || c.kind === 'spell' || c.kind === 'gear' ? cardTitle(c) : c.name;
+    return (
+      <button
+        key={c.id}
+        class={`tile${landscape ? ' landscape' : ''}${count ? ' in' : ''}${blocked ? ' blocked' : ''}`}
+        aria-label={`${name}, ${count} im Deck, ${own} in Sammlung`}
+        aria-disabled={blocked || undefined}
+        {...press(onTap, () => setShown(c))}
+      >
+        <img src={thumb(c)} alt="" loading="lazy" draggable={false} />
+        {count > 0 && (
+          <b key={count} class={`tile-count${fresh?.id === c.id ? ' pop' : ''}`}>
+            {landscape ? checkIcon : count}
+          </b>
+        )}
+        {own > 0 && (
+          <span class="tile-own">
+            {ownIcon}
+            {own}
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  /** Im großen Kartenblatt: genaue Anzahl ändern, Champion wechseln, Battlefield wählen. */
+  const controls = (c: DeckCard) => {
+    if (c.kind === 'battlefield') {
+      const chosen = deck.battlefields.includes(c.id);
+      return (
+        <button class={chosen ? '' : 'primary'} disabled={!chosen && deck.battlefields.length >= DECK_RULES.battlefields} onClick={() => toggleField(c)}>
+          {chosen ? 'Aus dem Deck nehmen' : 'Ins Deck legen'}
+        </button>
+      );
+    }
+    const isRune = c.kind === 'rune' && runes.some((r) => r.id === c.id);
+    if (!isRune && !allowed.has(c.id)) return null;
+    const n = isRune ? deck.runes[c.id] ?? 0 : copiesOf(deck, c.id);
+    return (
+      <>
+        <div class="sheet-qty">
+          <span>Im Deck</span>
           <div class="qty">
-            <button onClick={() => change((d) => withCard(d, c, -1, pool))} disabled={!deck.cards[c.id]} aria-label={`${cardTitle(c)}: eine weniger`}>
+            <button onClick={() => (isRune ? removeRune(c) : removeCard(c))} disabled={isRune ? !n : !deck.cards[c.id]} aria-label="Eine weniger">
               −
             </button>
-            <span>{copies}</span>
-            <button onClick={() => change((d) => withCard(d, c, 1, pool))} disabled={room(deck, c, pool) === 0} aria-label={`${cardTitle(c)}: eine mehr`}>
+            <span aria-live="polite">{n}</span>
+            <button onClick={() => (isRune ? addRune(c) : addCard(c))} disabled={!isRune && room(deck, c, pool) === 0} aria-label="Eine mehr">
               +
             </button>
           </div>
         </div>
-      </li>
+        {c.id === deck.champion && (
+          <button
+            onClick={() => {
+              setShown(null);
+              onChangeChampion();
+            }}
+          >
+            Champion wechseln
+          </button>
+        )}
+      </>
     );
   };
 
   return (
     <section class="decks deck-edit">
-      <header class="friend-head">
+      <header class="builder-head">
         <button class="link back" onClick={onBack}>
           ‹ Decks
         </button>
@@ -427,182 +640,274 @@ function DeckEditor(props: {
           }}
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
-      </header>
-      <div class="deck-heads">
-        {legend && (
-          <button class="deck-head" onClick={() => onShow(legend)}>
-            <img src={legend.printing.thumbUrl ?? legend.printing.imageUrl} alt="" />
-            <span>
-              <small>Legende</small>
-              <strong>{legendTitle(legend)}</strong>
-              <small>
-                <Domains domains={legend.domains} />
-                {legend.name}
-              </small>
-            </span>
-          </button>
-        )}
-        <button class="deck-head" onClick={onChangeChampion} aria-label="Champion ändern">
-          {champion && <img src={champion.printing.thumbUrl ?? champion.printing.imageUrl} alt="" />}
-          <span>
-            <small>Champion</small>
-            <strong>{champion?.name ?? '–'}</strong>
-            <small>{champion?.title ?? ''}</small>
-          </span>
+        <button class="tool" aria-label="Weitere Aktionen" aria-haspopup="dialog" onClick={() => setSheet('more')}>
+          {moreIcon}
         </button>
-      </div>
-      <div class="segmented deck-parts" role="radiogroup" aria-label="Teil des Decks">
-        {(
-          [
-            ['cards', 'Karten', inDeck, DECK_RULES.main],
-            ['runes', 'Runen', check.runes, DECK_RULES.runes],
-            ['battlefields', 'Battlefields', check.battlefields, DECK_RULES.battlefields],
-          ] as const
-        ).map(([value, label, n, of]) => (
-          <button role="radio" aria-checked={part === value} class={part === value ? 'active' : ''} onClick={() => setPart(value)}>
-            <span>{label}</span>
-            <small class={n >= of ? 'done' : ''}>
-              {n}/{of}
-            </small>
-          </button>
-        ))}
-      </div>
-      <p class="deck-status">
-        <span role="status">{check.complete ? <em class="tag ok">Deck vollständig</em> : <span class="muted">{check.problems.slice(0, 3).join(' · ')}</span>}</span>
-        {/* Ablauf wie beim Bauen: erst Karten, dann Runen, dann Battlefields */}
-        {part === 'cards' && check.main >= DECK_RULES.main && check.runes < DECK_RULES.runes && (
-          <button class="link" onClick={() => setPart('runes')}>
-            Weiter zu den Runen ›
-          </button>
-        )}
-        {part !== 'battlefields' && check.main >= DECK_RULES.main && check.runes === DECK_RULES.runes && check.battlefields < DECK_RULES.battlefields && (
-          <button class="link" onClick={() => setPart('battlefields')}>
-            Weiter zu den Battlefields ›
-          </button>
-        )}
-      </p>
+      </header>
 
-      {part === 'cards' && (
-        <>
-          {/* Beim Scrollen bleibt oben, wie viele Karten schon im Deck sind */}
-          <div class="find">
-            <input type="search" enterkeyhint="search" placeholder="Karte suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
-            <span class={`find-count${inDeck >= DECK_RULES.main ? ' done' : ''}`} aria-hidden="true">
-              {inDeck}/{DECK_RULES.main}
+      <div class="builder">
+        <div class="deck-pane" ref={pane}>
+          <div class="deck-top">
+            {legend && (
+              <button class="deck-legend" onClick={() => setShown(legend)}>
+                <img src={thumb(legend)} alt="" />
+                <span>
+                  <small>
+                    <Domains domains={legend.domains} />
+                    Legende
+                  </small>
+                  <strong>
+                    {legendTitle(legend)} · {legend.name}
+                  </strong>
+                </span>
+              </button>
+            )}
+            <span class="deck-meta">
+              {check.complete && <em class="tag ok">Vollständig</em>}
+              {value !== undefined && <strong>{formatEur(value)}</strong>}
+              {missing > 0 && <small>{missing} fehlen dir</small>}
             </span>
           </div>
-          <div class="chips filters" role="radiogroup" aria-label="Kartenart">
-            {FILTERS.map((f) => (
-              <button role="radio" aria-checked={filter === f.value} class={filter === f.value ? 'active' : ''} onClick={() => setFilter(f.value)}>
-                {f.label}
-                {f.value === 'deck' ? ` ${inDeck}` : ''}
+          {broken.length > 0 && <p class="deck-problems">{broken.slice(0, 2).join(' · ')}</p>}
+
+          <h2 class="pane-head">
+            Hauptdeck
+            <b class={check.main >= DECK_RULES.main ? 'done' : ''}>
+              {check.main}/{DECK_RULES.main}
+            </b>
+            {check.signatures > 0 && (
+              <small>
+                Signature {check.signatures}/{DECK_RULES.signatures}
+              </small>
+            )}
+          </h2>
+          <div class="deck-grid">
+            {champion && deckTile(champion, `${cardTitle(champion)}, Champion`, () => setShown(champion), ' champ')}
+            {inDeck.flatMap(({ card, n }) => Array.from({ length: n }, () => deckTile(card, `${cardTitle(card)} herausnehmen`, () => removeCard(card))))}
+            {slots(DECK_RULES.main - check.main)}
+          </div>
+
+          <h2 class="pane-head">
+            Runen
+            <b class={check.runes === DECK_RULES.runes ? 'done' : ''}>
+              {check.runes}/{DECK_RULES.runes}
+            </b>
+          </h2>
+          <div class="deck-grid runes">
+            {runesIn.flatMap(({ card, n }) => Array.from({ length: n }, () => deckTile(card, `${card.name} herausnehmen`, () => removeRune(card))))}
+            {slots(DECK_RULES.runes - check.runes)}
+          </div>
+
+          <h2 class="pane-head">
+            Battlefields
+            <b class={check.battlefields === DECK_RULES.battlefields ? 'done' : ''}>
+              {check.battlefields}/{DECK_RULES.battlefields}
+            </b>
+          </h2>
+          <div class="deck-grid fields">
+            {fieldsIn.map((b) => deckTile(b, `${b.name} herausnehmen`, () => toggleField(b), ' landscape'))}
+            {slots(DECK_RULES.battlefields - fieldsIn.length, ' landscape')}
+          </div>
+          <p class="pane-hint">Antippen legt eine Karte hinein oder nimmt sie heraus. Halten zeigt sie groß.</p>
+        </div>
+
+        <div class="list-pane">
+          <div class="segmented deck-parts" role="radiogroup" aria-label="Karten zum Hinzufügen">
+            {(
+              [
+                ['cards', 'Karten', check.main, DECK_RULES.main],
+                ['runes', 'Runen', check.runes, DECK_RULES.runes],
+                ['battlefields', 'Battlefields', check.battlefields, DECK_RULES.battlefields],
+              ] as const
+            ).map(([v, label, n, of]) => (
+              <button role="radio" aria-checked={part === v} class={part === v ? 'active' : ''} onClick={() => setPart(v)}>
+                <span>{label}</span>
+                <small class={n >= of ? 'done' : ''}>
+                  {n}/{of}
+                </small>
               </button>
             ))}
           </div>
-          {check.signatures > 0 && (
-            <small class="muted rule-note">
-              Signature-Karten {check.signatures}/{DECK_RULES.signatures}
-            </small>
-          )}
-          {shownCards.length ? <ol class="items deck-cards">{shownCards.map(cardRow)}</ol> : <p class="muted none">Keine Karte</p>}
-        </>
-      )}
 
-      {part === 'runes' && (
-        <>
-          <ol class="items deck-cards">
-            {runes.map((r) => {
-              const n = deck.runes[r.id] ?? 0;
-              return (
-                <li key={r.id} class={n ? 'in-deck' : ''}>
-                  <div class="main">
-                    <button class="thumb" onClick={() => onShow(r)} aria-label={`${r.name} groß ansehen`}>
-                      <img src={r.printing.thumbUrl ?? r.printing.imageUrl} alt="" loading="lazy" />
-                    </button>
-                    <span class="info">
-                      <strong>{r.name}</strong>
-                      <small>
-                        <Domains domains={r.domains} />
-                        {r.domains.join(', ')}
-                      </small>
-                      {n > 0 && <span class="line">{has(r, n)}</span>}
-                    </span>
-                    <div class="qty">
-                      <button onClick={() => change((d) => withRune(d, r, -1, runes))} disabled={!n} aria-label={`${r.name}: eine weniger`}>
-                        −
-                      </button>
-                      <span>{n}</span>
-                      <button onClick={() => change((d) => withRune(d, r, 1, runes))} disabled={check.runes >= DECK_RULES.runes && n === check.runes} aria-label={`${r.name}: eine mehr`}>
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-          {check.runes === 0 && runes.length > 1 && (
-            <button class="even-runes" onClick={() => change((d) => evenRunes(d, runes))}>
-              Je {DECK_RULES.runes / runes.length} verteilen
-            </button>
+          {part === 'cards' && (
+            <>
+              <div class="list-tools">
+                <input type="search" enterkeyhint="search" placeholder="Karte suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+                <button class="tool" aria-label={`Sortieren: ${SORTS.find((s) => s.value === sort)?.label}`} aria-haspopup="dialog" onClick={() => setSheet('sort')}>
+                  {sortIcon}
+                </button>
+                <button
+                  class={`tool${filters ? ' set' : ''}`}
+                  aria-label={filters ? `Filter, ${filters} aktiv` : 'Filter'}
+                  aria-haspopup="dialog"
+                  onClick={() => setSheet('filter')}
+                >
+                  {filterIcon}
+                  {filters > 0 && <b class="tool-badge">{filters}</b>}
+                </button>
+              </div>
+              {listed.length ? (
+                <div class="list-grid">{listed.map((c) => listTile(c, copiesOf(deck, c.id), room(deck, c, pool) === 0, () => addCard(c)))}</div>
+              ) : (
+                <p class="muted none">Keine Karte</p>
+              )}
+            </>
           )}
-        </>
-      )}
 
-      {part === 'battlefields' && (
-        <>
-          <div class="find">
-            <input type="search" enterkeyhint="search" placeholder="Battlefield suchen" value={bfQuery} onInput={(e) => setBfQuery(e.currentTarget.value)} />
+          {part === 'runes' && (
+            <>
+              {check.runes === 0 && runes.length > 1 && (
+                <button class="even-runes" onClick={() => change((d) => evenRunes(d, runes))}>
+                  Je {DECK_RULES.runes / runes.length} verteilen
+                </button>
+              )}
+              <div class="list-grid">{runes.map((r) => listTile(r, deck.runes[r.id] ?? 0, false, () => addRune(r)))}</div>
+            </>
+          )}
+
+          {part === 'battlefields' && (
+            <>
+              <div class="list-tools">
+                <input type="search" enterkeyhint="search" placeholder="Battlefield suchen" value={bfQuery} onInput={(e) => setBfQuery(e.currentTarget.value)} />
+              </div>
+              {listedFields.length ? (
+                <div class="list-grid landscape">
+                  {listedFields.map((b) => {
+                    const chosen = deck.battlefields.includes(b.id);
+                    return listTile(b, chosen ? 1 : 0, !chosen && deck.battlefields.length >= DECK_RULES.battlefields, () => toggleField(b), true);
+                  })}
+                </div>
+              ) : (
+                <p class="muted none">Kein Battlefield</p>
+              )}
+            </>
+          )}
+          {hint && (
+            <p class="builder-hint" key={hint.at}>
+              {hint.text}
+            </p>
+          )}
+        </div>
+      </div>
+      <p class="sr-only" role="status">
+        {hint?.text ?? spoken}
+      </p>
+
+      {shown && (
+        <CardSheet card={shown} owned={ownedOf(shown)} price={priceOf(shown)} url={urlOf(shown)} onClose={() => setShown(null)}>
+          {controls(shown)}
+        </CardSheet>
+      )}
+      {sheet === 'sort' && (
+        <Sheet label="Sortieren" onClose={() => setSheet(null)}>
+          <h2>Sortieren</h2>
+          <div class="options" role="radiogroup" aria-label="Sortieren nach">
+            {SORTS.map((o) => (
+              <button
+                role="radio"
+                aria-checked={sort === o.value}
+                class={sort === o.value ? 'active' : ''}
+                onClick={() => {
+                  setSort(o.value);
+                  setSheet(null);
+                }}
+              >
+                {o.label}
+                {sort === o.value && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
+      {sheet === 'filter' && legend && (
+        <Sheet label="Filter" onClose={() => setSheet(null)}>
+          <h2>Filter</h2>
+          <div class="field">
+            <span>Kartenart</span>
+            <div class="chips" role="radiogroup" aria-label="Kartenart">
+              {KINDS.map((k) => (
+                <button role="radio" aria-checked={kind === k.value} class={kind === k.value ? 'active' : ''} onClick={() => setKind(k.value)}>
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div class="field">
+            <span>Energie</span>
+            <div class="chips energy" role="radiogroup" aria-label="Energie">
+              <button role="radio" aria-checked={energy === null} class={energy === null ? 'active' : ''} onClick={() => setEnergy(null)}>
+                Alle
+              </button>
+              {Array.from({ length: MAX_ENERGY + 1 }, (_, e) => (
+                <button role="radio" aria-checked={energy === e} class={energy === e ? 'active' : ''} onClick={() => setEnergy(energy === e ? null : e)}>
+                  {e === MAX_ENERGY ? `${e}+` : e}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div class="field">
+            <span>Domain</span>
+            <div class="chips" role="radiogroup" aria-label="Domain">
+              <button role="radio" aria-checked={!domain} class={!domain ? 'active' : ''} onClick={() => setDomain(null)}>
+                Alle
+              </button>
+              {[...legend.domains, COLORLESS].map((d) => (
+                <button role="radio" aria-checked={domain === d} class={domain === d ? 'active' : ''} onClick={() => setDomain(domain === d ? null : d)}>
+                  {d !== COLORLESS && <DomainDot domain={d} />}
+                  {d === COLORLESS ? 'Farblos' : d}
+                </button>
+              ))}
+            </div>
           </div>
           <label class="check">
-            <input type="checkbox" checked={bfChosenOnly} onChange={(e) => setBfChosenOnly(e.currentTarget.checked)} />
-            Nur gewählte
+            <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.currentTarget.checked)} />
+            Nur Karten aus meiner Sammlung
           </label>
-          {shownBattlefields.length ? (
-            <ol class="items deck-cards">
-              {shownBattlefields.map((b) => {
-                const chosen = deck.battlefields.includes(b.id);
-                const full = !chosen && deck.battlefields.length >= DECK_RULES.battlefields;
-                return (
-                  <li key={b.id} class={chosen ? 'in-deck' : ''}>
-                    <div class="main">
-                      <button class="thumb landscape" onClick={() => onShow(b)} aria-label={`${b.name} groß ansehen`}>
-                        <img src={b.printing.thumbUrl ?? b.printing.imageUrl} alt="" loading="lazy" />
-                      </button>
-                      <span class="info">
-                        <strong>{b.name}</strong>
-                        <small>{printingCode(b.printing)}</small>
-                        {chosen && <span class="line">{has(b, 1)}</span>}
-                      </span>
-                      <button
-                        class={`pick-toggle${chosen ? ' on' : ''}`}
-                        role="checkbox"
-                        aria-checked={chosen}
-                        aria-label={b.name}
-                        disabled={full}
-                        onClick={() => change((d) => toggleBattlefield(d, b))}
-                      >
-                        {checkIcon}
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : (
-            <p class="muted none">Kein Battlefield</p>
+          {filters > 0 && (
+            <button
+              class="reset-filters"
+              onClick={() => {
+                setKind('all');
+                setEnergy(null);
+                setDomain(null);
+                setOwnedOnly(false);
+              }}
+            >
+              Filter zurücksetzen
+            </button>
           )}
-        </>
+        </Sheet>
       )}
-
-      <button class="link remove-friend" onClick={onDelete}>
-        Deck löschen
-      </button>
+      {sheet === 'more' && (
+        <Sheet label="Deck" onClose={() => setSheet(null)}>
+          <h2>{deck.name}</h2>
+          <div class="options">
+            <button
+              onClick={() => {
+                setSheet(null);
+                onChangeChampion();
+              }}
+            >
+              Champion wechseln
+            </button>
+            <button
+              class="danger"
+              onClick={() => {
+                setSheet(null);
+                onDelete();
+              }}
+            >
+              Deck löschen
+            </button>
+          </div>
+        </Sheet>
+      )}
     </section>
   );
 }
 
-function CardSheet({ card, owned, price, url, onClose }: { card: DeckCard; owned: number; price?: number; url?: string; onClose(): void }) {
+function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?: string; onClose(): void; children?: ComponentChildren }) {
+  const { card, owned, price, url, onClose, children } = props;
   const landscape = card.printing.attributes?.orientation === 'landscape';
   return (
     <Sheet class="binder-card" label={cardTitle(card)} onClose={onClose}>
@@ -630,6 +935,7 @@ function CardSheet({ card, owned, price, url, onClose }: { card: DeckCard; owned
           </a>
         )}
       </div>
+      {children}
     </Sheet>
   );
 }
@@ -666,6 +972,37 @@ const chevron = (
 const zoomIcon = (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
     <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4M11 8v6M8 11h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  </svg>
+);
+
+const starIcon = (
+  <svg viewBox="0 0 24 24" width="10" height="10" aria-hidden="true">
+    <path d="M12 2.5l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17l-5.9 3.3 1.3-6.5-4.9-4.5 6.6-.8z" fill="currentColor" />
+  </svg>
+);
+
+/** Kleines Symbol des Tabs „Sammlung“ vor der Anzahl eigener Karten. */
+const ownIcon = (
+  <svg viewBox="0 0 24 24" width="10" height="10" aria-hidden="true">
+    <path d="M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round" />
+  </svg>
+);
+
+const sortIcon = (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+);
+
+const filterIcon = (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 4.5v5M10 14.5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  </svg>
+);
+
+const moreIcon = (
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <path d="M6 12h.01M12 12h.01M18 12h.01" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" />
   </svg>
 );
 
