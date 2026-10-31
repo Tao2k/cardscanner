@@ -603,13 +603,33 @@ button.link.remove-friend { align-self: center; margin-top: 8px; padding: 0; col
 .tabs.six { grid-template-columns: repeat(6, 1fr); gap: 0; padding-left: 4px; padding-right: 4px; }
 .tabs.six .tab-icon { padding: 3px 10px; }
 .tabs.six button { font-size: 0.68rem; letter-spacing: -0.01em; }
-.new-deck { align-self: flex-start; }
-.deck-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.deck-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; background: var(--surface); border-radius: var(--r-row);
-  font-weight: 400; text-align: left; justify-content: flex-start; }
-.deck-row img { width: 44px; height: 61px; object-fit: cover; border-radius: 7px; flex: none; background: var(--raised); box-shadow: var(--shadow-soft); }
-.deck-row .chev { flex: none; color: var(--muted); }
-.deck-row .line small { font-size: 0.8rem; }
+/* Gespeicherte Decks als Deckboxen wie in Master Duel: Titelkarte vor einem kleinen Stapel, vorn „Neues Deck“ */
+.deck-boxes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 16px 12px; }
+.deck-boxes > li { min-width: 0; }
+.deck-box { width: 100%; min-height: auto; flex-direction: column; align-items: stretch; gap: 2px; padding: 0; background: none; font-weight: 400; text-align: left;
+  border-radius: 12px; -webkit-tap-highlight-color: transparent; }
+.deck-box .case { position: relative; display: block; aspect-ratio: 63 / 88; margin: 0 6px 8px 0; border-radius: 9px; background: var(--raised);
+  box-shadow: 3px 3px 0 -1px var(--surface), 3px 3px 0 0 var(--border), 6px 6px 0 -1px var(--surface), 6px 6px 0 0 var(--border), var(--shadow-soft);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.deck-box:active .case { transform: scale(0.96); }
+.deck-box .case img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.deck-box .state { position: absolute; top: 5px; left: 5px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  font-style: normal; font-size: 0.75rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.deck-box .state.ok { background: var(--success-text); color: #fff; }
+.deck-box .state svg { width: 13px; height: 13px; }
+.deck-box .state svg path { stroke-width: 3.4; }
+.deck-box .state.warn { background: var(--warn); color: var(--on-warn); }
+.deck-box .case .domains { position: absolute; right: 5px; bottom: 5px; margin: 0; padding: 3px 4px; border-radius: 99px;
+  background: rgba(16, 12, 20, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.deck-box strong { font-size: 0.86rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-box small { display: flex; gap: 6px; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.deck-box small .deck-count { font-weight: 600; color: var(--success-text); }
+.deck-box small .deck-count.short { color: var(--warn); }
+.deck-box small.missing { font-size: 0.72rem; }
+.deck-box.new .case { display: grid; place-items: center; background: transparent; color: var(--accent-text); box-shadow: none;
+  border: 2px dashed color-mix(in srgb, var(--accent-text) 50%, transparent); }
+.deck-box.new .case svg { width: 30px; height: 30px; }
+.deck-box.new strong { color: var(--accent-text); }
 .tag.ok { background: var(--success-soft); color: var(--success-text); }
 .tag.accent { background: var(--accent-soft); color: var(--accent-text); }
 .empty-state button { margin-top: 8px; }

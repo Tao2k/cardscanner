@@ -170,17 +170,17 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
       </header>
       {pool.legends.length > 0 && !pool.legends.some((l) => l.championOf) && <p class="banner">Kartendaten werden aktualisiert. Bitte die App gleich neu öffnen.</p>}
       {decks.length > 0 ? (
-        <>
-          <button class="primary new-deck" onClick={() => setScreen({ kind: 'legend' })}>
-            {plusIcon}
-            Neues Deck
-          </button>
-          <ul class="deck-list">
-            {decks.map((deck) => (
-              <DeckRow key={deck.deckId} deck={deck} pool={pool} owned={owned} priceOf={priceOf} onOpen={() => setScreen({ kind: 'edit', deckId: deck.deckId })} />
-            ))}
-          </ul>
-        </>
+        <ul class="deck-boxes">
+          <li>
+            <button class="deck-box new" onClick={() => setScreen({ kind: 'legend' })}>
+              <span class="case">{plusIcon}</span>
+              <strong>Neues Deck</strong>
+            </button>
+          </li>
+          {decks.map((deck) => (
+            <DeckBox key={deck.deckId} deck={deck} pool={pool} owned={owned} priceOf={priceOf} onOpen={() => setScreen({ kind: 'edit', deckId: deck.deckId })} />
+          ))}
+        </ul>
       ) : (
         <div class="empty-state">
           {deckIcon}
@@ -195,26 +195,49 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   );
 }
 
-function DeckRow({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: DeckPool; owned: Map<string, number>; priceOf(card: DeckCard): number | undefined; onOpen(): void }) {
+/**
+ * Gespeichertes Deck als Kachel wie die Deckboxen in Master Duel: der Champion als Titelkarte vor einem kleinen
+ * Kartenstapel, darunter Name, Kartenzahl und Wert. Ein Haken heißt spielbereit.
+ */
+function DeckBox({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: DeckPool; owned: Map<string, number>; priceOf(card: DeckCard): number | undefined; onOpen(): void }) {
   const legend = pool.cards.get(deck.legend);
-  const champion = pool.cards.get(deck.champion);
+  const cover = pool.cards.get(deck.champion) ?? legend;
   const check = checkDeck(deck, pool);
   const value = deckValue(deck, pool, priceOf);
   const missing = missingCount(deck, owned);
+  const status = check.complete ? 'Vollständig' : check.problems[0];
   return (
     <li>
-      <button class="deck-row" onClick={onOpen}>
-        {(champion ?? legend) && <img src={(champion ?? legend)!.printing.thumbUrl ?? (champion ?? legend)!.printing.imageUrl} alt="" loading="lazy" />}
-        <span class="info">
-          <strong>{deck.name}</strong>
-          <small>{legend ? `${legendTitle(legend)} · ${legend.name}` : deck.legend}</small>
-          <span class="line">
-            {check.complete ? <em class="tag ok">Vollständig</em> : <em class="tag warn">{check.problems[0]}</em>}
-            {value !== undefined && <span class="price">{formatEur(value)}</span>}
-            {missing > 0 && <small class="muted">{missing} fehlen dir</small>}
-          </span>
+      <button class="deck-box" onClick={onOpen} aria-label={`${deck.name}, ${check.main} von ${DECK_RULES.main} Karten, ${status}`}>
+        <span class="case">
+          {cover && (
+            <img
+              src={cover.printing.imageUrl}
+              srcset={cardSrcSet(cover.printing.imageUrl, [240, 360, 480])}
+              sizes="(min-width: 720px) 150px, 31vw"
+              alt=""
+              loading="lazy"
+            />
+          )}
+          {check.complete ? (
+            <i class="state ok" aria-hidden="true">
+              {checkIcon}
+            </i>
+          ) : (
+            <i class="state warn" aria-hidden="true">
+              !
+            </i>
+          )}
+          {legend && <Domains domains={legend.domains} />}
         </span>
-        {chevron}
+        <strong>{deck.name}</strong>
+        <small>
+          <span class={check.main < DECK_RULES.main ? 'deck-count short' : 'deck-count'}>
+            {check.main}/{DECK_RULES.main}
+          </span>
+          {value !== undefined && <span>{formatEur(value)}</span>}
+        </small>
+        {missing > 0 && <small class="missing">{missing} fehlen dir</small>}
       </button>
     </li>
   );
@@ -960,12 +983,6 @@ function DomainDot({ domain }: { domain: string }) {
 const plusIcon = (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
     <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
-  </svg>
-);
-
-const chevron = (
-  <svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-    <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 );
 
