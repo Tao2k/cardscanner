@@ -33,6 +33,8 @@ export interface Prefs {
   binderSet: string;
   /** Seit dem letzten Öffnen der Sammlung gescannte Drucke („gameId|printingId“, je Exemplar), fliegen dann in den Binder. */
   binderNew: string[];
+  /** Tab „Preise“: Preisentwicklung der Karten oder Gesamtwert der Sammlung nach Hinzufügen. */
+  priceMode: PriceMode;
   /** Zeitraum im Tab „Preise“ in Tagen; null = gesamter Verlauf. */
   pricePeriod: number | null;
   /** Reihenfolge der Karten im Tab „Preise“ (innerhalb eines Sets). */
@@ -44,6 +46,7 @@ export interface Prefs {
 export type CollectionSort = 'recent' | 'set' | 'price';
 export type CollectionViewMode = 'list' | 'binder';
 export type PriceSort = MoverSort;
+export type PriceMode = 'trend' | 'value';
 
 /** Zeiträume im Tab „Preise“ (Tage; null = gesamter Verlauf). */
 export const PRICE_PERIODS: { days: number | null; label: string }[] = [
@@ -60,7 +63,7 @@ const PRICE_SORTS: PriceSort[] = ['value-desc', 'value-asc', 'change-desc', 'cha
 const OLD_PRICE_SORTS: Record<string, PriceSort> = { value: 'value-desc', gain: 'pct-desc', loss: 'pct-asc', change: 'change-desc', number: 'value-desc' };
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], priceMode: 'value', pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
@@ -75,6 +78,7 @@ export function migratePrefs(stored: Partial<Prefs> | null): Prefs {
   const prefs: Prefs = { ...DEFAULTS, ...stored, conditionScale: 'cm' };
   if (stored?.condition && stored.conditionScale !== 'cm') prefs.condition = conditionFromLegacy(stored.condition);
   if (!PRICE_PERIODS.some((p) => p.days === prefs.pricePeriod)) prefs.pricePeriod = DEFAULTS.pricePeriod;
+  if (prefs.priceMode !== 'trend' && prefs.priceMode !== 'value') prefs.priceMode = DEFAULTS.priceMode;
   if (!PRICE_SORTS.includes(prefs.priceSort)) prefs.priceSort = OLD_PRICE_SORTS[prefs.priceSort] ?? DEFAULTS.priceSort;
   return prefs;
 }

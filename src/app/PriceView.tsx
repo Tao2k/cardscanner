@@ -1,12 +1,12 @@
 import { useId, useState } from 'preact/hooks';
 import { compareCollectorNumbers, setRanks } from '../core/excel';
-import { averageValue, collectionMovers, collectionSeries, dayOf, moverOrder, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
-import { collectionValue, formatAsOf, formatEur } from '../core/prices';
+import { averageValue, collectionMovers, collectionSeries, dayOf, growthChart, moverOrder, valueChart, type ChartPoint, type Mover, type PriceHistoryFile } from '../core/priceHistory';
+import { collectionValue, formatAsOf, formatEur, itemPrice } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
 import { printingCode } from './format';
-import { PRICE_PERIODS, type Prefs, type PriceSort } from './prefs';
+import { PRICE_PERIODS, type Prefs, type PriceMode, type PriceSort } from './prefs';
 import { arrow, groupBySet, groupChange, MoveCol, PCT, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
 
 interface Props {
@@ -29,6 +29,11 @@ const SORTS: { value: PriceSort; label: string }[] = [
 ];
 
 type Filter = 'all' | 'up' | 'down';
+
+const MODES: { value: PriceMode; label: string }[] = [
+  { value: 'value', label: 'Sammlungswert' },
+  { value: 'trend', label: 'Preisentwicklung' },
+];
 
 const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
 const sinceLabel = (p: ChartPoint) => (p.average ? `ggü. Ø ${p.average} Tage` : `seit ${day(p.date)}`);
@@ -53,10 +58,14 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
         7: averageValue(items, catalogs.price, catalogs.lookup, 7),
       })
     : [];
-  const hasChart = chart.length > 1;
-  const first = chart[0];
-  const shown = hasChart ? chart[scrub ?? chart.length - 1] : undefined;
+  const mode = prefs.priceMode;
+  const growth = growthChart(items, (i) => itemPrice(i, catalogs.price, catalogs.lookup(i.gameId, i.printingId)), dayOf(asOf ?? new Date().toISOString()), days);
+  const points = mode === 'value' ? growth.points : chart;
+  const hasChart = points.length > 1;
+  const first = points[0];
+  const shown = hasChart ? points[scrub ?? points.length - 1] : undefined;
   const change = shown && first ? Math.round((shown.value - first.value) * 100) / 100 : 0;
+  const period = PRICE_PERIODS.find((p) => p.days === days);
 
   const movers = collectionMovers(items, histories, catalogs.lookup, days, catalogs.price);
   const ups = movers.filter((m) => m.strong && m.delta > 0).length;
@@ -133,18 +142,45 @@ export function PriceView({ items, catalogs, histories, prefs, setPrefs, fresh }
         </div>
       ) : (
         <>
+          <div class="segmented modes" role="radiogroup" aria-label="Ansicht">
+            {MODES.map((m) => (
+              <button
+                role="radio"
+                aria-checked={mode === m.value}
+                class={mode === m.value ? 'active' : ''}
+                onClick={() => {
+                  setPrefs({ priceMode: m.value });
+                  setScrub(null);
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <div class="value-card">
-            <span class="muted">{scrub !== null && shown ? day(shown.date) : 'Sammlung'}</span>
+            <span class="muted">{scrub !== null && shown ? day(shown.date) : mode === 'value' ? 'Gesamtwert' : 'Sammlung'}</span>
             <strong class="total">{formatEur(shown?.value ?? now.total)}</strong>
-            {hasChart && first && (
-              <span class="change-row">
-                <span class={`change ${trend(change)}`}>
-                  {arrow(change)} {SIGNED_EUR.format(change)} · {PCT.format(first.value > 0 ? change / first.value : 0)}
-                </span>
-                <small class="muted">{sinceLabel(first)}</small>
-              </span>
-            )}
-            {hasChart && <ValueChart points={chart} active={scrub} onScrub={setScrub} />}
+            {mode === 'value'
+              ? first && (
+                  <span class="change-row">
+                    <span class={`change ${trend(change)}`}>
+                      {arrow(change)} {SIGNED_EUR.format(change)}
+                    </span>
+                    <small class="muted">
+                      {scrub !== null ? `seit ${day(first.date)}` : `${cardCount(growth.cards)} neu ${days === null ? 'insgesamt' : `in ${period?.label ?? `${days} Tagen`}`}`}
+                    </small>
+                  </span>
+                )
+              : hasChart &&
+                first && (
+                  <span class="change-row">
+                    <span class={`change ${trend(change)}`}>
+                      {arrow(change)} {SIGNED_EUR.format(change)} · {PCT.format(first.value > 0 ? change / first.value : 0)}
+                    </span>
+                    <small class="muted">{sinceLabel(first)}</small>
+                  </span>
+                )}
+            {hasChart && <ValueChart points={points} active={scrub} onScrub={setScrub} label={mode === 'value' ? 'Gesamtwert der Sammlung nach Hinzufügen' : 'Wert der Sammlung'} />}
             <div class="segmented" role="radiogroup" aria-label="Zeitraum">
               {PRICE_PERIODS.map((p) => (
                 <button
@@ -278,7 +314,7 @@ function shortDate(dayNo: number, span: number): string {
  * Wertverlauf wie ein Kurschart: grün bei Gewinn, rot bei Verlust, unten Datum, rechts Werteskala.
  * Antippen und Ziehen (bzw. Maus darüber) zeigt den Wert an diesem Tag.
  */
-function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active: number | null; onScrub(i: number | null): void }) {
+function ValueChart({ points, active, onScrub, label }: { points: ChartPoint[]; active: number | null; onScrub(i: number | null): void; label: string }) {
   const id = useId();
   const w = 320;
   const h = 170;
@@ -318,7 +354,7 @@ function ValueChart({ points, active, onScrub }: { points: ChartPoint[]; active:
         onPointerCancel={() => onScrub(null)}
         onPointerLeave={() => onScrub(null)}
       >
-        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label="Wert der Sammlung">
+        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={label}>
           <defs>
             <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0" stop-color="currentColor" stop-opacity="0.24" />
