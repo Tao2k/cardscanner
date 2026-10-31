@@ -19,7 +19,7 @@ export function dotggRows(json: { names: string[]; data: unknown[][] }): DotggRo
 const text = (v: unknown) => (typeof v === 'string' ? v : '');
 
 /** Regeltext von dotgg als einfacher Text; Symbole wie :rb_might: fallen weg. */
-function plain(html: string): string {
+export function plain(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
