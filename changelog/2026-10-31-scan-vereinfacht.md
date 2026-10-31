@@ -1,0 +1,3 @@
+- Neu: Erkennt der Scanner eine Foil oder einen Zustand schlechter als NM, fragt er vor dem Speichern kurz nach.
+- Verbessert: Der Blitz sitzt links oben im Kamerabild und steht immer auf Automatisch; Antippen schaltet auf An oder Aus.
+- Verbessert: Der Tab „Prüfen“ ist weg, und das Kamerabild füllt beim Start den ganzen Platz.

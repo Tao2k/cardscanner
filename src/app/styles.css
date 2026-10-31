@@ -75,6 +75,10 @@ h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 p { line-height: 1.4; }
 section { padding: 16px 16px; display: flex; flex-direction: column; gap: 14px; }
 section.scan { padding: 8px 0 16px; }
+/* Noch nichts gescannt: Das Kamerabild füllt den Platz bis zur Leiste unten, statt eine leere Fläche darunter zu lassen */
+main:has(> section.scan.idle) { display: flex; flex-direction: column; padding-bottom: 0; }
+section.scan.idle { flex: 1; min-height: 0; }
+section.scan.idle .viewfinder { flex: 1; height: auto; min-height: min(58svh, 600px); }
 section > header { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 section > header p { margin: 0; }
 
@@ -144,6 +148,8 @@ main > .banner { margin: 8px 16px 0; }
 .torch-button { position: absolute; top: 12px; left: 12px; z-index: 2; min-height: 44px; min-width: 44px; padding: 10px;
   background: rgba(255, 255, 255, 0.92); color: #121512; box-shadow: var(--shadow); }
 .torch-button.on { background: var(--accent); color: var(--on-accent); }
+.torch-button span { font-size: 0.75rem; font-weight: 800; margin-left: -6px; }
+.torch-button.off { color: #6b6670; }
 .settings-button.set { background: var(--accent); color: var(--on-accent); padding-right: 16px; }
 
 .hint { margin: 4px 28px; text-align: center; font-size: 0.9rem; }
@@ -221,20 +227,13 @@ select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; 
 .empty-state p { margin: 0; color: var(--muted); max-width: 300px; }
 .empty-state strong { font-size: 1.05rem; }
 
-/* Prüfen */
-.review-item { background: var(--surface); border-radius: var(--r-card); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.review-item .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.review-item .head strong { font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-item .head small { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+/* Kartenauswahl */
 .candidates { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
 .candidate { flex-direction: column; gap: 6px; padding: 5px 5px 8px; min-height: 0; border-radius: 14px; background: var(--raised); box-shadow: var(--shadow-soft); font-weight: 500; }
 .candidate.first { box-shadow: 0 0 0 2.5px var(--accent); }
 .candidate img { width: 100%; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 9px; }
 .candidate small { font-size: 0.7rem; line-height: 1.2; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.review-item .row button { min-height: 40px; padding: 8px 14px; font-size: 0.9rem; background: var(--raised); }
-.review-item .row button.danger { background: transparent; }
-.learned { margin-top: 8px; font-size: 0.85rem; }
 button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; min-height: 0; text-decoration: underline; display: inline; font-weight: 500; }
 
 /* Auswahl-Chips */
@@ -762,9 +761,6 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .binder-card-info small { display: flex; align-items: center; flex-wrap: wrap; }
 
 /* Siebte Spalte für „Profil“ (angemeldet) */
-.tabs.seven { grid-template-columns: repeat(7, 1fr); gap: 0; padding-left: 2px; padding-right: 2px; }
-.tabs.seven .tab-icon { padding: 3px 8px; }
-.tabs.seven button { font-size: 0.64rem; letter-spacing: -0.02em; }
 
 /* Profil: Anzeigename, Anmeldung, Abgleich, Rechtliches */
 .profile { display: flex; flex-direction: column; gap: 16px; }

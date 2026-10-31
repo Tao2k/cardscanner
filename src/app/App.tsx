@@ -12,10 +12,9 @@ import { cloud, cloudConfigured, useCloud } from './cloud';
 import { LoginScreen, needsLogin } from './AccountView';
 import { LearningService } from '../core/learning';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
-import { Recognizer, type Learned } from './recognizer';
+import { Recognizer } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
-import { ReviewView } from './ReviewView';
 import { PriceView } from './PriceView';
 import { FriendsView, takeInvite } from './FriendsView';
 import { DECK_ICON_PATH, DeckView } from './DeckView';
@@ -42,7 +41,7 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'review' | 'profile';
+type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'profile';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
@@ -50,7 +49,6 @@ export function App() {
   const deckStore = useMemo(() => new DeckStore(), []);
   const [decks, setDecks] = useState<Deck[]>([]);
   const learning = useMemo(() => new LearningService(new IndexedDbSampleStore()), []);
-  const [learned, setLearned] = useState<Learned | null>(null);
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
   const [catalogs, setCatalogs] = useState<Catalogs | null>(null);
   const [recognizer, setRecognizer] = useState<Recognizer | null>(null);
@@ -86,7 +84,7 @@ export function App() {
   };
   /** Nach Bestätigen/Korrigieren: Erkennung liest die eigenen Scans neu ein. */
   const relearn = async () => {
-    if (recognizer && prefs.gameId) setLearned(await recognizer.reloadSamples(prefs.gameId));
+    if (recognizer && prefs.gameId) await recognizer.reloadSamples(prefs.gameId);
   };
 
   useEffect(() => {
@@ -143,14 +141,13 @@ export function App() {
         await r.ready;
         setStatus('');
         const gameId = games.some((g) => g.gameId === prefs.gameId) ? prefs.gameId : games[0]?.gameId;
-        if (gameId) setLearned(await r.reloadSamples(gameId));
+        if (gameId) await r.reloadSamples(gameId);
       } catch (e) {
         setError((e as Error).message);
       }
     })();
   }, []);
 
-  const toReview = items.filter((i) => !i.confirmed).length;
   const movers = useMemo(
     () => (catalogs ? collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod, catalogs.price) : []),
     [items, histories, catalogs, prefs.pricePeriod],
@@ -250,20 +247,8 @@ export function App() {
             Lade Katalog …
           </p>
         )}
-        {tab === 'review' && catalogs && (
-          <ReviewView
-            items={items}
-            catalogs={catalogs}
-            service={service}
-            learning={learning}
-            learned={learned}
-            gameId={prefs.gameId}
-            onChange={refresh}
-            onLearn={relearn}
-          />
-        )}
       </main>
-      <nav class={`tabs ${account.signedIn ? 'seven' : 'six'}`} aria-label="Bereiche">
+      <nav class={`tabs ${account.signedIn ? 'six' : 'five'}`} aria-label="Bereiche">
         <button class={tab === 'scan' ? 'active' : ''} aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
           {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
           Scannen
@@ -286,10 +271,6 @@ export function App() {
             Freunde
           </button>
         )}
-        <button class={tab === 'review' ? 'active' : ''} aria-current={tab === 'review' ? 'page' : undefined} onClick={() => setTab('review')}>
-          {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
-          Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
-        </button>
         <button data-tab="profile" class={tab === 'profile' ? 'active' : ''} aria-current={tab === 'profile' ? 'page' : undefined} onClick={() => setTab('profile')}>
           {tabIcon('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1')}
           Profil
