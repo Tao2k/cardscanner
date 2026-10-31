@@ -156,6 +156,12 @@ async function main() {
     const start = page.getByRole('button', { name: 'Scannen starten' });
     await start.waitFor({ timeout: 180_000 });
     await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('.overlay button')?.disabled, null, { timeout: 180_000 });
+    // Foil am Foto oder Zustand unter NM: Die App fragt vor dem Speichern nach, dann die Vorauswahl übernehmen
+    void page.locator('.confirm').waitFor({ timeout: 240_000 }).then(async () => {
+      await page.screenshot({ path: path.join(shots, `bestaetigen-${c.lang}-${c.specks}.png`) });
+      await page.locator('.confirm').getByRole('button', { name: 'Speichern', exact: true }).click();
+      console.log(`  [${c.lang}] Foil/Zustand nachgefragt und bestätigt`);
+    }, () => undefined);
     await start.click();
     // Alle 10 s zeigen, was die App gerade anzeigt, damit ein Hänger nachvollziehbar ist
     const hud = setInterval(async () => {

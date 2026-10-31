@@ -60,8 +60,6 @@ interface Saved {
   printing: Printing;
   input: ScanInput;
   sample?: Sample;
-  /** „Falsch erkannt“ wurde gedrückt, der Scan liegt jetzt unter „Prüfen“. */
-  flagged?: boolean;
   /** Mit „Richtig“ bestätigt. */
   verified?: boolean;
   /** Deine Bewertung (zählt einmal in der Genauigkeit): richtig oder was falsch war. */
@@ -107,6 +105,23 @@ interface Captured {
   /** Standbild der Karte für die Hinzufügen-Animation. */
   snapshot: string | null;
 }
+
+/** Unsichere Angaben zu Foil und Zustand: vor dem Speichern nachfragen. */
+interface Confirmation {
+  printing: Printing;
+  finish: Finish;
+  condition: Condition;
+  /** Foil wurde am Foto erkannt (das ist unsicher). */
+  askFoil: boolean;
+  /** Der geschätzte Zustand ist schlechter als NM. */
+  askCondition: boolean;
+  /** Antwort: die bestätigten Angaben, oder null = nicht speichern. */
+  resolve(answer: { finish: Finish; condition: Condition } | null): void;
+}
+
+/** Licht wie bei der Kamera-App: automatisch (Standard), an oder aus. */
+type TorchMode = 'auto' | 'on' | 'off';
+const NEXT_TORCH: Record<TorchMode, TorchMode> = { auto: 'on', on: 'off', off: 'auto' };
 
 /** Knapper Treffer: Kandidaten zum Antippen. */
 interface Question {
@@ -192,9 +207,14 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const saveWithFx = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen', flash: boolean) => {
     const fx = startFx(captured, flash);
     try {
-      await saveScan(captured, printing, how);
+      const stored = await saveScan(captured, printing, how);
+      // Auch wenn du „Nicht speichern“ gewählt hast: Die Karte liegt noch im Bild und soll nicht gleich wieder gefragt werden
       const index = catalogs?.ordered.get(captured.gameId)?.indexOf(printing) ?? -1;
       if (index >= 0) stabilizer.current.markHandled(index);
+      if (!stored) {
+        fx?.cancel();
+        return;
+      }
       fx?.land();
       clearTimeout(addedTimer.current);
       setAdded(printing.cardName);
@@ -213,6 +233,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [details, setDetails] = useState<string | null>(null);
   const textIndexes = useRef(new Map<string, TextIndex>());
   const [question, setQuestion] = useState<Question | null>(null);
+  /** Rückfrage zu Foil/Zustand, bevor die Karte gespeichert wird. */
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
   const questionRef = useRef<Question | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [collecting, setCollecting] = useState(0);
@@ -233,7 +255,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     stabilizer.current = new Stabilizer({ ...DEFAULT_STABILIZER, confidentMargin: DEFAULT_STABILIZER.confidentMargin + extraMargin });
   }, [extraMargin]);
   // Während gescannt, nachgefragt oder korrigiert wird, kommt kein Update dazwischen
-  useEffect(() => updates.setBusy(running || !!question || !!fixing), [running, question, fixing]);
+  useEffect(() => updates.setBusy(running || !!question || !!fixing || !!confirming), [running, question, fixing, confirming]);
   useEffect(() => () => updates.setBusy(false), []);
   const recordAsked = () => setStats(updateStats((s) => ({ asked: s.asked + 1 })));
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -250,8 +272,11 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [torchOn, setTorchOn] = useState(false);
   const torchOnRef = useRef(false);
   torchOnRef.current = torchOn;
-  /** Hast du das Licht selbst geschaltet, greift die Automatik bis zum nächsten Scan nicht mehr ein. */
-  const torchManual = useRef(false);
+  /** Automatisch, oder von dir fest an/aus geschaltet (gilt bis zum Ende des Scans). */
+  const [torchMode, setTorchMode] = useState<TorchMode>('auto');
+  const torchModeRef = useRef<TorchMode>('auto');
+  torchModeRef.current = torchMode;
+  const autoTorch = useRef(new AutoTorch());
   /** Zu dunkel und kein Licht verfügbar (oder aus): Hinweis zeigen. */
   const [dark, setDark] = useState(false);
   /** Starker Schatten auf der Karte in den letzten Frames: Hinweis zeigen. */
@@ -260,6 +285,18 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   const switchTorch = async (on: boolean) => {
     if (await setTorch(streamRef.current, on)) setTorchOn(on);
+  };
+  /** Antippen schaltet weiter: Automatisch → An → Aus → Automatisch. */
+  const cycleTorch = () => {
+    const next = NEXT_TORCH[torchModeRef.current];
+    torchModeRef.current = next;
+    setTorchMode(next);
+    if (next === 'on') void switchTorch(true);
+    else {
+      void switchTorch(false);
+      // Zurück auf Automatisch: neu messen, damit das Licht bei Dunkelheit wieder von selbst angeht
+      if (next === 'auto') autoTorch.current.reset(performance.now());
+    }
   };
 
   // Kamera starten/stoppen
@@ -293,7 +330,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       // Mit dem Beenden der Kamera geht auch ihr Licht aus
       stopCamera(stream);
       streamRef.current = null;
-      torchManual.current = false;
+      setTorchMode('auto');
       setTorchAvailable(false);
       setTorchOn(false);
       setDark(false);
@@ -302,16 +339,25 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     };
   }, [running]);
 
+  // Ändert sich die Größe des Kamerabilds (z. B. wenn die erste Karte in der Liste darunter erscheint), wandert der Rahmen mit
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!running || !v || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setBox({ w: v.clientWidth, h: v.clientHeight }));
+    observer.observe(v);
+    return () => observer.disconnect();
+  }, [running]);
+
   // Helligkeit messen; ist es zu dunkel, Kameralicht automatisch einschalten
   useEffect(() => {
     if (!running) return;
-    const auto = new AutoTorch();
+    const auto = autoTorch.current;
     auto.reset(performance.now());
     const timer = setInterval(() => {
       const luma = videoRef.current && lumaCanvasRef.current ? frameLuma(videoRef.current, lumaCanvasRef.current) : null;
       if (luma === null) return;
       const fire = auto.push(luma, performance.now());
-      const canAuto = prefsRef.current.torchAuto && !torchManual.current && torchSupported(streamRef.current);
+      const canAuto = torchModeRef.current === 'auto' && torchSupported(streamRef.current);
       if (fire && canAuto && !torchOnRef.current) void switchTorch(true);
       setDark(auto.dark && !torchOnRef.current && !(fire && canAuto));
     }, 250);
@@ -322,8 +368,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
    * Wertet Sprache, Zustand und Foil aus und speichert die Karte.
    * how: 'auto' = sicher erkannt, 'chosen' = nach Nachfrage von dir gewählt (wird zum Referenzbild).
    */
-  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen') => {
-    if (!catalogs) return;
+  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen'): Promise<boolean> => {
+    if (!catalogs) return false;
     const { gameId, stable, vector, region, shot } = captured;
     const p = prefsRef.current;
     const printings = catalogs.ordered.get(gameId) ?? [];
@@ -368,9 +414,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       if (detected) lastLanguage.current = detected;
     }
     const conditionGuess = p.conditionAuto ? analysis?.condition : undefined;
-    const condition = conditionGuess?.condition ?? p.condition;
+    let condition = conditionGuess?.condition ?? p.condition;
     const wear = conditionGuess?.condition ? { edge: conditionGuess.edge, corner: conditionGuess.corner } : undefined;
-    const conditionNote = !p.conditionAuto
+    let conditionNote = !p.conditionAuto
       ? undefined
       : conditionGuess?.condition
         ? 'Zustand geschätzt'
@@ -391,6 +437,36 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         foilScore = foil.score;
       } else {
         finishNote = `Foil nicht geprüft, Standard ${p.finish === 'foil' ? 'Foil' : 'Normal'}`;
+      }
+    }
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let judged: Judgement | undefined;
+    // Foil am Foto und Zustand unter NM sind unsicher: erst fragen, dann speichern
+    const askFoil = foilScore !== undefined && finish === 'foil';
+    const askCondition = !!wear && condition !== 'NM';
+    if (askFoil || askCondition) {
+      const detected = { finish, condition };
+      const confirmed = await new Promise<{ finish: Finish; condition: Condition } | null>((resolve) =>
+        setConfirming({ printing, finish, condition, askFoil, askCondition, resolve }),
+      );
+      setConfirming(null);
+      if (!confirmed) return false;
+      ({ finish, condition } = confirmed);
+      // Deine Antwort bringt der Foil-Erkennung und der Zustandsschätzung bei, wie sie es besser macht
+      if (askFoil) {
+        setFoilShare(learnFoilShare(foilFeedback.add(key, { score: foilScore!, foil: finish === 'foil' })));
+        finishNote = `${finishNote} · ${finish === detected.finish ? 'von dir bestätigt' : 'von dir korrigiert'}`;
+      }
+      if (askCondition) {
+        conditionScaleRef.current = learnConditionScale(conditionFeedback.add(key, { ...wear!, condition }));
+        conditionNote = `${conditionNote} · ${condition === detected.condition ? 'von dir bestätigt' : `von dir korrigiert (geschätzt ${detected.condition})`}`;
+      }
+      // Ohne Nachfrage zur Karte gespeichert: Eine Korrektur zählt in der Genauigkeit mit
+      const wrong: Judgement | null = finish !== detected.finish ? 'foil' : condition !== detected.condition ? 'condition' : null;
+      if (wrong && how !== 'chosen') {
+        const judgement = judgeStats(undefined, wrong);
+        if (judgement.patch) setStats(updateStats(judgement.patch));
+        judged = judgement.judged;
       }
     }
     const input: ScanInput = {
@@ -419,9 +495,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     }
     if (how !== 'chosen') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', latinScore, wear, foilScore, key: `${result.item.itemId}-${Date.now()}` }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', latinScore, wear, foilScore, judged, key }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
+    return true;
   };
 
   const textIndexFor = (gameId: string): TextIndex => {
@@ -626,12 +703,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     onLearn();
   };
 
-  /** Weiß gerade nicht, welche Karte es ist: unter „Prüfen“ ablegen. */
-  const flag = (saved: Saved) => {
-    setFixing(null);
-    return resave(saved, { confirmed: false }, { flagged: true, judged: judge(saved, 'card') });
-  };
-
   /** Antwort auf die Nachfrage: gewählte Karte speichern, oder (null) neu scannen. */
   const answer = async (printing: Printing | null) => {
     const q = questionRef.current;
@@ -709,7 +780,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             {alternatives.length > 0 && candidateButtons(alternatives, (p) => correctCard(s, p))}
             <input type="search" enterkeyhint="search" placeholder="Name oder Nummer" value={fixQuery} onInput={(e) => setFixQuery(e.currentTarget.value)} />
             {candidateButtons(searchCatalog(s.input.gameId, fixQuery), (p) => correctCard(s, p))}
-            <button onClick={() => flag(s)}>Später prüfen</button>
           </>
         )}
         {kind === 'variant' && candidateButtons(variants, (p) => correctCard(s, p))}
@@ -719,6 +789,33 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         <button class="ghost" onClick={close}>Abbrechen</button>
       </>,
       close,
+    );
+  };
+
+  /** Rückfrage vor dem Speichern: Foil am Foto erkannt oder Zustand unter NM geschätzt. */
+  const renderConfirm = (c: Confirmation) => {
+    const update = (patch: Partial<Pick<Confirmation, 'finish' | 'condition'>>) => setConfirming({ ...c, ...patch });
+    return sheet(
+      'confirm',
+      'Bitte bestätigen',
+      <>
+        <h2>Bitte bestätigen</h2>
+        <p class="muted">{printingLabel(c.printing)}</p>
+        {c.askFoil && (
+          <div class="field">
+            <span>Foil erkannt</span>
+            {chips('Foil bestätigen', FINISHES, c.finish, (f) => update({ finish: f }))}
+          </div>
+        )}
+        {c.askCondition && (
+          <div class="field">
+            <span>Zustand</span>
+            {chips('Zustand bestätigen', CONDITIONS.map((x) => ({ value: x, label: x })), c.condition, (x) => update({ condition: x }))}
+          </div>
+        )}
+        <button class="primary" onClick={() => c.resolve({ finish: c.finish, condition: c.condition })}>Speichern</button>
+        <button class="ghost" onClick={() => c.resolve(null)}>Nicht speichern</button>
+      </>,
     );
   };
 
@@ -759,12 +856,6 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             )}
           </div>
         )}
-        <div class="field">
-          <span>Licht</span>
-          {chips('Kameralicht', [{ value: 'auto', label: 'Automatisch' }, { value: 'off', label: 'Nur von Hand' }], prefs.torchAuto ? 'auto' : 'off', (v) =>
-            setPrefs({ torchAuto: v === 'auto' }),
-          )}
-        </div>
         <div class="field">
           <span>Foil</span>
           {chips('Foil', [{ value: 'auto', label: 'Automatisch' }, ...FINISHES], prefs.finishAuto ? 'auto' : prefs.finish, (v) =>
@@ -827,7 +918,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const fixed = fixing ? recent.find((s) => s.key === fixing.key) : undefined;
 
   return (
-    <section class="scan">
+    <section class={`scan${recent.length ? '' : ' idle'}`}>
       <div class="viewfinder" ref={viewfinderRef}>
         <video ref={videoRef} playsInline muted />
         <canvas ref={canvasRef} hidden />
@@ -848,14 +939,15 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
         </button>
         {running && torchAvailable && (
           <button
-            class={`torch-button${torchOn ? ' on' : ''}`}
-            aria-label={torchOn ? 'Licht aus' : 'Licht an'}
-            aria-pressed={torchOn}
-            onClick={() => { torchManual.current = true; void switchTorch(!torchOn); }}
+            class={`torch-button${torchOn ? ' on' : ''}${torchMode === 'off' ? ' off' : ''}`}
+            aria-label={`Licht: ${torchMode === 'auto' ? 'Automatisch' : torchMode === 'on' ? 'An' : 'Aus'}`}
+            onClick={cycleTorch}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path fill="currentColor" d="M13.4 2.2a.8.8 0 0 1 .6 1L12.6 10H18a.8.8 0 0 1 .6 1.3l-8 10.4a.8.8 0 0 1-1.4-.7L10.6 14H6a.8.8 0 0 1-.6-1.3l7.2-10.2a.8.8 0 0 1 .8-.3Z" />
+              {torchMode === 'off' && <path d="M4 4l16 16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />}
             </svg>
+            {torchMode === 'auto' && <span>A</span>}
           </button>
         )}
         {!running && (
@@ -886,6 +978,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
               <span>Welche Karte ist es?</span>
+            ) : confirming ? (
+              <span>Bitte kurz bestätigen</span>
             ) : added ? (
               <span class="added">
                 ✓ {added} hinzugefügt{addedPrice && <b> · {addedPrice}</b>}
@@ -934,6 +1028,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           </>,
         )}
 
+      {confirming && renderConfirm(confirming)}
       {fixing && fixed && renderFix(fixed, fixing.kind)}
       {settingsOpen && renderSettings()}
       {changelogOpen && <ChangelogSheet onClose={() => setChangelogOpen(false)} />}
@@ -949,8 +1044,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           {recent.map((s) => {
             const item = s.result.item;
             const language = catalogs?.languages.get(item.gameId)?.find((l) => l.code === item.language)?.label;
-            const canVerify = s.auto && item.confirmed && !s.flagged && !s.judged;
-            const canFix = item.confirmed && !s.flagged;
+            const canVerify = s.auto && !s.judged;
             const open = details === s.key;
             return (
               <li key={item.itemId + item.quantity}>
@@ -961,10 +1055,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     <small>
                       {printingCode(s.printing)} · {language} · ×{item.quantity}
                     </small>
-                    {(item.finish === 'foil' || !item.confirmed || s.verified || s.languageNote?.startsWith('Sprache unsicher')) && (
+                    {(item.finish === 'foil' || s.verified || s.languageNote?.startsWith('Sprache unsicher')) && (
                       <span class="line">
                         {item.finish === 'foil' && <em class="tag foil">Foil</em>}
-                        {!item.confirmed && <em class="tag warn">Liegt unter „Prüfen“</em>}
                         {s.verified && <em class="tag up">✓ bestätigt</em>}
                         {!s.verified && s.languageNote?.startsWith('Sprache unsicher') && <em class="tag warn">Sprache unsicher</em>}
                       </span>
@@ -977,22 +1070,18 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     </svg>
                   </button>
                 </div>
-                {(canVerify || canFix) && (
-                  <div class="verdict">
-                    {canVerify && <button class="primary" onClick={() => verify(s)}>Richtig</button>}
-                    {canFix && (
-                      <button
-                        aria-expanded={fixing?.key === s.key}
-                        onClick={() => {
-                          setFixQuery('');
-                          setFixing({ key: s.key, kind: null });
-                        }}
-                      >
-                        Falsch
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div class="verdict">
+                  {canVerify && <button class="primary" onClick={() => verify(s)}>Richtig</button>}
+                  <button
+                    aria-expanded={fixing?.key === s.key}
+                    onClick={() => {
+                      setFixQuery('');
+                      setFixing({ key: s.key, kind: null });
+                    }}
+                  >
+                    Falsch
+                  </button>
+                </div>
                 {open && (
                   <div class="details">
                     <small>

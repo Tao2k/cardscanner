@@ -243,6 +243,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
                 ))}
               </div>
             )}
+            {item && !item.confirmed && (
+              <button class="small" onClick={() => service.confirm(item.itemId).then(onChange)}>
+                Karte stimmt
+              </button>
+            )}
             {mover && (
               <small>
                 {SIGNED_EUR.format(mover.delta)} je Karte · {basisLabel(mover)}

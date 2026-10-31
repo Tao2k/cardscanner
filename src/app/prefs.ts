@@ -16,8 +16,6 @@ export interface Prefs {
   conditionAuto: boolean;
   /** 'cm' = condition ist schon ein Cardmarket-Kürzel; fehlt bei Einstellungen von vor der Umstellung. */
   conditionScale: 'cm';
-  /** Kameralicht einschalten, wenn das Bild zu dunkel ist. */
-  torchAuto: boolean;
   lastExportAt: string | null;
   /** Reihenfolge der Sammlung: zuletzt geändert, nach Set und Sammlernummer oder nach Preis. */
   collectionSort: CollectionSort;
@@ -60,7 +58,7 @@ const PRICE_SORTS: PriceSort[] = ['value-desc', 'value-asc', 'change-desc', 'cha
 const OLD_PRICE_SORTS: Record<string, PriceSort> = { value: 'value-desc', gain: 'pct-desc', loss: 'pct-asc', change: 'change-desc', number: 'value-desc' };
 
 const KEY = 'cardscanner.prefs';
-const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', torchAuto: true, lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
+const DEFAULTS: Prefs = { gameId: '', language: 'auto', finish: 'normal', finishAuto: true, condition: 'NM', conditionAuto: true, conditionScale: 'cm', lastExportAt: null, collectionSort: 'recent', newScans: 0, collectionOwnedOnly: false, collectionCollapsed: [], collectionView: 'binder', binderSet: '', binderNew: [], pricePeriod: 30, priceSort: 'value-desc', priceCollapsed: [] };
 
 export function loadPrefs(): Prefs {
   try {
