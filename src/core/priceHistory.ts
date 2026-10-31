@@ -344,3 +344,56 @@ export function priceAlerts(movers: Mover[], seen: Record<string, number>): Move
     return m.to > base && isStrong(base, m.to);
   });
 }
+
+/** Zuwachs der Sammlung im Zeitraum: Wert und Stückzahl der neu hinzugekommenen Karten. */
+export interface Growth {
+  points: ChartPoint[];
+  /** Wert der im Zeitraum hinzugekommenen Karten (zum heutigen Preis). */
+  added: number;
+  /** Stückzahl der im Zeitraum hinzugekommenen Karten. */
+  cards: number;
+}
+
+/**
+ * Gesamtwert der Sammlung nach dem Tag des Hinzufügens: jede Karte zählt ab dem Tag, an dem sie gescannt
+ * wurde, und zwar mit ihrem heutigen Preis. So steigt die Kurve mit jeder neuen Karte und fällt nicht, wenn
+ * ältere Karten billiger werden. Ein Punkt je Tag mit neuen Karten, davor der Stand zu Beginn des Zeitraums.
+ * Karten ohne Preis zählen mit 0 €.
+ */
+export function growthChart(
+  items: CollectionItem[],
+  price: (item: CollectionItem) => number | undefined,
+  today: string,
+  days: number | null,
+): Growth {
+  const perDay = new Map<string, { value: number; cards: number }>();
+  for (const item of items) {
+    const d = item.addedAt ? dayOf(item.addedAt) : today;
+    const day = d > today || d === 'Invalid Date' ? today : d;
+    const entry = perDay.get(day) ?? { value: 0, cards: 0 };
+    entry.value += (price(item) ?? 0) * item.quantity;
+    entry.cards += item.quantity;
+    perDay.set(day, entry);
+  }
+  const addDays = [...perDay.keys()].sort();
+  if (!addDays.length) return { points: [], added: 0, cards: 0 };
+  // Beginn: Tag vor der ersten Karte (Wert 0), bei kürzerem Zeitraum dessen erster Tag
+  const empty = shiftDay(addDays[0], -1);
+  const start = days === null ? empty : [shiftDay(today, -days), empty].sort().pop()!;
+  const round = (v: number) => Math.round(v * 100) / 100;
+  let total = 0;
+  let added = 0;
+  let cards = 0;
+  for (const day of addDays) if (day <= start) total += perDay.get(day)!.value;
+  const points: ChartPoint[] = [{ date: start, value: round(total) }];
+  for (const day of addDays) {
+    if (day <= start) continue;
+    const { value, cards: n } = perDay.get(day)!;
+    total += value;
+    added += value;
+    cards += n;
+    points.push({ date: day, value: round(total) });
+  }
+  if (points[points.length - 1].date < today) points.push({ date: today, value: round(total) });
+  return { points, added: round(added), cards };
+}
