@@ -161,6 +161,30 @@ class Cloud {
   }
 
   /**
+   * Neue E-Mail-Adresse. Supabase schickt dafür einen Bestätigungslink; bis er geöffnet ist, bleibt die alte
+   * Adresse gültig. Gibt true zurück, wenn die Änderung noch auf die Bestätigung wartet.
+   */
+  async changeEmail(email: string): Promise<boolean> {
+    const client = await this.getClient();
+    const { data, error } = await client.auth.updateUser({ email }, { emailRedirectTo: `${location.origin}${import.meta.env.BASE_URL}` });
+    if (error) throw new Error(authMessage(error.message));
+    const waiting = !!data.user?.new_email && data.user.email !== email;
+    if (!waiting) this.set({ email: data.user?.email ?? email });
+    return waiting;
+  }
+
+  /** Neues Passwort; das bisherige wird vorher geprüft, damit niemand am offenen Handy es ändern kann. */
+  async changePassword(current: string, next: string) {
+    const client = await this.getClient();
+    const email = this.state.email;
+    if (!email) throw new Error('Nicht angemeldet.');
+    const check = await client.auth.signInWithPassword({ email, password: current });
+    if (check.error) throw new Error(/invalid login credentials/i.test(check.error.message) ? 'Das bisherige Passwort stimmt nicht.' : authMessage(check.error.message));
+    const { error } = await client.auth.updateUser({ password: next });
+    if (error) throw new Error(authMessage(error.message));
+  }
+
+  /**
    * Abmelden entfernt die Karten vom Gerät (sie liegen auf dem Server). Vorher muss alles gesendet
    * sein, sonst gingen offline gescannte Karten verloren.
    */
@@ -270,7 +294,8 @@ function authMessage(message: string): string {
   if (/rate limit|security purposes/i.test(message)) return 'Zu viele Versuche. Bitte in ein paar Minuten noch einmal.';
   if (/email/i.test(message) && /valid/i.test(message)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
   if (/invalid login credentials/i.test(message)) return 'E-Mail oder Passwort stimmt nicht.';
-  if (/already registered/i.test(message)) return 'Für diese E-Mail gibt es schon ein Konto.';
+  if (/already registered|already been registered/i.test(message)) return 'Für diese E-Mail gibt es schon ein Konto.';
+  if (/same.*password|different from the old/i.test(message)) return 'Das neue Passwort muss sich vom bisherigen unterscheiden.';
   if (/password/i.test(message) && /least|short|weak/i.test(message)) return 'Das Passwort ist zu kurz (mindestens 6 Zeichen).';
   if (/expired|invalid/i.test(message)) return 'Der Link ist abgelaufen. Bitte neu anfordern.';
   return message;

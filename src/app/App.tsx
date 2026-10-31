@@ -19,6 +19,7 @@ import { ReviewView } from './ReviewView';
 import { PriceView } from './PriceView';
 import { FriendsView, takeInvite } from './FriendsView';
 import { DECK_ICON_PATH, DeckView } from './DeckView';
+import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
@@ -41,7 +42,7 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'review';
+type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'review' | 'profile';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
@@ -231,7 +232,7 @@ export function App() {
           />
         )}
         {tab === 'collection' && catalogs && (
-          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} />
+          <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} onOpenProfile={() => setTab('profile')} />
         )}
         {tab === 'decks' && catalogs && (
           <DeckView catalogs={catalogs} items={items} decks={decks} gameId={prefs.gameId} onSave={saveDeck} onDelete={deleteDeck} />
@@ -242,7 +243,8 @@ export function App() {
         {tab === 'friends' && catalogs && account.signedIn && (
           <FriendsView items={items} catalogs={catalogs} invite={invite} onInviteUsed={() => setInvite(null)} />
         )}
-        {tab !== 'scan' && !catalogs && !error && (
+        {tab === 'profile' && <ProfileView items={items} catalogs={catalogs} />}
+        {tab !== 'scan' && tab !== 'profile' && !catalogs && !error && (
           <p class="loading" role="status">
             <span class="spinner" />
             Lade Katalog …
@@ -261,7 +263,7 @@ export function App() {
           />
         )}
       </main>
-      <nav class={`tabs ${account.signedIn ? 'six' : 'five'}`} aria-label="Bereiche">
+      <nav class={`tabs ${account.signedIn ? 'seven' : 'six'}`} aria-label="Bereiche">
         <button class={tab === 'scan' ? 'active' : ''} aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
           {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
           Scannen
@@ -287,6 +289,10 @@ export function App() {
         <button class={tab === 'review' ? 'active' : ''} aria-current={tab === 'review' ? 'page' : undefined} onClick={() => setTab('review')}>
           {tabIcon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.5 2.5L16 9.5')}
           Prüfen {toReview > 0 && <span class="count warn">{toReview}</span>}
+        </button>
+        <button data-tab="profile" class={tab === 'profile' ? 'active' : ''} aria-current={tab === 'profile' ? 'page' : undefined} onClick={() => setTab('profile')}>
+          {tabIcon('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1')}
+          Profil
         </button>
       </nav>
       {news.length > 0 && (

@@ -1,6 +1,5 @@
 import { useState } from 'preact/hooks';
 import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
-import { Sheet } from './Sheet';
 
 /** Mit Supabase-Projekt ist die Anmeldung Pflicht: bis dahin zeigt die App nur diese Seite. */
 export function needsLogin(state: CloudState): boolean {
@@ -18,22 +17,18 @@ export function LoginScreen({ state }: { state: CloudState }) {
   );
 }
 
-/** Wolke neben dem Excel-Button: Haken = abgeglichen, Kreuz = offline oder fehlgeschlagen; öffnet das Konto. */
-export function CloudLine() {
+/** Wolke neben dem Excel-Button: Haken = abgeglichen, Kreuz = offline oder fehlgeschlagen; führt zum Konto im Profil. */
+export function CloudLine({ onOpen }: { onOpen(): void }) {
   const state = useCloud();
-  const [open, setOpen] = useState(false);
   if (!cloudConfigured || !state.signedIn) return null;
   return (
-    <>
-      <button class={`cloud-line ${state.status}`} onClick={() => setOpen(true)} aria-label={lineText(state)} title={lineText(state)}>
-        {cloudIcon(cloudMark(state))}
-      </button>
-      {open && <AccountSheet state={state} onClose={() => setOpen(false)} />}
-    </>
+    <button class={`cloud-line ${state.status}`} onClick={onOpen} aria-label={`${lineText(state)} · Profil öffnen`} title={lineText(state)}>
+      {cloudIcon(cloudMark(state))}
+    </button>
   );
 }
 
-function lineText(s: CloudState): string {
+export function lineText(s: CloudState): string {
   switch (s.status) {
     case 'syncing':
       return 'Wird abgeglichen …';
@@ -165,46 +160,6 @@ function LoginForm({ state }: { state: CloudState }) {
         </button>
       )}
     </form>
-  );
-}
-
-function AccountSheet({ state, onClose }: { state: CloudState; onClose(): void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const act = (fn: () => Promise<void>) => async () => {
-    setBusy(true);
-    setError('');
-    try {
-      await fn();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Sheet class="account-sheet" label="Konto" onClose={onClose}>
-      <div class="account">
-        <h2>Konto</h2>
-        <p>{state.email}</p>
-        <p class="muted">
-          {lineText(state)}
-          {state.pending > 0 && state.status !== 'offline' ? ` · ${state.pending} ${state.pending === 1 ? 'Änderung wartet' : 'Änderungen warten'}` : ''}
-        </p>
-        {state.status === 'error' && state.message && <p class="banner error">{state.message}</p>}
-        <button class="primary" disabled={busy || state.status === 'syncing'} onClick={act(() => cloud.syncNow())}>
-          Jetzt abgleichen
-        </button>
-        <button disabled={busy} onClick={act(() => cloud.signOut())}>
-          Abmelden
-        </button>
-      </div>
-      {error && <p class="banner error">{error}</p>}
-      <button class="link close" onClick={onClose}>
-        Schließen
-      </button>
-    </Sheet>
   );
 }
 
