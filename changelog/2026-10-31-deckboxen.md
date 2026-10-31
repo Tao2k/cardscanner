@@ -1,0 +1,1 @@
+- Neu: Deine gespeicherten Decks liegen wie in Master Duel als Deckboxen im Raster, mit dem Champion vorne drauf. Ein Haken zeigt, dass das Deck fertig ist, darunter stehen Kartenzahl, Wert und was dir noch fehlt.

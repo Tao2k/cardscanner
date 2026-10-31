@@ -1,0 +1,2 @@
+- Neu: Im Tab „Preise“ schaltest du oben zwischen „Sammlungswert“ und „Preisentwicklung“ um.
+- Neu: Der Sammlungswert zeigt, wie deine Sammlung mit jeder gescannten Karte wächst. Jede Karte zählt mit ihrem heutigen Preis, sinkende Preise lassen die Kurve also nicht mehr fallen.

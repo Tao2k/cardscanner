@@ -25,6 +25,8 @@ interface Props {
   /** Preisverlauf je Spiel, für die Preisentwicklung wie im Tab „Preise“. */
   histories: Map<string, PriceHistoryFile>;
   onChange(): void;
+  /** Wolke angetippt: Konto und Abgleich stehen im Profil. */
+  onOpenProfile(): void;
 }
 
 /** Zeile der Liste: ein Eintrag der Sammlung oder ein Druck, den man (noch) nicht hat. */
@@ -51,7 +53,7 @@ const SORTS: { value: CollectionSort; label: string }[] = [
   { value: 'price', label: 'Preis, teuerste zuerst' },
 ];
 
-export function CollectionView({ items, catalogs, service, prefs, setPrefs, histories, onChange }: Props) {
+export function CollectionView({ items, catalogs, service, prefs, setPrefs, histories, onChange, onOpenProfile }: Props) {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +158,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const sets = groupBySet(rows, (r) => ({ gameId: r.gameId, code: r.printing?.setCode ?? '' }), catalogs.sets);
   for (const g of sets) g.rows.sort(order[prefs.collectionSort] ?? byNumber);
   const collapsed = new Set(prefs.collectionCollapsed);
-  const priceSources = [...new Set(items.map((i) => i.gameId))].map((g) => catalogs.prices.get(g)).filter((f) => !!f);
 
   const lastExport = prefs.lastExportAt ? new Date(prefs.lastExportAt) : null;
   const changedSinceExport = items.some((i) => !lastExport || new Date(i.updatedAt) > lastExport);
@@ -276,7 +277,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
               </button>
             ))}
           </div>
-          <CloudLine />
+          <CloudLine onOpen={onOpenProfile} />
           <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
             {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
             Excel
@@ -358,16 +359,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           </div>
         </Sheet>
       )}
-      <footer class="legal">
-        ScannR was created under Riot Games' "Legal Jibber Jabber" policy using assets owned by Riot Games. Riot Games
-        does not endorse or sponsor this project. Kartendaten und Bilder: offizielle Riftbound-Kartengalerie.
-        {priceSources.map((f) => (
-          <>
-            {' '}Preise: <a href={f.sourceUrl} target="_blank" rel="noopener">{f.source}</a>-Preisguide (Trendpreis, Near Mint), Stand{' '}
-            {formatAsOf(f.asOf)}.
-          </>
-        ))}
-      </footer>
     </section>
   );
 }
