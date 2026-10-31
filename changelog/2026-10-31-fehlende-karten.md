@@ -1,0 +1,2 @@
+- Behoben: Rund 70 Karten fehlten bisher, darunter die Signature-Karten aus Radiance, die Runen ab Spiritforged und viele Spielmarken. Du findest sie jetzt in der Sammlung, im Binder und bei den Preisen.
+- Behoben: Einige neue Radiance-Karten wie Fanfare oder Hush fehlten im Deckbau. Sie lassen sich jetzt ins Deck legen.
