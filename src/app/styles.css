@@ -279,7 +279,6 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .account { display: flex; flex-direction: column; gap: 14px; }
 .account h2 { margin: 0; }
 .account input { width: 100%; }
-.account-sheet .close { align-self: center; padding: 8px; }
 .login { min-height: 100dvh; max-width: 480px; margin: 0 auto; padding: 48px 20px calc(24px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; }
 .login p { margin: 0; }
 .login-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 16px; }
@@ -741,3 +740,30 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .binder-card img.landscape { width: min(86vw, 420px); aspect-ratio: 88 / 63; }
 .binder-card-info h2 { margin: 0; }
 .binder-card-info small { display: flex; align-items: center; flex-wrap: wrap; }
+
+/* Siebte Spalte für „Profil“ (angemeldet) */
+.tabs.seven { grid-template-columns: repeat(7, 1fr); gap: 0; padding-left: 2px; padding-right: 2px; }
+.tabs.seven .tab-icon { padding: 3px 8px; }
+.tabs.seven button { font-size: 0.64rem; letter-spacing: -0.02em; }
+
+/* Profil: Anzeigename, Anmeldung, Abgleich, Rechtliches */
+.profile { display: flex; flex-direction: column; gap: 16px; }
+.profile h1 { margin: 0; }
+.profile-group { display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--surface); border-radius: var(--r-row); }
+.profile-group.plain { padding: 0; background: none; }
+.profile-group h2 { margin: 0; font-size: 1rem; }
+.profile-group input { width: 100%; background: var(--raised); }
+.profile-group input[type='password'] { -webkit-appearance: none; appearance: none; }
+.profile-group .banner { margin: 0; }
+.profile-note { margin: 0; font-size: 0.88rem; }
+.profile-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.profile-row > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.profile-label { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.profile-value { overflow-wrap: anywhere; }
+.profile-row .link { flex: none; min-height: 44px; padding: 0 4px; text-decoration: none; font-weight: 600; }
+.profile-edit { display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.danger-text { width: 100%; background: var(--surface); color: var(--error); }
+.profile-legal { margin-top: 8px; }
+.profile-legal h2 { margin: 0 0 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.profile-legal p { margin: 0 0 6px; }
+.profile-group > button:not(.primary):not(.danger-text) { background: var(--raised); }
