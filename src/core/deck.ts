@@ -73,7 +73,9 @@ export function kindOf(p: Printing): CardKind | undefined {
     const kind = KINDS[t.trim().toLowerCase()];
     if (kind) return kind;
   }
-  return undefined;
+  // Übersetzte Typen aus anderen Galerien, z. B. „Unité (Unit)“
+  const english = (p.type ?? '').toLowerCase().match(/\((legend|unit|spell|gear|rune|battlefield)\)/);
+  return english ? KINDS[english[1]] : undefined;
 }
 
 /** Name im Deck: Champion-Einheiten unterscheiden sich nur im Titel („Jinx, Rebel“ und „Jinx, Demolitionist“). */

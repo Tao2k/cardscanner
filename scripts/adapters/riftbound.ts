@@ -1,5 +1,6 @@
 import type { CardSet, Finish, Printing, Variant } from '../../src/core/types';
 import { DOTGG_URL, fetchRiftboundPrices, getJson } from './riftbound-prices';
+import { completeCatalog } from './riftbound-missing';
 import { dotggRows, promoCatalog } from './riftbound-promos';
 import type { GameAdapter } from './types';
 
@@ -249,10 +250,15 @@ export const riftbound: GameAdapter = {
     // Datum aus der Galerie, sonst aus RELEASE_DATES
     const cardSets: CardSet[] = sets.map((s) => ({ setId: s.id, code: s.id, name: s.name, releaseDate: releaseDateOf(s) ?? RELEASE_DATES[s.id] }));
     console.log(`Sets in der Galerie: ${cardSets.map((s) => `${s.code} „${s.name}“ ${s.releaseDate ?? 'ohne Datum'}`).join(' · ')}`);
+    // Was der Galerie fehlt (Signatures neuer Sets, Runen, Spielmarken, Kartentypen), kommt von dotgg
+    const rows = dotggRows(await getJson(DOTGG_URL));
+    const complete = completeCatalog(rows, cardSets, [...byId.values()], setMax);
+    console.log(`Von dotgg ergänzt: ${complete.added.length} Drucke (${complete.added.map((p) => `${p.setCode}-${p.collectorNumber}`).join(', ')}); Kartentyp nachgetragen: ${complete.repaired.length}`);
+    console.log(`Domains korrigiert: ${complete.domainFixes.length} (${complete.domainFixes.map((f) => `${f.card}: ${f.from.join('+') || '–'} → ${f.to.join('+')}`).join('; ')})`);
     // Promos stehen nicht in der Galerie, nur bei dotgg
-    const promo = promoCatalog(dotggRows(await getJson(DOTGG_URL)), cardSets, [...byId.values()]);
+    const promo = promoCatalog(rows, cardSets, complete.printings);
     console.log(`Promo-Sets von dotgg: ${promo.sets.map((s) => `${s.code} „${s.name}“ (${promo.printings.filter((p) => p.setCode === s.code).length})`).join(' · ')}`);
-    const printings = [...byId.values(), ...promo.printings].slice(0, limit ?? Infinity);
+    const printings = [...complete.printings, ...promo.printings].slice(0, limit ?? Infinity);
     return { sets: [...cardSets, ...promo.sets], printings };
   },
 };
