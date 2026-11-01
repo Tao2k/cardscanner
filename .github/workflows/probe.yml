@@ -1,0 +1,15 @@
+name: Probe Kartenquellen
+on:
+  push:
+    branches: [claude/project-thread-u7eorj]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx tsx .probe/probe.ts 2>&1 | cut -c1-20000
