@@ -70,3 +70,23 @@ export function nameIn(p: Printing, lang: Language): string {
 export function imageIn(p: Printing, lang: Language): PrintingImage {
   return p.images?.[lang] ?? { imageUrl: p.imageUrl, thumbUrl: p.thumbUrl };
 }
+
+/** So viele Treffer zeigt die Suche höchstens; wer mehr sucht, tippt weiter. */
+const MAX_RESULTS = 40;
+
+/** Suche im Katalog: Name (auch übersetzt), Set, Nummer, z. B. „jinx“, „OGN 42“ oder „ogn-042“. */
+export function searchCatalog(printings: Printing[], query: string, limit = MAX_RESULTS): Printing[] {
+  const words = query.toLowerCase().replace(/[-/]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const hits: Printing[] = [];
+  // Reine Zahlen meinen die Sammlernummer: „42“ findet 042 und 042a, aber nicht 142
+  const strip = (n: string) => n.replace(/^0+(?=\d)/, '');
+  for (const p of printings) {
+    const number = strip(p.collectorNumber.toLowerCase());
+    const text = `${p.cardName} ${Object.values(p.names ?? {}).join(' ')} ${p.setCode}`.toLowerCase();
+    const fits = (w: string) => (/^\d+$/.test(w) ? new RegExp(`^${strip(w)}(\\D|$)`).test(number) : text.includes(w) || number.includes(w));
+    if (words.every(fits)) hits.push(p);
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}

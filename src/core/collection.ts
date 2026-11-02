@@ -11,6 +11,8 @@ export interface ScanInput {
   confirmed: boolean;
   matchScore?: number;
   alternatives?: string[];
+  /** Stückzahl, die dazukommt (von Hand eingetragen); ein Scan ist immer 1. */
+  quantity?: number;
 }
 
 export interface AddResult {
@@ -36,6 +38,7 @@ export class CollectionService {
   }
 
   async addScan(input: ScanInput): Promise<AddResult> {
+    const count = Math.max(1, Math.floor(input.quantity ?? 1));
     const timestamp = this.now().toISOString();
     const existing = (await this.list(input.gameId)).find(
       (i) =>
@@ -47,7 +50,7 @@ export class CollectionService {
         i.confirmed === input.confirmed,
     );
     if (existing) {
-      const item = { ...existing, quantity: existing.quantity + 1, updatedAt: timestamp };
+      const item = { ...existing, quantity: existing.quantity + count, updatedAt: timestamp };
       await this.store.put(item);
       return { item, previous: existing };
     }
@@ -56,7 +59,7 @@ export class CollectionService {
       gameId: input.gameId,
       printingId: input.printingId,
       language: input.language,
-      quantity: 1,
+      quantity: count,
       condition: input.condition,
       finish: input.finish,
       location: input.location,
@@ -95,6 +98,11 @@ export class CollectionService {
 
   remove(itemId: string) {
     return this.store.remove(itemId);
+  }
+
+  /** Gelöschten Eintrag zurückholen („Rückgängig“), unverändert mit seiner Id. */
+  restore(item: CollectionItem) {
+    return this.store.put(item);
   }
 
   replaceAll(items: CollectionItem[]) {
