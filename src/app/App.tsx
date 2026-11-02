@@ -24,6 +24,7 @@ import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
 import { useWishAlarm, useWishlist } from './wishlist';
+import { useBack } from './back';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -69,6 +70,9 @@ export function App() {
     if (next === 'profile' && tab !== 'profile') setLastTab(tab);
     setTabState(next);
   };
+  // Zurück-Taste (Android): von einem anderen Tab erst zu „Scannen“, erst dort verlässt „Zurück“ die App.
+  // Das Profil meldet sich selbst an (es führt zurück zum vorherigen Tab).
+  useBack(tab !== 'scan' && tab !== 'profile', () => setTab('scan'));
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();

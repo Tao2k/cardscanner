@@ -46,6 +46,10 @@ export default defineConfig({
         short_name: 'ScannR',
         description: 'Sammelkarten mit der Handykamera erkennen und als Sammlung erfassen',
         lang: 'de',
+        // Feste Kennung, damit Android die installierte App auch bei geänderter Start-Adresse wiedererkennt
+        id: base,
+        start_url: base,
+        scope: base,
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#ffffff',

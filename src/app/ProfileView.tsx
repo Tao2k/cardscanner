@@ -5,6 +5,8 @@ import { FriendsApi, friendError } from '../storage/friends';
 import type { Catalogs } from './App';
 import { lineText } from './AccountView';
 import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
+import { useBack } from './back';
+import { isAndroid, useInstall } from './install';
 
 interface Props {
   items: CollectionItem[];
@@ -17,6 +19,7 @@ interface Props {
 export function ProfileView({ items, catalogs, onBack }: Props) {
   const state = useCloud();
   const signedIn = cloudConfigured && state.signedIn;
+  useBack(true, onBack);
   return (
     <section class="profile">
       <header class="friend-head">
@@ -33,6 +36,7 @@ export function ProfileView({ items, catalogs, onBack }: Props) {
           <SignOut />
         </>
       )}
+      <InstallGroup />
       <LegalNotice items={items} catalogs={catalogs} />
     </section>
   );
@@ -212,6 +216,41 @@ function PasswordForm({ onDone }: { onDone(message: string): void }) {
       </button>
       {error && <p class="banner error">{error}</p>}
     </form>
+  );
+}
+
+/**
+ * Als App installieren: eigenes Symbol, eigenes Fenster ohne Browserleiste, und der Browser löscht die
+ * Sammlung auf dem Gerät nicht bei Speicherknappheit. Installiert oder am Computer erscheint nichts.
+ */
+function InstallGroup() {
+  const install = useInstall();
+  const [busy, setBusy] = useState(false);
+  if (install.kind === 'installed' || (install.kind === 'none' && !isAndroid())) return null;
+  return (
+    <div class="profile-group">
+      <h2>Als App installieren</h2>
+      <p class="muted profile-note">
+        {install.kind === 'ios'
+          ? 'Tippe in Safari unten auf „Teilen“ und dann auf „Zum Home-Bildschirm“. ScannR öffnet sich dann wie eine App.'
+          : install.kind === 'prompt'
+            ? 'ScannR bekommt ein eigenes Symbol auf dem Startbildschirm und öffnet sich ohne Browserleiste.'
+            : 'Noch nicht installiert? Tippe im Browser oben rechts auf das Menü (⋮) und dann auf „App installieren“ oder „Zum Startbildschirm hinzufügen“.'}
+      </p>
+      {install.kind === 'prompt' && (
+        <button
+          class="primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await install.install().catch(() => undefined);
+            setBusy(false);
+          }}
+        >
+          Installieren
+        </button>
+      )}
+    </div>
   );
 }
 

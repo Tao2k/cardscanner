@@ -305,6 +305,11 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: var(--bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 -1px 0 var(--border); }
 .tabs.three { grid-template-columns: repeat(3, 1fr); }
+/* Tippt man in ein Feld, schiebt Android die Seite über die Tastatur (interactive-widget in index.html);
+   die Leiste würde dann über der Tastatur kleben und Platz wegnehmen. Darum blendet sie sich aus. */
+@media (pointer: coarse) {
+  .app:has(:is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"]), textarea, [contenteditable]):focus) .tabs { display: none; }
+}
 /* Nur Symbole, keine Beschriftung: der Name steht im aria-label */
 .tabs button { background: transparent; min-height: 52px; padding: 6px 2px; border-radius: 18px; color: var(--muted); position: relative; }
 .tabs button svg { width: 26px; height: 26px; }

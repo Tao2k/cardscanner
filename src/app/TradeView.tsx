@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useBack } from './back';
 import { KEEP, tradeBetween, type FriendCard, type Trade, type TradeCard } from '../core/friends';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem, Printing } from '../core/types';
@@ -573,6 +574,7 @@ function FriendDetail({
   onBack(): void;
   onRemove(): void;
 }) {
+  useBack(true, onBack);
   const [side, setSide] = useState<FriendTab>('binder');
   const name = friend.displayName || 'Unbekannt';
   const priceOf = (c: TradeCard) => priceFor(catalogs.price(c.gameId, c.printingId), c.finish, catalogs.lookup(c.gameId, c.printingId));

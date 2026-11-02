@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useBack } from './back';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   battlefieldsOf,
@@ -276,6 +277,7 @@ function DeckBox({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: Dec
 
 function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
   const { pool, counts, onBack, onPick, onShow } = props;
+  useBack(true, onBack);
   const [query, setQuery] = useState('');
   const [domain, setDomain] = useState<string | null>(null);
   const q = query.trim().toLowerCase();
@@ -336,6 +338,7 @@ function ChampionPicker(props: {
   onShow(card: DeckCard): void;
 }) {
   const { legend, pool, stats, current, backLabel, onBack, onPick, onShow } = props;
+  useBack(true, onBack);
   const champions = championsFor(legend, pool);
   // Champion, den die Turnierlisten am häufigsten spielen
   const favourite = stats && metaChampion(stats, champions);
@@ -480,6 +483,7 @@ function DeckEditor(props: {
   onDelete(): void;
 }) {
   const { initial, pool, owned, meta, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  useBack(true, onBack);
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
   const current = useRef(initial);
