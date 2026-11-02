@@ -160,10 +160,10 @@ export function warpShot(shot: Shot): Pixels | null {
   return warpCardView(shot.frame, shot.guide);
 }
 
-/** Entzerrt und mit Schattenausgleich wie im Worker der App; null, wenn die Kanten nicht gefunden werden. */
-function appView(shot: Shot): Pixels | null {
-  const warp = warpShot(shot);
-  return warp && prepareForRecognition(warp).pixels;
+/** warp: entzerrt und mit Schattenausgleich wie im Worker der App, raw: nur entzerrt; null, wenn die Kanten nicht gefunden werden. */
+function views(shot: Shot): { warp: Pixels | null; raw: Pixels | null } {
+  const raw = warpShot(shot);
+  return { raw, warp: raw && prepareForRecognition(raw).pixels };
 }
 
 // --- Nachsortieren der besten Treffer per Pixelvergleich ----------------------------------------
@@ -259,17 +259,17 @@ async function main() {
     console.log(`Fokus: ${p.printingId} [${file.refs[row].lang}] ${p.cardName} (${p.variant})`);
   }
   console.log(`Erzeuge ${rows.length} Testfotos …`);
-  const shots: { row: number; truth: number; shot: Shot; crop: Pixels; warp: Pixels | null }[] = [];
+  const shots: { row: number; truth: number; shot: Shot; crop: Pixels; warp: Pixels | null; raw: Pixels | null }[] = [];
   for (const row of rows) {
     const shot = await synthShot(await readFile(imagePath(row)));
-    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: appView(shot) });
+    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), ...views(shot) });
   }
   // Fokus-Karten kommen dazu, zählen aber nicht in die Gesamtwerte
   const mainCount = shots.length;
   for (const row of focusRows) for (let i = 0; i < 8; i++) {
     const shot = await synthShot(await readFile(imagePath(row)));
     shot.tags = ['Fokus'];
-    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: appView(shot) });
+    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), ...views(shot) });
   }
   // Leerer Tisch ohne Karte: so hoch dürfen die Werte nicht kommen, sonst „erkennt“ die App Karten im Nichts
   const transparent = await sharp({ create: { width: 63, height: 88, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
@@ -285,6 +285,7 @@ async function main() {
   const refPatches: (Float32Array | null)[] = [];
   for (let row = 0; row < file.refs.length; row++) refPatches.push(patchOf(await decodeRef(await readFile(imagePath(row)))));
   const shotPatches = shots.map((s) => patchOf(s.warp ?? s.crop));
+  const rawPatches = shots.map((s) => patchOf(s.raw ?? s.crop));
 
   const table: string[] = [];
   const header = `| Modell / Verfahren | Top-1 | Top-3 | automatisch (≥95 %) | App-Regel: stumm / gespeichert (richtig) | Fokus Top-1 | ms/Bild 1 Kern | Größe |`;
@@ -348,11 +349,12 @@ async function main() {
     if (refAug) indexes.aug = flat(refAug);
 
     // Testfotos einbetten: Zielrahmen wie heute und entzerrt
-    const q: Record<'crop' | 'warp', Vectors[]> = { crop: [], warp: [] };
+    const q: Record<'crop' | 'warp' | 'raw', Vectors[]> = { crop: [], warp: [], raw: [] };
     for (const s of shots) {
       const crop = await embedder.embed(s.crop);
       q.crop.push(crop);
       q.warp.push(s.warp ? await embedder.embed(s.warp) : crop);
+      q.raw.push(s.raw ? await embedder.embed(s.raw) : crop);
     }
     // Rechenzeit mit einem Kern
     let ms = NaN;
@@ -385,12 +387,12 @@ async function main() {
       console.log(`  Leerer Tisch (40 Bilder, mit Pixelvergleich 0.2): Bestwert Median ${tops[20].toFixed(3)}, 90 % ${tops[36].toFixed(3)}, Max ${tops[39].toFixed(3)}`);
     }
 
-    const run = (label: string, index: { out: Float32Array; d: number }, vecs: (v: Vectors) => Float32Array | undefined, source: 'crop' | 'warp', rerank = 0) => {
+    const run = (label: string, index: { out: Float32Array; d: number }, vecs: (v: Vectors) => Float32Array | undefined, source: 'crop' | 'warp' | 'raw', rerank = 0) => {
       const results: Result[] = shots.map((s, i) => {
         const v = vecs(q[source][i])!;
         let ranked = collapseToPrintings(topK(v, index.out, index.d, 24), (row) => file.refs[row].p, 8);
         if (rerank) {
-          const sp = shotPatches[i];
+          const sp = (source === 'raw' ? rawPatches : shotPatches)[i];
           ranked = ranked
             .map((m) => {
               const rowsOf = file.refs.flatMap((r, row) => (r.p === m.index ? [row] : []));
@@ -418,10 +420,12 @@ async function main() {
     run('entzerrt', indexes.cls, (v) => v.cls, 'warp');
     if (indexes.mix) run('entzerrt + Feldmittel', indexes.mix, (v) => v.mix, 'warp');
     for (const w of [0.05, 0.1, 0.2]) run(`entzerrt + Pixelvergleich ${w}`, indexes.cls, (v) => v.cls, 'warp', w);
+    run('entzerrt ohne Schattenausgleich + Pixelvergleich 0.2', indexes.cls, (v) => v.cls, 'raw', 0.2);
     if (indexes.aug) {
       run(`entzerrt + ${augment} Lernfotos je Karte`, indexes.aug, (v) => v.cls, 'warp');
       run(`entzerrt + ${augment} Lernfotos + Pixelvergleich 0.1`, indexes.aug, (v) => v.cls, 'warp', 0.1);
       run(`entzerrt + ${augment} Lernfotos + Pixelvergleich 0.2`, indexes.aug, (v) => v.cls, 'warp', 0.2);
+      run(`entzerrt ohne Schattenausgleich + ${augment} Lernfotos + Pixelvergleich 0.2`, indexes.aug, (v) => v.cls, 'raw', 0.2);
     }
   }
   console.log(`\n=== Übersicht (${mainCount} synthetische Fotos, Karte entzerrt in ${pct(found / mainCount)})\n${header}\n|---|---|---|---|---|---|---|---|\n${table.join('\n')}`);
