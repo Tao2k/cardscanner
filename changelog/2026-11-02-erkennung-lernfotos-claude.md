@@ -1,0 +1,2 @@
+- Verbessert: Die Bilderkennung kennt jede Karte jetzt auch als typisches Handyfoto (mit Spiegelung, Schatten und leichter Schräglage) und erkennt dadurch öfter und schneller richtig.
+- Neu: Bei unsicheren Scans schaut Claude auf das Foto, liest Name und Nummer und wählt die richtige Karte, bevor die App nachfragt (sobald die Cloud-Hilfe eingerichtet ist).

@@ -17,6 +17,7 @@ import { learnThreshold } from '../core/thresholds';
 import { analyzeCanvas, type CardAnalysis } from './analyze';
 import { detectLanguage, IMAGE_LANGUAGE_MARGIN, isHanLanguage, languageFromImage, NO_LATIN_BELOW, textViews, type LanguageGuess, type TextView } from '../core/language';
 import { cropTextRegion, cropView, readText, warmUpOcr, type Script } from './ocr';
+import { askCloud } from './cloudIdentify';
 import { buildTextIndex, decide, latinMatch, matchText, TEXT_CONFIDENCE, textWinner, type Decision, type TextIndex, type TextMatch } from '../core/textmatch';
 import type { Prefs } from './prefs';
 import type { Recognizer } from './recognizer';
@@ -80,6 +81,8 @@ interface Saved {
   confidence?: number;
   /** Am Kartentext erkannt (das Bild allein war zu unsicher). */
   byText?: boolean;
+  /** Von Claude bestimmt (Bild und Text waren zu unsicher). */
+  byCloud?: boolean;
   /** Wie gut der lateinisch gelesene Text zum englischen Kartentext passte (für das Lernen der Sprache). */
   latinScore?: number;
   /** Gemessene Abnutzung, wenn der Zustand geschätzt wurde (für das Lernen des Zustands). */
@@ -122,6 +125,9 @@ interface Confirmation {
 /** Licht wie bei der Kamera-App: automatisch (Standard), an oder aus. */
 type TorchMode = 'auto' | 'on' | 'off';
 const NEXT_TORCH: Record<TorchMode, TorchMode> = { auto: 'on', on: 'off', off: 'auto' };
+
+/** Wie eine Karte bestimmt wurde (siehe saveScan). */
+type How = 'auto' | 'text' | 'cloud' | 'chosen';
 
 /** Knapper Treffer: Kandidaten zum Antippen. */
 interface Question {
@@ -191,6 +197,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [analyzing, setAnalyzing] = useState(false);
   const [reading, setReading] = useState<Script | null>(null);
+  /** Claude schaut gerade nach (unsicherer Scan). */
+  const [askingCloud, setAskingCloud] = useState(false);
   /** Zuletzt hinzugefügte Karte, kurz im Kamerabereich angezeigt. */
   const [added, setAdded] = useState<string | null>(null);
   const addedTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -204,7 +212,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       ? captureFx(captured.snapshot, guideRef.current.getBoundingClientRect(), viewfinderRef.current.getBoundingClientRect(), flash)
       : null;
   /** Speichern mit Animation; die gespeicherte Karte gilt als erfasst, bis sie aus dem Bild ist. */
-  const saveWithFx = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen', flash: boolean) => {
+  const saveWithFx = async (captured: Captured, printing: Printing, how: How, flash: boolean) => {
     const fx = startFx(captured, flash);
     try {
       const stored = await saveScan(captured, printing, how);
@@ -366,9 +374,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   /**
    * Wertet Sprache, Zustand und Foil aus und speichert die Karte.
-   * how: 'auto' = sicher erkannt, 'chosen' = nach Nachfrage von dir gewählt (wird zum Referenzbild).
+   * how: 'auto' = sicher erkannt, 'text' = am Kartentext, 'cloud' = von Claude bestimmt,
+   * 'chosen' = nach Nachfrage von dir gewählt (wird zum Referenzbild).
    */
-  const saveScan = async (captured: Captured, printing: Printing, how: 'auto' | 'text' | 'chosen'): Promise<boolean> => {
+  const saveScan = async (captured: Captured, printing: Printing, how: How): Promise<boolean> => {
     if (!catalogs) return false;
     const { gameId, stable, vector, region, shot } = captured;
     const p = prefsRef.current;
@@ -495,7 +504,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     }
     if (how !== 'chosen') recordAuto();
     navigator.vibrate?.(40);
-    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', latinScore, wear, foilScore, judged, key }, ...r].slice(0, 5));
+    setRecent((r) => [{ result, printing, input, sample, conditionNote, languageNote, finishNote, auto: how !== 'chosen', confidence: how === 'auto' ? stable.confidence : how === 'text' ? TEXT_CONFIDENCE : undefined, byText: how === 'text', byCloud: how === 'cloud', latinScore, wear, foilScore, judged, key }, ...r].slice(0, 5));
     onChange();
     if (sample) onLearn();
     return true;
@@ -526,6 +535,29 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       if (!stable.confident && hasHan && !textWinner(text)) text = matchText(index, { latin, han: await readOnce(captured, 'han', setReading) });
     }
     return decide(index, stable.ranked, stable.confident, text, DEFAULT_STABILIZER.candidates);
+  };
+
+  /**
+   * Unsicherer Scan: Claude bekommt das Kamerabild und die besten Treffer. Zurück kommt der Druck,
+   * den Claude erkennt (auch einer außerhalb der Treffer, wenn Name und Nummer eindeutig passen),
+   * und ob Claude sich sicher ist. null, wenn die Hilfe nicht eingerichtet ist oder nichts passt.
+   */
+  const cloudHelp = async (captured: Captured, asked: number[], printings: Printing[]): Promise<{ printing: Printing; sure: boolean } | null> => {
+    if (!captured.card || !catalogs) return null;
+    const indices = [...new Set([...asked, ...captured.stable.ranked.map((m) => m.index)])].slice(0, 8);
+    const game = catalogs.games.find((g) => g.gameId === captured.gameId)?.gameName ?? captured.gameId;
+    setAskingCloud(true);
+    const answer = await askCloud(game, captured.card, indices.map((i) => printings[i]), (p) => catalogs.compareRefs(captured.gameId, p.printingId)[0]).finally(() =>
+      setAskingCloud(false),
+    );
+    if (!answer) return null;
+    const picked = answer.printingId ? printings.find((p) => p.printingId === answer.printingId) : undefined;
+    if (picked) return { printing: picked, sure: answer.sure };
+    // Keiner der Treffer: nach gelesenem Namen und Nummer im ganzen Katalog suchen (nur vorschlagen)
+    const digits = (s: string | null) => (s?.match(/\d+/)?.[0] ?? '').replace(/^0+/, '');
+    const name = answer.name?.trim().toLowerCase();
+    const found = printings.filter((p) => p.cardName.toLowerCase() === name && (!answer.number || digits(p.collectorNumber) === digits(answer.number)));
+    return found.length === 1 ? { printing: found[0], sure: false } : null;
   };
 
   // Erkennungsschleife: ein Frame nach dem anderen, so schnell wie das Modell rechnet
@@ -584,11 +616,21 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           if (!active) break;
           if (decision.action === 'save') {
             await saveWithFx(captured, printings[decision.index], decision.via === 'image' ? 'auto' : 'text', true);
+            if (!active) break;
+            continue;
+          }
+          // Knapp: erst Claude fragen (wenn eingerichtet), sonst nicht raten, sondern nachfragen
+          const help = await cloudHelp(captured, decision.candidates, printings);
+          if (!active) break;
+          if (help?.sure) {
+            await saveWithFx(captured, help.printing, 'cloud', true);
           } else {
-            // Knapp: nicht raten, sondern nachfragen. Die Erkennung pausiert, bis du gewählt hast.
+            // Die Erkennung pausiert, bis du gewählt hast. Claudes Vorschlag steht vorn.
             recordAsked();
             navigator.vibrate?.([40, 60, 40]);
-            const ask: Question = { captured, candidates: decision.candidates.map((i) => printings[i]), reason: decision.reason };
+            const listed = decision.candidates.map((i) => printings[i]);
+            const candidates = help ? [help.printing, ...listed.filter((p) => p !== help.printing)] : listed;
+            const ask: Question = { captured, candidates, reason: decision.reason };
             questionRef.current = ask;
             setQuestion(ask);
           }
@@ -974,6 +1016,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           <div class="hud">
             {reading ? (
               <span>{reading === 'han' ? 'Lese chinesischen Text …' : 'Lese Kartentext …'}</span>
+            ) : askingCloud ? (
+              <span>Claude schaut nach …</span>
             ) : analyzing ? (
               <span>Prüfe Sprache, Zustand und Foil …</span>
             ) : question ? (
@@ -1087,6 +1131,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
                     <small>
                       Zustand {item.condition}
                       {s.confidence !== undefined && ` · ${Math.floor(s.confidence * 100)} % sicher${s.byText ? ' (Text gelesen)' : ''}`}
+                      {s.byCloud && ' · von Claude bestimmt'}
                       {s.auto === false && ' · von dir gewählt'}
                     </small>
                     {s.languageNote && <small class="note">{s.languageNote}</small>}
