@@ -86,9 +86,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   if (!pool) {
     return (
       <section class="decks">
-        <header>
-          <h1>Decks</h1>
-        </header>
         <div class="empty-state">
           <strong>Für dieses Spiel gibt es noch keinen Deckbau</strong>
         </div>
@@ -165,9 +162,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
 
   return (
     <section class="decks">
-      <header class="title-row">
-        <h1>Decks</h1>
-      </header>
       {pool.legends.length > 0 && !pool.legends.some((l) => l.championOf) && <p class="banner">Kartendaten werden aktualisiert. Bitte die App gleich neu öffnen.</p>}
       {decks.length > 0 ? (
         <ul class="deck-boxes">
