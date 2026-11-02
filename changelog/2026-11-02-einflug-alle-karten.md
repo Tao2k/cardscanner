@@ -1,0 +1,1 @@
+- Behoben: Nach vielen Scans fliegen jetzt alle neuen Karten in den Binder, die Animation bleibt nicht mehr mitten im Set stehen. Bei vielen Karten geht es etwas schneller.

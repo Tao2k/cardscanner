@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
-import { pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
+import { flightPace, flightStops, pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
 import { CoverMotif } from './BinderMotif';
 import { themeOf, themeStyle, uiColor } from './binderThemes';
@@ -31,8 +31,6 @@ interface Props {
 
 /** Wie lange ein frisch eingesteckter Platz grün leuchtet. */
 const FRESH_MS = 2400;
-/** Mehr Karten fliegen nicht einzeln, der Rest steckt danach auf einmal. */
-const MAX_FLIGHTS = 40;
 /** Dauer des Auf- und Zuklappens. */
 const COVER_MS = 820;
 /** Deckel klappt um den Rücken links nach vorn auf, steht kurz senkrecht und verschwindet. */
@@ -112,14 +110,18 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
     binders.forEach((binder) => binder.slots.forEach((s, at) => index.has(s.key) || index.set(s.key, { binder, at })));
     return index;
   }, [binders]);
-  // Reihenfolge des Einfliegens: Binder für Binder, Platz für Platz, damit nur vorwärts geblättert wird
-  const [queue] = useState(() => {
-    const order = (k: string) => {
-      const hit = slotIndex.get(k);
-      return hit ? binders.indexOf(hit.binder) * 1e6 + hit.at : Infinity;
-    };
-    return arriving.filter((k) => slotIndex.has(k)).sort((a, b) => order(a) - order(b));
-  });
+  // Halte beim Einfliegen: Binder für Binder, Seite für Seite, damit nur vorwärts geblättert wird
+  const [stops] = useState(() =>
+    flightStops(
+      arriving,
+      binders.map((b) => b.key),
+      (key) => {
+        const hit = slotIndex.get(key);
+        return hit && { binder: hit.binder.key, at: hit.at };
+      },
+    ),
+  );
+  const [queue] = useState(() => stops.flatMap((s) => s.keys));
   /** Noch nicht gelandete Exemplare; ihre Plätze zeigen sie bis dahin nicht. */
   const [pending, setPending] = useState<string[]>(queue);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
@@ -277,7 +279,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
   useEffect(() => stopTurn, []);
 
   /** Auf die Seite blättern; wartet, bis sie liegt. */
-  const turnTo = async (index: number, smooth = !reducedMotion()) => {
+  const turnTo = async (index: number, smooth = !reducedMotion(), ms = TURN_MS) => {
     await turn.current?.finished;
     const from = pageNow.current;
     if (index === from) return;
@@ -288,7 +290,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
     }
     const t = begin(from, index);
     await frame();
-    await glide(t, 1, TURN_MS, easeInOut);
+    await glide(t, 1, ms, easeInOut);
     await end(t, true);
   };
 
@@ -450,58 +452,49 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       await sleep(320);
       await reveal();
       await openCover();
-      const n = Math.min(queue.length, MAX_FLIGHTS);
-      const duration = Math.round(Math.max(560, 900 - n * 18));
-      const gap = Math.round(Math.max(240, 620 - n * 25));
-      let landed: Promise<void>[] = [];
-      for (const key of queue.slice(0, MAX_FLIGHTS)) {
+      // Alle neuen Karten fliegen, bei vielen schneller; Seite für Seite, erst alle einer Seite, dann umblättern
+      const { duration, gap, turn: turnMs } = flightPace(queue.length, stops.length);
+      for (const halt of stops) {
         if (stopped) return;
-        const { binder, at } = slotIndex.get(key)!;
-        const target = Math.floor(at / PER_PAGE);
-        if (binder.key !== selectedRef.current || target !== pageNow.current) {
-          // Erst alle Karten dieser Seite einstecken, dann umblättern
-          await Promise.all(landed);
-          landed = [];
+        const binder = binders.find((b) => b.key === halt.binder)!;
+        if (binder.key !== selectedRef.current) {
+          // Nächstes Set: dessen Binder liegt zu da und klappt auf
+          onSelect(binder.key);
+          setPage(0);
+          setCover('closed');
+          await frame();
+          await frame();
+          await reveal();
+          await openCover();
           if (stopped) return;
-          if (binder.key !== selectedRef.current) {
-            // Nächstes Set: dessen Binder liegt zu da und klappt auf
-            onSelect(binder.key);
-            setPage(0);
-            setCover('closed');
-            await frame();
-            await frame();
-            await reveal();
-            await openCover();
-            if (stopped) return;
-          }
-          await turnTo(target);
+        }
+        if (halt.page !== pageNow.current) {
+          await turnTo(halt.page, true, turnMs);
           await reveal();
         }
-        const el = pagesRef.current?.querySelector(`[data-slot="${CSS.escape(key)}"]`);
-        if (!el || stopped) {
-          land(key);
-          continue;
-        }
-        const flight = flyInto(imageOf(binder.slots[at]), el, duration);
-        inAir.add(flight);
-        landed.push(
-          flight.done.then(() => {
-            inAir.delete(flight);
-            if (stopped) return;
+        const landed: Promise<void>[] = [];
+        for (const key of halt.keys) {
+          if (stopped) return;
+          const el = pagesRef.current?.querySelector(`[data-slot="${CSS.escape(key)}"]`);
+          if (!el) {
             land(key);
-            settle(el);
-          }),
-        );
-        await sleep(gap);
+            continue;
+          }
+          const flight = flyInto(imageOf(binder.slots[slotIndex.get(key)!.at]), el, duration);
+          inAir.add(flight);
+          landed.push(
+            flight.done.then(() => {
+              inAir.delete(flight);
+              if (stopped) return;
+              land(key);
+              settle(el);
+            }),
+          );
+          await sleep(gap);
+        }
+        await Promise.all(landed);
       }
-      await Promise.all(landed);
       if (stopped) return;
-      // Was nicht einzeln geflogen ist, steckt jetzt auf einmal
-      const rest = queue.slice(MAX_FLIGHTS);
-      if (rest.length) {
-        setPending([]);
-        markFresh(rest);
-      }
       stopped = true;
       setSkip(null);
     })();

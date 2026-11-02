@@ -147,3 +147,44 @@ export function withoutFirst(list: string[], key: string): string[] {
   const i = list.indexOf(key);
   return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
 }
+
+/** Ein Halt beim Einfliegen: eine Seite eines Binders und die Karten, die dort einstecken. */
+export interface FlightStop {
+  binder: string;
+  page: number;
+  keys: string[];
+}
+
+/**
+ * Reihenfolge des Einfliegens: Binder für Binder, Seite für Seite, damit nur vorwärts geblättert wird.
+ * Jede neue Karte kommt genau einmal vor, auch wenn es sehr viele sind; Unbekanntes (nicht im Binder) fällt weg.
+ * @param binderOrder Reihenfolge der Binder (Schlüssel wie im Reiter)
+ * @param where       Binder und Platz einer Karte
+ */
+export function flightStops(queue: string[], binderOrder: string[], where: (key: string) => { binder: string; at: number } | undefined): FlightStop[] {
+  const rank = new Map(binderOrder.map((key, i) => [key, i]));
+  const placed = queue
+    .map((key) => ({ key, hit: where(key) }))
+    .filter((e): e is { key: string; hit: { binder: string; at: number } } => !!e.hit && rank.has(e.hit.binder))
+    .sort((a, b) => rank.get(a.hit.binder)! - rank.get(b.hit.binder)! || a.hit.at - b.hit.at);
+  const stops: FlightStop[] = [];
+  for (const { key, hit } of placed) {
+    const page = Math.floor(hit.at / PER_PAGE);
+    const last = stops[stops.length - 1];
+    if (last && last.binder === hit.binder && last.page === page) last.keys.push(key);
+    else stops.push({ binder: hit.binder, page, keys: [key] });
+  }
+  return stops;
+}
+
+/**
+ * Tempo des Einfliegens: wenige Karten fliegen gemächlich, viele schneller und dichter hintereinander,
+ * damit auch ein großer Stapel bis zur letzten Karte durchläuft (früher war nach 40 Karten Schluss).
+ * @returns Flugzeit, Abstand zwischen zwei Karten und Dauer des Umblätterns in ms
+ */
+export function flightPace(cards: number, stops: number): { duration: number; gap: number; turn: number } {
+  const duration = cards <= 40 ? Math.max(560, 900 - cards * 18) : Math.max(420, 560 - (cards - 40) * 3);
+  const gap = Math.max(90, 620 - cards * 25, Math.min(240, 9600 / Math.max(1, cards)));
+  const turn = Math.max(220, 380 - Math.max(0, stops - 8) * 10);
+  return { duration: Math.round(duration), gap: Math.round(gap), turn };
+}
