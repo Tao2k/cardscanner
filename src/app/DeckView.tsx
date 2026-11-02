@@ -39,7 +39,7 @@ import {
   type DeckPool,
 } from '../core/deck';
 import { newId } from '../core/collection';
-import { loadMeta, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
+import { buildFromMeta, loadMeta, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
@@ -58,7 +58,7 @@ interface Props {
   onDelete(deckId: string): void;
 }
 
-type Screen = { kind: 'list' } | { kind: 'legend' } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
+type Screen = { kind: 'list' } | { kind: 'legend'; auto?: boolean } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
 type Part = 'cards' | 'side' | 'runes' | 'battlefields';
 type Kind = 'all' | 'unit' | 'spell' | 'gear';
 type Sort = 'energy' | 'power' | 'kind' | 'name' | 'owned';
@@ -107,6 +107,8 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   }, [gameId]);
   const counts = useMemo(() => (pool ? metaCounts(meta, pool) : new Map<string, number>()), [meta, pool]);
   const wish = useWishlist();
+  // Hinweis im Deck nach dem automatischen Bauen
+  const [notice, setNotice] = useState<string | null>(null);
 
   if (!pool) {
     return (
@@ -134,8 +136,26 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
         <LegendPicker
           pool={pool}
           counts={counts}
+          auto={screen.auto}
           onBack={() => setScreen({ kind: 'list' })}
-          onPick={(legend) => setScreen({ kind: 'champion', legend: legend.id })}
+          onPick={(legend) => {
+            if (!screen.auto) {
+              setScreen({ kind: 'champion', legend: legend.id });
+              return;
+            }
+            // KI-Deck: Champion und Karten kommen aus den Turnierlisten
+            const stats = metaStats(meta, legend, pool);
+            const champions = championsFor(legend, pool);
+            const champion = (stats && metaChampion(stats, champions)) ?? champions[0];
+            if (!stats || !champion) {
+              setScreen({ kind: 'champion', legend: legend.id });
+              return;
+            }
+            const created = buildFromMeta(newDeck(gameId, legend, champion, newId(), new Date().toISOString()), stats, pool, { owned });
+            onSave(created);
+            setNotice(builtNotice(stats));
+            setScreen({ kind: 'edit', deckId: created.deckId });
+          }}
           onShow={setShown}
         />
         {sheet}
@@ -182,11 +202,15 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           pool={pool}
           owned={owned}
           meta={meta}
+          notice={notice}
           priceOf={priceOf}
           wish={wish}
           urlOf={(card) => catalogs.price(gameId, card.printing.printingId)?.url}
           onSave={onSave}
-          onBack={() => setScreen({ kind: 'list' })}
+          onBack={() => {
+            setNotice(null);
+            setScreen({ kind: 'list' });
+          }}
           onChangeChampion={() => setScreen({ kind: 'champion', legend: deck.legend, deckId: deck.deckId })}
           onDelete={() => {
             if (!confirm(`Deck „${deck.name}“ löschen?`)) return;
@@ -201,6 +225,16 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   return (
     <section class="decks">
       {pool.legends.length > 0 && !pool.legends.some((l) => l.championOf) && <p class="banner">Kartendaten werden aktualisiert. Bitte die App gleich neu öffnen.</p>}
+      {counts.size > 0 && (
+        <button class="ai-deck" onClick={() => setScreen({ kind: 'legend', auto: true })}>
+          <span class="ai-deck-icon">{sparkIcon}</span>
+          <span class="ai-deck-text">
+            <strong>KI-Deck bauen</strong>
+            <small>Legende wählen, den Rest baut die App aus aktuellen Turnierdecks</small>
+          </span>
+          <i aria-hidden="true">›</i>
+        </button>
+      )}
       {decks.length > 0 ? (
         <ul class="deck-boxes">
           <li>
@@ -275,8 +309,8 @@ function DeckBox({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: Dec
   );
 }
 
-function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
-  const { pool, counts, onBack, onPick, onShow } = props;
+function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; auto?: boolean; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
+  const { pool, counts, auto, onBack, onPick, onShow } = props;
   useBack(true, onBack);
   const [query, setQuery] = useState('');
   const [domain, setDomain] = useState<string | null>(null);
@@ -284,13 +318,16 @@ function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; onBa
   const legends = pool.legends.filter(
     (l) => (!domain || l.domains.includes(domain)) && (!q || `${l.championOf} ${l.name}`.toLowerCase().includes(q)),
   );
+  // Fürs KI-Deck: die meistgespielten Legenden zuerst
+  if (auto) legends.sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) || (a.championOf ?? a.name).localeCompare(b.championOf ?? b.name));
   return (
     <section class="decks">
       <header class="friend-head">
         <button class="link back" onClick={onBack}>
           ‹ Decks
         </button>
-        <h1>Legende wählen</h1>
+        <h1>{auto ? 'KI-Deck bauen' : 'Legende wählen'}</h1>
+        {auto && <p class="muted legend-line">Wähle eine Legende. Champion, Karten, Runen und Battlefields kommen aus den Turnierdecks.</p>}
       </header>
       <div class="find">
         <input type="search" enterkeyhint="search" placeholder="Champion suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
@@ -474,6 +511,8 @@ function DeckEditor(props: {
   pool: DeckPool;
   owned: Map<string, number>;
   meta: MetaFile | null;
+  /** Kurzer Hinweis beim Öffnen, z. B. nach dem automatischen Bauen. */
+  notice?: string | null;
   priceOf(card: DeckCard): number | undefined;
   urlOf(card: DeckCard): string | undefined;
   wish: WishlistState;
@@ -482,7 +521,7 @@ function DeckEditor(props: {
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, meta, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, meta, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   useBack(true, onBack);
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
@@ -532,12 +571,15 @@ function DeckEditor(props: {
     .filter((e): e is { card: DeckCard; lacking: number } => !!e.card && e.lacking > 0 && !wish.keys.has(`${pool.gameId}|${e.card.printing.printingId}`));
 
   /** Kurzer Hinweis unten in der Kartenliste, wenn ein Tipp nichts bewirkt. */
-  const warn = (text: string) => {
+  const warn = (text: string, ms = 2800) => {
     clearTimeout(hintTimer.current);
     setHint({ text, at: Date.now() });
-    hintTimer.current = window.setTimeout(() => setHint(null), 2800);
+    hintTimer.current = window.setTimeout(() => setHint(null), ms);
   };
   useEffect(() => () => clearTimeout(hintTimer.current), []);
+  useEffect(() => {
+    if (notice) warn(notice, 5000);
+  }, [notice]);
 
   useEffect(() => {
     const box = pane.current;
@@ -818,12 +860,19 @@ function DeckEditor(props: {
           </div>
           {broken.length > 0 && <p class="deck-problems">{broken.slice(0, 2).join(' · ')}</p>}
           {stats && check.main <= 1 && check.runes === 0 && (
-            <button class="meta-cta" onClick={() => setSheet('meta')}>
+            <button
+              class="meta-cta"
+              onClick={() => {
+                change((d) => buildFromMeta(d, stats, pool, { owned }));
+                setFresh(null);
+                warn(builtNotice(stats), 5000);
+              }}
+            >
               {sparkIcon}
               <span>
-                <strong>Deck aus der Meta bauen</strong>
+                <strong>KI-Deck bauen</strong>
                 <small>
-                  Grundgerüst aus {stats.decks} {stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}
+                  Ein Tipp, die App baut das Deck aus {listsLabel(stats)}
                 </small>
               </span>
               <i aria-hidden="true">›</i>
@@ -1077,8 +1126,8 @@ function DeckEditor(props: {
           <h2>{deck.name}</h2>
           <div class="options">
             <button disabled={!stats} onClick={() => setSheet('meta')}>
-              <span>Aus der Meta bauen</span>
-              <small class="muted">{stats ? `${stats.decks} ${stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}` : 'Keine Turnierlisten'}</small>
+              <span>KI-Deck: Vorschau und Turnierdecks</span>
+              <small class="muted">{stats ? listsLabel(stats) : 'Keine Turnierlisten'}</small>
             </button>
             <button
               onClick={() => {
@@ -1201,6 +1250,14 @@ const plusIcon = (
     <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
   </svg>
 );
+
+/** „76 Turnierlisten“, bei wenigen Listen mit den Community-Decks dazu. */
+export function listsLabel(stats: MetaStats): string {
+  const t = `${stats.decks} ${stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}`;
+  return stats.community ? `${t} und ${stats.community} Community-Decks` : t;
+}
+
+const builtNotice = (stats: MetaStats) => `KI-Deck aus ${listsLabel(stats)} gebaut`;
 
 const trophyMini = (
   <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">

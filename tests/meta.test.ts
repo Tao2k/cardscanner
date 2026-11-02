@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkDeck, copiesOf, deckPool, mainCount, newDeck, type DeckCard } from '../src/core/deck';
-import { buildFromMeta, deckWeight, metaChampion, metaCounts, metaRunes, metaStats, playRate, type MetaDeck, type MetaFile } from '../src/core/meta';
-import { dotggIndex, toMetaDeck } from '../scripts/adapters/riftbound-meta';
+import { buildFromMeta, byPlacement, deckFromList, deckWeight, metaChampion, metaCounts, metaRunes, metaStats, playRate, type MetaDeck, type MetaFile } from '../src/core/meta';
+import { dotggIndex, hasLegend, toMetaDeck } from '../scripts/adapters/riftbound-meta';
 import type { CardSet, Printing } from '../src/core/types';
 
 const SETS: CardSet[] = [{ setId: 'OGN', code: 'OGN', name: 'Origins', releaseDate: '2025-10-31' }];
@@ -178,5 +178,56 @@ describe('Turnierlisten von dotgg', () => {
 
   it('lässt leere Listen weg', () => {
     expect(toMetaDeck({ slug: 'x', date: '1793507685', boards: [{}] }, index, new Set())).toBeNull();
+  });
+});
+
+describe('Schwächere Legenden und Turnierdecks', () => {
+  it('zählt Community-Decks weniger und nur, wenn es wenige Turnierlisten gibt', () => {
+    expect(deckWeight({ date: '2026-11-02', community: true }, NOW)).toBeCloseTo(0.3, 1);
+    const withCommunity: MetaFile = {
+      ...meta,
+      decks: [...meta.decks, jinxList('c1', { community: true, place: undefined }, { enforcer: 0, ray: 3 })],
+    };
+    const stats = metaStats(withCommunity, jinx, pool, NOW)!;
+    expect(stats.decks).toBe(3);
+    expect(stats.community).toBe(1);
+    expect(playRate(stats, 'Hextech Ray')).toBeGreaterThan(playRate(metaStats(meta, jinx, pool, NOW)!, 'Hextech Ray'));
+    // Community-Decks zählen nicht als Turnierliste
+    expect(metaCounts(withCommunity, pool).get('Loose Cannon')).toBe(3);
+    expect(stats.lists.map((l) => l.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('sortiert Turnierdecks nach Platz, dann die neuesten zuerst', () => {
+    const lists = [jinxList('x', { place: 8 }), jinxList('y', { place: 1, date: '2026-10-01' }), jinxList('z', { place: 1, date: '2026-10-20' }), jinxList('n', { place: undefined })];
+    expect(lists.sort(byPlacement).map((l) => l.id)).toEqual(['z', 'y', 'x', 'n']);
+  });
+
+  it('übernimmt eine einzelne Turnierliste mit Side Deck', () => {
+    const empty = newDeck('riftbound', jinx, get('Jinx, Demolitionist'), 'd3', '2026-11-02T12:00:00Z');
+    const deck = deckFromList(empty, jinxList('a', {}, {}), jinx, pool);
+    // Die Liste spielt Rebel, nicht Demolitionist: Rebel wird Chosen Champion
+    expect(deck.champion).toBe('Jinx, Rebel');
+    expect(copiesOf(deck, 'Jinx, Rebel')).toBe(3);
+    expect(mainCount(deck)).toBe(40);
+    expect(deck.runes).toEqual({ 'Fury Rune': 7, 'Chaos Rune': 5 });
+    expect(checkDeck(deck, pool).complete).toBe(true);
+    const withSide = deckFromList(empty, { ...jinxList('s'), side: { ray: 2 } }, jinx, pool);
+    expect(withSide.side).toEqual({ 'Hextech Ray': 2 });
+  });
+
+  it('baut ein Side Deck aus den Sideboards', () => {
+    const sided: MetaFile = { ...meta, decks: meta.decks.map((d) => (d.id === 'ahri' ? d : { ...d, side: { ray: 2, 'calm-spell': 3 } })) };
+    const stats = metaStats(sided, jinx, pool, NOW)!;
+    const deck = buildFromMeta(newDeck('riftbound', jinx, get('Jinx, Rebel'), 'd4', '2026-11-02T12:00:00Z'), stats, pool);
+    // Meditation (Calm) passt nicht zu Jinx; Ray zählt mit dem Hauptdeck bis 3
+    expect(deck.side?.['Meditation']).toBeUndefined();
+    expect((deck.side?.['Hextech Ray'] ?? 0) + (deck.cards['Hextech Ray'] ?? 0)).toBeLessThanOrEqual(3);
+    expect(deck.side?.['Hextech Ray']).toBeGreaterThan(0);
+  });
+
+  it('erkennt die Legende auch ohne Feld „leader“', () => {
+    expect(hasLegend({ slug: 'a', date: '1', leader: 'OGN-247' }, 'ogn-247')).toBe(true);
+    expect(hasLegend({ slug: 'b', date: '1', leader: '', boards: [{ 'OGN-247': '1' }] }, 'OGN-247')).toBe(true);
+    expect(hasLegend({ slug: 'c', date: '1', boards: [{ 'OGN-001': '3' }] }, 'OGN-247')).toBe(false);
   });
 });

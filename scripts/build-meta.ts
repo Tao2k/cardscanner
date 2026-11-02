@@ -30,8 +30,8 @@ async function main() {
   const { report, ...result } = await adapter.fetchMeta(printings);
   const events = new Set(result.decks.map((d) => d.event)).size;
   console.log(
-    `[${game}] ${result.source}: ${result.decks.length} Turnierlisten aus ${events} Turnieren ` +
-      `(${report.fetched} geladen, ${report.extra} für seltene Legenden nachgefragt), ${result.decks.at(-1)?.date ?? '–'} bis ${result.decks[0]?.date ?? '–'}`,
+    `[${game}] ${result.source}: ${result.decks.length} Listen aus ${events} Turnieren ` +
+      `(${report.fetched} geladen, ${report.extra} schwächere Plätze und ${report.community} Community-Decks für seltene Legenden), ${result.decks.at(-1)?.date ?? '–'} bis ${result.decks[0]?.date ?? '–'}`,
   );
   if (report.unknown.length) console.warn(`[${game}] ${report.unknown.length} Kartennummern nicht im Katalog: ${report.unknown.join(', ')}`);
   if (!result.decks.length) throw new Error('Keine einzige Turnierliste.');

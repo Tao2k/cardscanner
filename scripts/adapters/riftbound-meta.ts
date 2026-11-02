@@ -11,11 +11,12 @@ import type { MetaResult } from './types';
 const API = 'https://api.dotgg.gg/cgfw/getdecks?game=riftbound&rq=';
 const PAGE_SIZE = 30;
 const MAX_PAGES = 25;
-/** Nur Listen bis Platz 8; für seltene Legenden zusätzlich bis Platz 32. */
+/** Zuerst nur Listen bis Platz 8. */
 export const TOP = 8;
-const TOP_RARE = 32;
-/** Weniger Listen als hier, dann wird die Legende einzeln nachgefragt. */
-const RARE_BELOW = 12;
+/** Weniger Turnierlisten als hier: auch schwächere Plätze der Legende holen. */
+const WANTED = 30;
+/** Immer noch weniger als hier: dazu Decks aus der Community. */
+const SPARSE = 15;
 /** Ältere Listen bringen nichts mehr, die Meta hat sich seitdem verschoben. */
 const MAX_AGE_DAYS = 120;
 
@@ -94,56 +95,74 @@ async function getDecks(url: string): Promise<DotggDeck[]> {
   }
 }
 
-async function pages(filter: Record<string, unknown>, maxPages: number, since: number): Promise<DotggDeck[]> {
+/** Spielt die Liste diese Legende? Community-Decks haben oft kein Feld „leader“, dann zählt die Kartenliste. */
+export function hasLegend(d: DotggDeck, code: string): boolean {
+  if (d.leader) return d.leader.toUpperCase() === code.toUpperCase();
+  const board = d.boards?.[0] ?? d.deck ?? {};
+  return Object.keys(board).some((c) => c.toUpperCase() === code.toUpperCase());
+}
+
+async function pages(filter: Record<string, unknown>, maxPages: number, since: number, tournament = true): Promise<DotggDeck[]> {
   const out: DotggDeck[] = [];
   for (let page = 1; page <= maxPages; page++) {
-    const list = await getDecks(deckQuery(page, filter));
+    const list = await getDecks(deckQuery(page, tournament ? filter : { ...filter, is_tournament: '' }));
     if (!Array.isArray(list) || !list.length) break;
-    out.push(...list.filter((d) => d.is_tournament === '1'));
+    out.push(...list.filter((d) => (tournament ? d.is_tournament === '1' : d.is_tournament !== '1')));
     if (list.length < PAGE_SIZE || Number(list.at(-1)!.date) * 1000 < since) break;
   }
   return out;
 }
 
+/**
+ * Turnierlisten holen:
+ *   1. die Top 8 aller Turniere (so weit die Quelle zurückreicht)
+ *   2. für Legenden mit wenigen Listen: alle Turnierlisten mit der Legende, auch schwächere Plätze
+ *   3. ist es dann immer noch dünn: veröffentlichte Decks der Community mit der Legende (wie die
+ *      Kartenstatistik auf riftdecks.com, die alle Decks einer Legende auswertet); sie zählen weniger
+ */
 export async function fetchRiftboundMeta(printings: Printing[]): Promise<MetaResult> {
   const since = Date.now() - MAX_AGE_DAYS * 864e5;
   const index = dotggIndex(printings);
-  const raw = new Map<string, DotggDeck>();
+  const raw = new Map<string, DotggDeck & { community?: boolean }>();
   for (const d of await pages({ placement: String(TOP) }, MAX_PAGES, since)) raw.set(d.slug, d);
 
-  // Seltene Legenden einzeln nachfragen, damit auch sie genug Listen haben
-  const perLegend = new Map<string, number>();
-  for (const d of raw.values()) if (d.leader) perLegend.set(d.leader, (perLegend.get(d.leader) ?? 0) + 1);
+  const count = (code: string, community = false) => [...raw.values()].filter((d) => hasLegend(d, code) && !!d.community === community).length;
   const legends = printings.filter((p) => kindOf(p) === 'legend' && p.variant === 'normal' && /^\d+$/.test(p.collectorNumber.trim()));
   let extra = 0;
-  for (const legend of legends) {
-    const code = dotggKey(legend).toUpperCase();
-    if ((perLegend.get(code) ?? 0) >= RARE_BELOW) continue;
-    let found: DotggDeck[] = [];
-    try {
-      found = await pages({ placement: String(TOP_RARE), hascrd: [code] }, 1, since);
-    } catch (e) {
-      console.warn(`Turnierlisten für ${code} übersprungen: ${e}`);
-    }
+  let community = 0;
+  const add = (code: string, found: DotggDeck[], isCommunity: boolean) => {
     for (const d of found) {
       // Kennt die Quelle den Filter nicht, kommen fremde Legenden zurück; die zählen hier nicht
-      if (d.leader !== code || raw.has(d.slug)) continue;
-      raw.set(d.slug, d);
-      extra++;
+      if (!hasLegend(d, code) || raw.has(d.slug)) continue;
+      raw.set(d.slug, isCommunity ? { ...d, community: true } : d);
+      if (isCommunity) community++;
+      else extra++;
+    }
+  };
+  for (const legend of legends) {
+    const code = dotggKey(legend).toUpperCase();
+    try {
+      if (count(code) < WANTED) add(code, await pages({ hascrd: [code] }, 2, since), false);
+      if (count(code) < SPARSE) add(code, await pages({ hascrd: [code] }, 2, since, false), true);
+    } catch (e) {
+      console.warn(`Listen für ${code} übersprungen: ${e}`);
     }
   }
 
   const unknown = new Set<string>();
   const decks = [...raw.values()]
     .filter((d) => Number(d.date) * 1000 >= since)
-    .map((d) => toMetaDeck(d, index, unknown))
+    .map((d) => {
+      const deck = toMetaDeck(d, index, unknown);
+      return deck && d.community ? { ...deck, community: true as const } : deck;
+    })
     .filter((d): d is MetaDeck => !!d)
-    .sort((a, b) => b.date.localeCompare(a.date) || (a.place ?? 99) - (b.place ?? 99));
+    .sort((a, b) => b.date.localeCompare(a.date) || (a.place ?? 9999) - (b.place ?? 9999));
   return {
     source: 'riftbound.gg',
     sourceUrl: 'https://riftbound.gg/decks/',
     maxPlace: TOP,
     decks,
-    report: { fetched: raw.size, extra, unknown: [...unknown].sort() },
+    report: { fetched: raw.size, extra, community, unknown: [...unknown].sort() },
   };
 }
