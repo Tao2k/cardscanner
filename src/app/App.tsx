@@ -23,6 +23,7 @@ import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
+import { useWishAlarm, useWishlist } from './wishlist';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -72,6 +73,8 @@ export function App() {
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
   const account = useCloud();
+  /** Preisalarme der Wunschliste, als Zähler an „Sammlung“ und „Wunschliste“. */
+  const wishAlarm = useWishAlarm(useWishlist(), catalogs);
 
   const setPrefs = (patch: Partial<Prefs>) => {
     setPrefsState((p) => {
@@ -260,6 +263,11 @@ export function App() {
               {shelves.map(([value, label]) => (
                 <button role="radio" aria-checked={currentShelf === value} class={currentShelf === value ? 'active' : ''} onClick={() => setShelf(value)}>
                   {label}
+                  {value === 'wishlist' && wishAlarm.alerts.length > 0 && currentShelf !== 'wishlist' && (
+                    <span class="seg-count" aria-label={`${wishAlarm.alerts.length} Preisalarm`}>
+                      {wishAlarm.alerts.length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -296,7 +304,7 @@ export function App() {
         <button
           data-tab="collection"
           class={tab === 'collection' ? 'active' : ''}
-          aria-label={prefs.newScans > 0 ? `Sammlung, ${prefs.newScans} neu` : 'Sammlung'}
+          aria-label={prefs.newScans > 0 ? `Sammlung, ${prefs.newScans} neu` : wishAlarm.alerts.length > 0 ? `Sammlung, ${wishAlarm.alerts.length} Preisalarm` : 'Sammlung'}
           aria-current={tab === 'collection' ? 'page' : undefined}
           onClick={() => {
             // Neue Scans fliegen in den Binder, also dann direkt zu den Karten
@@ -308,7 +316,11 @@ export function App() {
             <rect x="3" y="7" width="12" height="14" rx="2" />
             <path d="M8 3h11a2 2 0 0 1 2 2v12" />
           </>)}
-          {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
+          {prefs.newScans > 0 ? (
+            <span class="count" key={prefs.newScans}>{prefs.newScans}</span>
+          ) : (
+            wishAlarm.alerts.length > 0 && !(tab === 'collection' && currentShelf === 'wishlist') && <span class="count accent">{wishAlarm.alerts.length}</span>
+          )}
         </button>
         <button
           data-tab="prices"

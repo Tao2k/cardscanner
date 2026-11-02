@@ -15,7 +15,8 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
    [`migrations/0001_collection.sql`](migrations/0001_collection.sql) einfügen und ausführen, danach
    genauso [`migrations/0002_friends.sql`](migrations/0002_friends.sql) (Freunde),
    [`migrations/0003_decks.sql`](migrations/0003_decks.sql) (Decks) und
-   [`migrations/0004_wishlist.sql`](migrations/0004_wishlist.sql) (Wunschliste) und
+   [`migrations/0004_wishlist.sql`](migrations/0004_wishlist.sql) (Wunschliste),
+   [`migrations/0005_wishlist_alarm.sql`](migrations/0005_wishlist_alarm.sql) (Zielpreis für den Preisalarm) und
    [`migrations/0006_albums.sql`](migrations/0006_albums.sql) (eigene Alben). Die Skripte dürfen mehrfach laufen.
 3. **Anmeldung mit Passwort:** *Authentication → Sign In / Providers → Email* öffnen und **Confirm email**
    ausschalten. Dann ist man nach „Konto erstellen“ sofort angemeldet. Supabase verschickt ohne
