@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  byCostThenDomain,
+  byPowerThenDomain,
   championsFor,
+  costByDomain,
+  sideCount,
+  sideRoom,
+  withSideCard,
   checkDeck,
   deckPool,
   deckValue,
@@ -23,11 +29,12 @@ const SETS: CardSet[] = [
   { setId: 'OGN', code: 'OGN', name: 'Origins', releaseDate: '2025-10-31' },
   { setId: 'SFD', code: 'SFD', name: 'Spiritforged', releaseDate: '2026-02-13' },
   { setId: 'OGNX', code: 'OGNX', name: 'Origins Promos', promo: true },
+  { setId: 'ARC', code: 'ARC', name: 'Arcane Box Set', promo: true },
 ];
 
 let n = 0;
 /** Druck wie aus der Kartengalerie (scripts/adapters/riftbound.ts). */
-function card(name: string, type: string, domains: string[], extra: { subtitle?: string; supertypes?: string[]; tags?: string[]; energy?: number; set?: string; variant?: Printing['variant']; id?: string } = {}): Printing {
+function card(name: string, type: string, domains: string[], extra: { subtitle?: string; supertypes?: string[]; tags?: string[]; energy?: number; power?: number; set?: string; variant?: Printing['variant']; id?: string } = {}): Printing {
   const id = extra.id ?? `p${++n}`;
   return {
     printingId: id,
@@ -43,6 +50,7 @@ function card(name: string, type: string, domains: string[], extra: { subtitle?:
       tags: extra.tags ?? [],
       subtitle: extra.subtitle ?? null,
       energy: extra.energy ?? null,
+      power: extra.power ?? null,
     },
   };
 }
@@ -79,6 +87,9 @@ const printings: Printing[] = [
   card('Zaun Warrens', 'Battlefield', ['Colorless'], { id: 'bf4' }),
   // RAD-Karten ohne Typ in der Galerie
   card('Hush', '', []),
+  // Sonderedition und Promo-Spielmarke von dotgg: ohne Domains, Schlagwörter und Supertyp
+  { ...card('Jinx - Rebel', 'Unit', []), printingId: 'jinx-rebel-arcane', setCode: 'ARC', variant: 'promo' },
+  { ...card('Bird // Brush', 'Unit', []), printingId: 'bird-promo', setCode: 'OGNX', variant: 'promo', attributes: { event: 'Vault Promo' } },
 ];
 
 const pool = deckPool('riftbound', printings, SETS);
@@ -104,6 +115,14 @@ describe('Kartenpool für den Deckbau', () => {
     expect(pool.cards.has('Jinx, Demolitionist')).toBe(true);
     expect(pool.cards.has('Sprite')).toBe(false);
     expect(pool.cards.has('Hush')).toBe(false);
+  });
+
+  it('macht aus Sondereditionen und Promo-Spielmarken keine eigenen Karten, zählt sie aber als Besitz', () => {
+    expect(pool.cards.has('Jinx - Rebel')).toBe(false);
+    expect(pool.cards.has('Bird // Brush')).toBe(false);
+    expect(pool.cardOf('jinx-rebel-arcane')?.id).toBe('Jinx, Rebel');
+    expect(pool.cardOf('bird-promo')).toBeUndefined();
+    expect(mainCardsFor(jinx, pool).some((c) => c.name.includes(' - ') || c.name.includes('//'))).toBe(false);
   });
 
   it('erkennt den Champion einer Legende am Schlagwort', () => {
@@ -262,5 +281,62 @@ describe('Deck und Sammlung', () => {
     const prices: Record<string, number> = { 'Loose Cannon': 3, 'Jinx, Rebel': 10, 'Hextech Ray': 0.5 };
     expect(deckValue(deck, pool, (c) => prices[c.id])).toBe(13.5);
     expect(deckValue({ ...deck, cards: {} }, pool, () => undefined)).toBeUndefined();
+  });
+});
+
+describe('Side Deck', () => {
+  it('nimmt höchstens 10 Karten und hält die 3 Kopien zusammen mit dem Hauptdeck', () => {
+    let deck = jinxDeck();
+    const ray = get('Hextech Ray');
+    deck = withCard(withCard(deck, ray, 1, pool), ray, 1, pool);
+    deck = withSideCard(withSideCard(deck, ray, 1), ray, 1);
+    expect(deck.side).toEqual({ 'Hextech Ray': 1 });
+    expect(room(deck, ray, pool)).toBe(0);
+    // Chosen Champion zählt mit
+    const rebel = get('Jinx, Rebel');
+    deck = withSideCard(withSideCard(withSideCard(deck, rebel, 1), rebel, 1), rebel, 1);
+    expect(deck.side?.['Jinx, Rebel']).toBe(2);
+    for (const id of ['Get Excited!', 'Chemtech Enforcer', 'Super Mega Death Rocket!']) for (let i = 0; i < 3; i++) deck = withSideCard(deck, get(id), 1);
+    expect(sideCount(deck)).toBe(10);
+    expect(sideRoom(deck, get('Neeko, Curious'))).toBe(0);
+    expect(checkDeck(deck, pool).side).toBe(10);
+    expect(checkDeck(deck, pool).problems.some((p) => p.includes('×'))).toBe(false);
+    deck = withSideCard(deck, ray, -1);
+    expect(deck.side?.['Hextech Ray']).toBeUndefined();
+  });
+
+  it('meldet zu volle Side Decks und zählt sie bei fehlenden Karten mit', () => {
+    const deck: Deck = { ...jinxDeck(), side: { 'Hextech Ray': 3, 'Get Excited!': 3, 'Chemtech Enforcer': 3, 'Neeko, Curious': 2 } };
+    expect(checkDeck(deck, pool).problems).toContain('Side Deck mit mehr als 10 Karten');
+    expect(missingCount(deck, new Map())).toBe(13);
+  });
+
+  it('nimmt beim Champion-Wechsel eine Kopie aus dem Side Deck, wenn sonst 4 da wären', () => {
+    const demo = get('Jinx, Demolitionist');
+    const deck = withChampion({ ...jinxDeck(), side: { 'Jinx, Demolitionist': 3 } }, demo);
+    expect(deck.champion).toBe('Jinx, Demolitionist');
+    expect(deck.side?.['Jinx, Demolitionist']).toBe(2);
+  });
+});
+
+describe('Kosten und Sortierung nach Domain', () => {
+  const cost = (name: string, domains: string[], energy: number, power: number) => ({ ...get('Hextech Ray'), id: name, name, domains, energy, power });
+
+  it('sortiert nach Kosten und bei gleichen Kosten nach Domain der Legende', () => {
+    const cards = [cost('a', ['Chaos'], 5, 1), cost('b', ['Colorless'], 5, 0), cost('c', ['Fury'], 5, 2), cost('d', ['Fury', 'Chaos'], 5, 1), cost('e', ['Chaos'], 2, 1)];
+    expect([...cards].sort(byCostThenDomain(['Fury', 'Chaos'])).map((c) => c.id)).toEqual(['e', 'c', 'a', 'd', 'b']);
+    expect([...cards].sort(byPowerThenDomain(['Fury', 'Chaos'])).map((c) => c.id)).toEqual(['b', 'e', 'a', 'd', 'c']);
+  });
+
+  it('zählt Energie und Power des Hauptdecks je Farbe', () => {
+    let deck = jinxDeck();
+    deck = withCard(withCard(deck, get('Hextech Ray'), 1, pool), get('Hextech Ray'), 1, pool);
+    deck = withCard(deck, get('Super Mega Death Rocket!'), 1, pool);
+    deck = withSideCard(deck, get('Get Excited!'), 1);
+    expect(costByDomain(deck, pool).map((c) => [c.key, c.cards, c.energy])).toEqual([
+      ['Fury', 2, 2],
+      ['Chaos', 1, 4],
+      ['Fury+Chaos', 1, 4],
+    ]);
   });
 });

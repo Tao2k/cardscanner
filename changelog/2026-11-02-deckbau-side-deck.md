@@ -1,0 +1,5 @@
+- Neu: Im Deckbau gibt es jetzt ein Side Deck mit bis zu 10 Karten. Zusammen mit dem Hauptdeck bleibt es bei höchstens 3 Kopien je Karte.
+- Neu: Unter dem Hauptdeck siehst du die Power- und Energiekosten nach Farbe.
+- Neu: Sortieren nach Energie oder Power, bei gleichen Kosten nach Farbe: erst alle Karten der ersten Domain, dann die der zweiten.
+- Neu: Karten aus dem Deckbau setzt du mit dem Herz direkt auf deine Wunschliste, über „…“ auch alle fehlenden auf einmal.
+- Behoben: Spielmarken und Sondereditionen (z. B. Arcane-Box oder T1-Karten) tauchen im Deckbau nicht mehr als eigene Karten auf. Besitzt du sie, zählen sie als Exemplar der normalen Karte.
