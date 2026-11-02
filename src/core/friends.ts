@@ -16,6 +16,8 @@ export interface TradeCard {
   spare: number;
   /** Ausführung des übrigen Exemplars, das am meisten vorhanden ist (für den Preis). */
   finish: Finish;
+  /** Steht auf der Wunschliste der Seite, die die Karte bekäme. */
+  wished?: boolean;
 }
 
 export interface Trade {
@@ -49,21 +51,34 @@ function byPrinting(cards: Owned[]): Map<string, { gameId: string; printingId: s
   );
 }
 
-function spares(from: Owned[], to: Owned[], keep: number): TradeCard[] {
+function spares(from: Owned[], to: Owned[], keep: number, wished: Set<string>): TradeCard[] {
   const have = byPrinting(from);
   const needs = byPrinting(to);
   const result: TradeCard[] = [];
   for (const [key, card] of have) {
     const spare = card.quantity - keep;
-    if (spare > 0 && !needs.has(key)) result.push({ gameId: card.gameId, printingId: card.printingId, spare, finish: card.finish });
+    if (spare <= 0) continue;
+    const entry: TradeCard = { gameId: card.gameId, printingId: card.printingId, spare, finish: card.finish };
+    if (wished.has(key)) result.push({ ...entry, wished: true });
+    else if (!needs.has(key)) result.push(entry);
   }
   return result;
 }
 
+/** Wunschlisten beider Seiten als Schlüssel „gameId|printingId“. */
+export interface TradeWishes {
+  mine?: Iterable<string>;
+  friend?: Iterable<string>;
+}
+
 /**
  * Was zwei Sammlungen tauschen könnten: Karten, von denen eine Seite mehr als `keep` Exemplare hat
- * und die der anderen ganz fehlen. Sprache, Ausführung und Zustand zählen dabei nicht getrennt.
+ * und die der anderen ganz fehlen oder auf ihrer Wunschliste stehen. Sprache, Ausführung und Zustand
+ * zählen dabei nicht getrennt.
  */
-export function tradeBetween(mine: Owned[], friend: Owned[], keep = KEEP): Trade {
-  return { get: spares(friend, mine, keep), give: spares(mine, friend, keep) };
+export function tradeBetween(mine: Owned[], friend: Owned[], keep = KEEP, wishes: TradeWishes = {}): Trade {
+  return {
+    get: spares(friend, mine, keep, new Set(wishes.mine ?? [])),
+    give: spares(mine, friend, keep, new Set(wishes.friend ?? [])),
+  };
 }

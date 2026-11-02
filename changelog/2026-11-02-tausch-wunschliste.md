@@ -1,0 +1,3 @@
+- Neu: Der Tab „Freunde“ heißt jetzt „Tausch“ und hat eine Wunschliste. Karten suchst du dort und merkst sie dir mit dem Herz.
+- Neu: Du kannst die Binder deiner Freunde durchblättern und Karten daraus direkt auf deine Wunschliste setzen.
+- Neu: Bei jedem Wunsch siehst du, welcher Freund die Karte hat. Wünsche stehen bei „Bekommen“ und „Abgeben“ oben.

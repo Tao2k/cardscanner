@@ -15,6 +15,8 @@ import { buildBinders } from './binder';
 import { BinderView } from './BinderView';
 import { CloudLine } from './AccountView';
 import { useCloud } from './cloud';
+import { useWishlist } from './wishlist';
+import { WishToggle } from './TradeView';
 
 interface Props {
   items: CollectionItem[];
@@ -59,6 +61,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const [busy, setBusy] = useState(false);
   /** Angemeldet ist der Server die Sicherung; dann keine Erinnerung an den Excel-Export. */
   const account = useCloud();
+  const wish = useWishlist();
   const [sorting, setSorting] = useState(false);
   /** Eintrag, dessen Sprache und Marktplatz-Link aufgeklappt sind. */
   const [open, setOpen] = useState<string | null>(null);
@@ -292,7 +295,15 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
       )}
       {message && <p class="banner">{message}</p>}
       {view === 'binder' && selectedBinder && (
-        <BinderView binders={binders} catalogs={catalogs} selected={selectedBinder} onSelect={selectBinder} arriving={arriving.current} />
+        <BinderView
+          binders={binders}
+          catalogs={catalogs}
+          selected={selectedBinder}
+          onSelect={selectBinder}
+          arriving={arriving.current}
+          wished={account.signedIn ? wish.keys : undefined}
+          cardActions={account.signedIn ? (slot) => <WishToggle gameId={selectedBinder.gameId} printingId={slot.printing.printingId} wish={wish} /> : undefined}
+        />
       )}
       {view === 'list' && <>
       <div class="find">

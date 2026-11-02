@@ -585,6 +585,32 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .friend-head .link.back { align-self: flex-start; padding: 0; text-decoration: none; font-weight: 600; }
 .trade-sum { margin: 0; }
 button.link.remove-friend { align-self: center; margin-top: 8px; padding: 0; color: var(--error); }
+.friend-head + .segmented button { padding-inline: 4px; white-space: nowrap; }
+.wish-count { display: inline-flex; align-items: center; gap: 3px; color: var(--accent-text); white-space: nowrap; }
+.wish-count svg { width: 12px; height: 12px; }
+
+/* Wunschliste: Herz-Knopf, Suche und Liste */
+button.wish-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 18px;
+  background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+button.wish-toggle svg { width: 18px; height: 18px; flex: none; }
+button.wish-toggle.on { background: var(--accent); color: var(--on-accent); }
+button.wish-toggle.icon { min-width: 44px; min-height: 44px; padding: 0; background: var(--raised); color: var(--muted); }
+button.wish-toggle.icon.on { background: var(--accent-soft); color: var(--accent-text); }
+.binder-card-info > button.wish-toggle { align-self: stretch; margin-top: 8px; }
+.binder-card-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.binder-card-actions button.wish-toggle { align-self: stretch; }
+.wish-search { min-height: 44px; }
+.wish-divider { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.items .main > .wish-toggle { flex: none; }
+.tag.wish { gap: 4px; background: var(--accent-soft); color: var(--accent-text); }
+.tag.wish svg { width: 11px; height: 11px; }
+.wish-list .tag.up { white-space: normal; line-height: 1.25; text-align: left; }
+.empty-heart { display: inline-flex; padding: 10px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); }
+.empty-heart svg { width: 24px; height: 24px; }
+/* Im Binder: Herz oben rechts an Karten auf der Wunschliste */
+.pocket-wish { position: absolute; right: 4px; top: 4px; z-index: 2; display: inline-flex; padding: 4px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.pocket-wish svg { width: 11px; height: 11px; }
 
 /* Nach einem Update: was sich geändert hat (WhatsNew.tsx) */
 .whats-new section { padding: 0; gap: 10px; }

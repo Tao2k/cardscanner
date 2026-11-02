@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
@@ -16,6 +17,12 @@ interface Props {
   onSelect(key: string): void;
   /** Neu gescannte Exemplare („gameId|printingId“), die beim Öffnen in ihre Plätze fliegen. */
   arriving: string[];
+  /** Binder eines Freundes: dessen Name (die Karte zeigt dann „2× bei …“). */
+  owner?: string;
+  /** Karten auf der eigenen Wunschliste („gameId|printingId“), mit Herz markiert. */
+  wished?: Set<string>;
+  /** Zusätzliches im Blatt einer angetippten Karte, z. B. „Auf die Wunschliste“. */
+  cardActions?(slot: Slot): ComponentChildren;
 }
 
 /** Wie lange ein frisch eingesteckter Platz grün leuchtet. */
@@ -94,7 +101,7 @@ const POCKET_WIDTHS = [120, 240, 360];
 const COVER_WIDTHS = [240, 480, 720];
 const SHEET_WIDTHS = [480, 800];
 
-export function BinderView({ binders, catalogs, selected, onSelect, arriving }: Props) {
+export function BinderView({ binders, catalogs, selected, onSelect, arriving, owner, wished, cardActions }: Props) {
   const slotIndex = useMemo(() => {
     const index = new Map<string, { binder: Binder; at: number }>();
     binders.forEach((binder) => binder.slots.forEach((s, at) => index.set(s.key, { binder, at })));
@@ -598,9 +605,10 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
               {sheet.map((s) => {
                 const quantity = shown(s);
                 const has = quantity > 0;
+                const wish = wished?.has(s.key);
                 return (
                   <li key={s.key} data-slot={s.key} class={['pocket', has ? 'filled' : 'empty', has && s.foil ? 'foil' : '', fresh.has(s.key) && has ? 'fresh' : ''].join(' ').trim()}>
-                    <button onClick={() => setOpen(s)} aria-label={`${s.printing.cardName}, ${numberOf(s)}${has ? '' : ', fehlt'}`}>
+                    <button onClick={() => setOpen(s)} aria-label={`${s.printing.cardName}, ${numberOf(s)}${has ? '' : ', fehlt'}${wish ? ', auf der Wunschliste' : ''}`}>
                       <img
                         src={imageOf(s)}
                         srcset={cardSrcSet(s.printing.imageUrl, POCKET_WIDTHS)}
@@ -616,6 +624,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                         </span>
                       )}
                       {quantity > 1 && <span class="pocket-qty">{quantity}×</span>}
+                      {wish && <span class="pocket-wish" aria-hidden="true">{heart}</span>}
                     </button>
                   </li>
                 );
@@ -691,7 +700,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
             {/* Promos: woher die Karte stammt, z. B. „Origins Nexus Night Promo“ */}
             {typeof open.printing.attributes?.event === 'string' && <small class="muted">{open.printing.attributes.event}</small>}
             <span class="line">
-              {shown(open) > 0 ? <em class="tag">{shown(open)}× in der Sammlung</em> : <em class="tag">Fehlt</em>}
+              {shown(open) > 0 ? <em class="tag">{shown(open)}× {owner ? `bei ${owner}` : 'in der Sammlung'}</em> : <em class="tag">Fehlt</em>}
               {open.foil && shown(open) > 0 && <em class="tag foil">Foil</em>}
               {openPrice !== undefined && <span class="price">{formatEur(openPrice)}</span>}
             </span>
@@ -700,12 +709,20 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving }: 
                 Bei Cardmarket ansehen ↗
               </a>
             )}
+            {cardActions?.(open)}
           </div>
         </Sheet>
       )}
     </div>
   );
 }
+
+/** Herz für Karten auf der Wunschliste (auch in Tausch und Wunschliste). */
+export const heart = (
+  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+    <path d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 8 3.6 4.5 7.1 4.5c2 0 3.6 1.1 4.9 2.9 1.3-1.8 2.9-2.9 4.9-2.9 3.5 0 5.7 3.5 4.4 6.8-1.8 4.6-9.3 9.2-9.3 9.2z" fill="currentColor" />
+  </svg>
+);
 
 function chevron(d: string) {
   return (

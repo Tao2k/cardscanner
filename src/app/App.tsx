@@ -16,7 +16,7 @@ import { Recognizer } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { PriceView } from './PriceView';
-import { FriendsView, takeInvite } from './FriendsView';
+import { TradeView, takeInvite } from './TradeView';
 import { DECK_ICON_PATH, DeckView } from './DeckView';
 import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
@@ -41,7 +41,7 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'friends' | 'profile';
+type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'trade' | 'profile';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
@@ -55,9 +55,9 @@ export function App() {
   const [status, setStatus] = useState('Lade Kartenkataloge …');
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
-  /** Freundescode aus einem Einladungslink: App startet dann bei „Freunde“. */
+  /** Freundescode aus einem Einladungslink: App startet dann bei „Tausch“. */
   const [invite, setInvite] = useState(() => (cloudConfigured ? takeInvite() : null));
-  const [tab, setTab] = useState<Tab>(invite ? 'friends' : 'scan');
+  const [tab, setTab] = useState<Tab>(invite ? 'trade' : 'scan');
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
@@ -237,8 +237,8 @@ export function App() {
         {tab === 'prices' && catalogs && (
           <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} fresh={freshAlerts} />
         )}
-        {tab === 'friends' && catalogs && account.signedIn && (
-          <FriendsView items={items} catalogs={catalogs} invite={invite} onInviteUsed={() => setInvite(null)} />
+        {tab === 'trade' && catalogs && account.signedIn && (
+          <TradeView items={items} catalogs={catalogs} gameId={prefs.gameId} invite={invite} onInviteUsed={() => setInvite(null)} />
         )}
         {tab === 'profile' && <ProfileView items={items} catalogs={catalogs} />}
         {tab !== 'scan' && tab !== 'profile' && !catalogs && !error && (
@@ -266,9 +266,9 @@ export function App() {
           Preise {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
         </button>
         {account.signedIn && (
-          <button data-tab="friends" class={tab === 'friends' ? 'active' : ''} aria-current={tab === 'friends' ? 'page' : undefined} onClick={() => setTab('friends')}>
-            {tabIcon('M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.13a4 4 0 0 1 0 7.75M22 21v-2a4 4 0 0 0-3-3.87')}
-            Freunde
+          <button data-tab="trade" class={tab === 'trade' ? 'active' : ''} aria-current={tab === 'trade' ? 'page' : undefined} onClick={() => setTab('trade')}>
+            {tabIcon('M7 4L3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7')}
+            Tausch
           </button>
         )}
         <button data-tab="profile" class={tab === 'profile' ? 'active' : ''} aria-current={tab === 'profile' ? 'page' : undefined} onClick={() => setTab('profile')}>
