@@ -3,10 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   battlefieldsOf,
   byCost,
+  byCostThenDomain,
+  byPowerThenDomain,
   championsFor,
   checkDeck,
   COLORLESS,
   copiesOf,
+  costByDomain,
+  deckEntries,
   DECK_GAMES,
   DECK_RULES,
   deckPool,
@@ -16,15 +20,20 @@ import {
   missingCount,
   newDeck,
   ownedByCard,
+  allCopiesOf,
   room,
   runeCount,
   runesFor,
+  sideCopiesOf,
+  sideRoom,
   toggleBattlefield,
   withCard,
   withChampion,
   withRune,
+  withSideCard,
   type CardKind,
   type Deck,
+  type DomainCost,
   type DeckCard,
   type DeckPool,
 } from '../core/deck';
@@ -33,7 +42,9 @@ import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
+import { WishToggle } from './TradeView';
 import { cardSrcSet, printingCode } from './format';
+import { useWishlist, wishlist, type WishlistState } from './wishlist';
 
 interface Props {
   catalogs: Catalogs;
@@ -45,9 +56,9 @@ interface Props {
 }
 
 type Screen = { kind: 'list' } | { kind: 'legend' } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
-type Part = 'cards' | 'runes' | 'battlefields';
+type Part = 'cards' | 'side' | 'runes' | 'battlefields';
 type Kind = 'all' | 'unit' | 'spell' | 'gear';
-type Sort = 'energy' | 'kind' | 'name' | 'owned';
+type Sort = 'energy' | 'power' | 'kind' | 'name' | 'owned';
 
 const KIND_LABEL: Record<CardKind, string> = { legend: 'Legende', unit: 'Einheit', spell: 'Zauber', gear: 'Ausrüstung', rune: 'Rune', battlefield: 'Battlefield' };
 const KINDS: { value: Kind; label: string }[] = [
@@ -57,7 +68,8 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: 'gear', label: 'Ausrüstung' },
 ];
 const SORTS: { value: Sort; label: string }[] = [
-  { value: 'energy', label: 'Energie' },
+  { value: 'energy', label: 'Energie, dann Domain' },
+  { value: 'power', label: 'Power, dann Domain' },
   { value: 'kind', label: 'Kartenart' },
   { value: 'name', label: 'Name' },
   { value: 'owned', label: 'Aus der Sammlung zuerst' },
@@ -66,7 +78,6 @@ const SORTS: { value: Sort; label: string }[] = [
 const MAX_ENERGY = 7;
 /** Im Deck wie bei Master Duel nach Art gruppiert: erst Einheiten, dann Zauber, dann Ausrüstung, jeweils nach Kosten. */
 const KIND_ORDER: Record<CardKind, number> = { legend: 0, unit: 1, spell: 2, gear: 3, rune: 4, battlefield: 5 };
-const byKind = (a: DeckCard, b: DeckCard) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byCost(a, b);
 /** Reihenfolge der Domains wie auf dem Farbrad des Spiels. */
 const DOMAINS = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
 
@@ -82,6 +93,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   const owned = useMemo(() => (pool ? ownedByCard(items, pool) : new Map<string, number>()), [items, pool]);
   const [screen, setScreen] = useState<Screen>({ kind: 'list' });
   const [shown, setShown] = useState<DeckCard | null>(null);
+  const wish = useWishlist();
 
   if (!pool) {
     return (
@@ -100,7 +112,11 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
     const finish = card.printing.finishes?.length === 1 && card.printing.finishes[0] === 'foil' ? 'foil' : 'normal';
     return priceFor(catalogs.price(gameId, card.printing.printingId), finish, card.printing);
   };
-  const sheet = shown && <CardSheet card={shown} owned={owned.get(shown.id) ?? 0} price={priceOf(shown)} url={catalogs.price(gameId, shown.printing.printingId)?.url} onClose={() => setShown(null)} />;
+  const sheet = shown && (
+    <CardSheet card={shown} owned={owned.get(shown.id) ?? 0} price={priceOf(shown)} url={catalogs.price(gameId, shown.printing.printingId)?.url} onClose={() => setShown(null)}>
+      <WishToggle gameId={gameId} printingId={shown.printing.printingId} wish={wish} />
+    </CardSheet>
+  );
 
   if (screen.kind === 'legend') {
     return (
@@ -149,6 +165,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           pool={pool}
           owned={owned}
           priceOf={priceOf}
+          wish={wish}
           urlOf={(card) => catalogs.price(gameId, card.printing.printingId)?.url}
           onSave={onSave}
           onBack={() => setScreen({ kind: 'list' })}
@@ -411,12 +428,13 @@ function DeckEditor(props: {
   owned: Map<string, number>;
   priceOf(card: DeckCard): number | undefined;
   urlOf(card: DeckCard): string | undefined;
+  wish: WishlistState;
   onSave(deck: Deck): void;
   onBack(): void;
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, priceOf, urlOf, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
   const current = useRef(initial);
@@ -455,6 +473,13 @@ function DeckEditor(props: {
   const missing = missingCount(deck, owned);
   const value = deckValue(deck, pool, priceOf);
   const ownedOf = (c: DeckCard) => owned.get(c.id) ?? 0;
+  const costs = costByDomain(deck, pool);
+  const domainOrder = legend?.domains ?? [];
+  const byKindDomain = (a: DeckCard, b: DeckCard) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byCostThenDomain(domainOrder)(a, b);
+  /** Karten, die man nicht (oft genug) besitzt und noch nicht auf der Wunschliste hat. */
+  const wishable = deckEntries(deck)
+    .map((e) => ({ card: pool.cards.get(e.id), lacking: e.count - (owned.get(e.id) ?? 0) }))
+    .filter((e): e is { card: DeckCard; lacking: number } => !!e.card && e.lacking > 0 && !wish.keys.has(`${pool.gameId}|${e.card.printing.printingId}`));
 
   /** Kurzer Hinweis unten in der Kartenliste, wenn ein Tipp nichts bewirkt. */
   const warn = (text: string) => {
@@ -477,8 +502,10 @@ function DeckEditor(props: {
   const addCard = (c: DeckCard) => {
     if (!change((d) => withCard(d, c, 1, pool))) {
       warn(
-        copiesOf(current.current, c.id) >= DECK_RULES.copies
-          ? `${cardTitle(c)} ist schon ${DECK_RULES.copies}× im Deck`
+        allCopiesOf(current.current, c.id) >= DECK_RULES.copies
+          ? sideCopiesOf(current.current, c.id)
+            ? `${cardTitle(c)} ist schon ${DECK_RULES.copies}× in Deck und Side Deck`
+            : `${cardTitle(c)} ist schon ${DECK_RULES.copies}× im Deck`
           : `Schon ${DECK_RULES.signatures} Signature-Karten im Deck`,
       );
       return;
@@ -491,6 +518,24 @@ function DeckEditor(props: {
     if (!change((d) => withCard(d, c, -1, pool))) return;
     setFresh(null);
     setSpoken(`${cardTitle(c)} herausgenommen, ${copiesOf(current.current, c.id)} im Deck`);
+  };
+  const addSide = (c: DeckCard) => {
+    if (!change((d) => withSideCard(d, c, 1))) {
+      warn(
+        allCopiesOf(current.current, c.id) >= DECK_RULES.copies
+          ? `${cardTitle(c)} ist schon ${DECK_RULES.copies}× in Deck und Side Deck`
+          : `Side Deck ist voll (${DECK_RULES.side} Karten)`,
+      );
+      return;
+    }
+    const n = sideCopiesOf(current.current, c.id);
+    setFresh({ id: `side:${c.id}`, n: n - 1 });
+    setSpoken(`${cardTitle(c)} ins Side Deck, ${n} im Side Deck`);
+  };
+  const removeSide = (c: DeckCard) => {
+    if (!change((d) => withSideCard(d, c, -1))) return;
+    setFresh(null);
+    setSpoken(`${cardTitle(c)} aus dem Side Deck, ${sideCopiesOf(current.current, c.id)} im Side Deck`);
   };
   const addRune = (r: DeckCard) => {
     const full = runeCount(current.current) >= DECK_RULES.runes;
@@ -521,14 +566,16 @@ function DeckEditor(props: {
 
   // Deck als Raster: Champion zuerst, dann Einheiten, Zauber, Ausrüstung je nach Kosten; jede Kopie einzeln
   const seen = new Map<string, number>();
-  const deckTile = (c: DeckCard, label: string, onTap: () => void, extra = '') => {
+  const deckTile = (c: DeckCard, label: string, onTap: () => void, extra = '', area = '') => {
+    // Besitz zählt über Hauptdeck und Side Deck hinweg; die Kopien im Side Deck kommen nach denen im Hauptdeck
     const i = seen.get(c.id) ?? 0;
     seen.set(c.id, i + 1);
     const lacking = i >= ownedOf(c);
-    const isFresh = fresh?.id === c.id && fresh.n === i;
+    const own = area ? i - copiesOf(deck, c.id) : i;
+    const isFresh = fresh?.id === `${area}${c.id}` && fresh.n === own;
     return (
       <button
-        key={`${c.id}#${i}`}
+        key={`${area}${c.id}#${i}`}
         class={`tile${extra}${lacking ? ' lacking' : ''}${isFresh ? ' fresh' : ''}`}
         aria-label={`${label}${lacking ? ' (fehlt dir)' : ''}`}
         {...press(onTap, () => setShown(c))}
@@ -542,7 +589,11 @@ function DeckEditor(props: {
   const inDeck = Object.entries(deck.cards)
     .map(([id, n]) => ({ card: pool.cards.get(id), n }))
     .filter((e): e is { card: DeckCard; n: number } => !!e.card)
-    .sort((a, b) => byKind(a.card, b.card));
+    .sort((a, b) => byKindDomain(a.card, b.card));
+  const sideIn = Object.entries(deck.side ?? {})
+    .map(([id, n]) => ({ card: pool.cards.get(id), n }))
+    .filter((e): e is { card: DeckCard; n: number } => !!e.card)
+    .sort((a, b) => byKindDomain(a.card, b.card));
   const runeOrder = (id: string) => {
     const i = runes.findIndex((r) => r.id === id);
     return i < 0 ? runes.length : i;
@@ -558,8 +609,9 @@ function DeckEditor(props: {
   const q = query.trim().toLowerCase();
   const filters = (kind !== 'all' ? 1 : 0) + (energy !== null ? 1 : 0) + (domain ? 1 : 0) + (ownedOnly ? 1 : 0);
   const order: Record<Sort, (a: DeckCard, b: DeckCard) => number> = {
-    energy: byCost,
-    kind: byKind,
+    energy: byCostThenDomain(domainOrder),
+    power: byPowerThenDomain(domainOrder),
+    kind: byKindDomain,
     name: (a, b) => cardTitle(a).localeCompare(cardTitle(b)),
     owned: (a, b) => Number(ownedOf(b) > 0) - Number(ownedOf(a) > 0) || byCost(a, b),
   };
@@ -614,8 +666,9 @@ function DeckEditor(props: {
       );
     }
     const isRune = c.kind === 'rune' && runes.some((r) => r.id === c.id);
-    if (!isRune && !allowed.has(c.id)) return null;
+    if (!isRune && !allowed.has(c.id)) return <WishToggle gameId={pool.gameId} printingId={c.printing.printingId} wish={wish} />;
     const n = isRune ? deck.runes[c.id] ?? 0 : copiesOf(deck, c.id);
+    const side = sideCopiesOf(deck, c.id);
     return (
       <>
         <div class="sheet-qty">
@@ -630,6 +683,21 @@ function DeckEditor(props: {
             </button>
           </div>
         </div>
+        {!isRune && (
+          <div class="sheet-qty">
+            <span>Im Side Deck</span>
+            <div class="qty">
+              <button onClick={() => removeSide(c)} disabled={!side} aria-label="Eine weniger im Side Deck">
+                −
+              </button>
+              <span aria-live="polite">{side}</span>
+              <button onClick={() => addSide(c)} disabled={sideRoom(deck, c) === 0} aria-label="Eine mehr im Side Deck">
+                +
+              </button>
+            </div>
+          </div>
+        )}
+        <WishToggle gameId={pool.gameId} printingId={c.printing.printingId} wish={wish} />
         {c.id === deck.champion && (
           <button
             onClick={() => {
@@ -709,6 +777,19 @@ function DeckEditor(props: {
             {inDeck.flatMap(({ card, n }) => Array.from({ length: n }, () => deckTile(card, `${cardTitle(card)} herausnehmen`, () => removeCard(card))))}
             {slots(DECK_RULES.main - check.main)}
           </div>
+          {costs.length > 0 && <CostBar costs={costs} />}
+
+          <h2 class="pane-head">
+            Side Deck
+            <b class={check.side > DECK_RULES.side ? 'over' : ''}>
+              {check.side}/{DECK_RULES.side}
+            </b>
+            <small>optional</small>
+          </h2>
+          <div class="deck-grid side">
+            {sideIn.flatMap(({ card, n }) => Array.from({ length: n }, () => deckTile(card, `${cardTitle(card)} aus dem Side Deck nehmen`, () => removeSide(card), '', 'side:')))}
+            {slots(DECK_RULES.side - check.side)}
+          </div>
 
           <h2 class="pane-head">
             Runen
@@ -739,6 +820,7 @@ function DeckEditor(props: {
             {(
               [
                 ['cards', 'Karten', check.main, DECK_RULES.main],
+                ['side', 'Side', check.side, DECK_RULES.side],
                 ['runes', 'Runen', check.runes, DECK_RULES.runes],
                 ['battlefields', 'Battlefields', check.battlefields, DECK_RULES.battlefields],
               ] as const
@@ -752,10 +834,10 @@ function DeckEditor(props: {
             ))}
           </div>
 
-          {part === 'cards' && (
+          {(part === 'cards' || part === 'side') && (
             <>
               <div class="list-tools">
-                <input type="search" enterkeyhint="search" placeholder="Karte suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+                <input type="search" enterkeyhint="search" placeholder={part === 'side' ? 'Karte fürs Side Deck suchen' : 'Karte suchen'} value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
                 <button class="tool" aria-label={`Sortieren: ${SORTS.find((s) => s.value === sort)?.label}`} aria-haspopup="dialog" onClick={() => setSheet('sort')}>
                   {sortIcon}
                 </button>
@@ -770,7 +852,11 @@ function DeckEditor(props: {
                 </button>
               </div>
               {listed.length ? (
-                <div class="list-grid">{listed.map((c) => listTile(c, copiesOf(deck, c.id), room(deck, c, pool) === 0, () => addCard(c)))}</div>
+                <div class="list-grid">
+                  {part === 'side'
+                    ? listed.map((c) => listTile(c, sideCopiesOf(deck, c.id), sideRoom(deck, c) === 0, () => addSide(c)))
+                    : listed.map((c) => listTile(c, copiesOf(deck, c.id), room(deck, c, pool) === 0, () => addCard(c)))}
+                </div>
               ) : (
                 <p class="muted none">Keine Karte</p>
               )}
@@ -913,6 +999,17 @@ function DeckEditor(props: {
             >
               Champion wechseln
             </button>
+            {wish.status === 'ready' && wishable.length > 0 && (
+              <button
+                onClick={() => {
+                  setSheet(null);
+                  for (const e of wishable) void wishlist.add(pool.gameId, e.card.printing.printingId);
+                  warn(`${wishable.length} ${wishable.length === 1 ? 'Karte' : 'Karten'} auf die Wunschliste gesetzt`);
+                }}
+              >
+                Fehlende auf die Wunschliste ({wishable.length})
+              </button>
+            )}
             <button
               class="danger"
               onClick={() => {
@@ -960,6 +1057,36 @@ function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?:
       </div>
       {children}
     </Sheet>
+  );
+}
+
+/**
+ * Kosten des Hauptdecks nach Farbe: Power (farbige Kostensymbole) und Energie je Domain.
+ * Zweifarbige Karten stehen unter beiden Punkten, weil die Galerie die Farbe ihrer Power nicht nennt.
+ */
+function CostBar({ costs }: { costs: DomainCost[] }) {
+  const power = costs.reduce((n, c) => n + c.power, 0);
+  const energy = costs.reduce((n, c) => n + c.energy, 0);
+  const name = (c: DomainCost) => (c.domains[0] === COLORLESS ? 'Farblos' : c.domains.join(' und '));
+  return (
+    <div class="cost-bar">
+      <h3>Kosten im Hauptdeck</h3>
+      <ul>
+        <li class="cost-all" aria-label={`Gesamt: ${power} Power, ${energy} Energie`}>
+          <small>Gesamt</small>
+          <b>{power}</b>
+          <small>{energy} Energie</small>
+        </li>
+        {costs.map((c) => (
+          <li key={c.key} aria-label={`${name(c)}: ${c.power} Power, ${c.energy} Energie, ${c.cards} ${c.cards === 1 ? 'Karte' : 'Karten'}`}>
+            <span class="cost-dots">{c.domains[0] === COLORLESS ? <i class="domain-dot" /> : c.domains.map((d) => <DomainDot domain={d} />)}</span>
+            <b>{c.power}</b>
+            <small>{c.energy} Energie</small>
+          </li>
+        ))}
+      </ul>
+      <p>Große Zahl = Power, darunter die Energie</p>
+    </div>
   );
 }
 
