@@ -1,8 +1,10 @@
 import {
+  byCost,
   copiesOf,
   DECK_RULES,
   fitsLegend,
   room,
+  sideRoom,
   runesFor,
   battlefieldsOf,
   type Deck,
@@ -27,6 +29,8 @@ export interface MetaDeck {
   cards: Record<string, number>;
   /** Sideboard, falls angegeben. */
   side?: Record<string, number>;
+  /** Kein Turnierdeck, sondern ein veröffentlichtes Deck der Community (nur bei Legenden mit wenigen Turnierlisten). */
+  community?: true;
 }
 
 export interface MetaFile {
@@ -55,12 +59,17 @@ interface Listing {
   weight: number;
   /** Karte → Anzahl (Drucke derselben Karte zusammengezählt). */
   counts: Map<string, number>;
+  side: Map<string, number>;
 }
 
 export interface MetaStats {
   legend: DeckCard;
-  /** Listen dieser Legende. */
+  /** Turnierlisten dieser Legende. */
   decks: number;
+  /** Mitgezählte Community-Decks (nur wenn es wenige Turnierlisten gibt). */
+  community: number;
+  /** Die Turnierlisten selbst, beste Platzierung zuerst, dann die neuesten. */
+  lists: MetaDeck[];
   /** Turniere, aus denen sie stammen. */
   events: number;
   /** Beste Platzierung und wo. */
@@ -75,7 +84,14 @@ export interface MetaStats {
   runes: Map<string, number>;
   /** Anteil der Listen mit diesem Battlefield. */
   battlefields: Map<string, number>;
+  /** Wie share, fürs Sideboard. */
+  side: Map<string, number[]>;
 }
+
+/** Ab so vielen Turnierlisten zählen Community-Decks nicht mehr mit. */
+export const ENOUGH_LISTS = 15;
+/** Community-Decks zählen weniger als Turnierlisten: niemand hat sie im Turnier erprobt. */
+export const COMMUNITY_WEIGHT = 0.3;
 
 const DAY = 864e5;
 /** Nach so vielen Tagen zählt eine Liste nur noch halb: die Meta ändert sich mit jedem Set. */
@@ -85,9 +101,10 @@ export const HALF_LIFE_DAYS = 30;
  * Gewicht einer Liste: neuere zählen mehr (Halbwertszeit 30 Tage), bessere Plätze mehr
  * (Sieg 1, Platz 8 etwa 0,6, Platz 32 etwa 0,4).
  */
-export function deckWeight(deck: Pick<MetaDeck, 'date' | 'place'>, now: number): number {
+export function deckWeight(deck: Pick<MetaDeck, 'date' | 'place' | 'community'>, now: number): number {
   const age = Math.max(0, (now - Date.parse(deck.date)) / DAY);
   const recency = 0.5 ** (age / HALF_LIFE_DAYS);
+  if (deck.community) return recency * COMMUNITY_WEIGHT;
   const placement = 1 / (1 + 0.25 * Math.log2(Math.max(1, deck.place ?? 32)));
   return recency * placement;
 }
@@ -105,8 +122,13 @@ function listings(meta: MetaFile, pool: DeckPool, now: number): Map<string, List
       counts.set(card.id, (counts.get(card.id) ?? 0) + n);
     }
     if (!legend) continue;
+    const side = new Map<string, number>();
+    for (const [printingId, n] of Object.entries(deck.side ?? {})) {
+      const card = pool.cardOf(printingId);
+      if (card && n > 0) side.set(card.id, (side.get(card.id) ?? 0) + n);
+    }
     const list = byLegend.get(legend) ?? [];
-    list.push({ deck, weight: deckWeight(deck, now), counts });
+    list.push({ deck, weight: deckWeight(deck, now), counts, side });
     byLegend.set(legend, list);
   }
   return byLegend;
@@ -116,21 +138,33 @@ function listings(meta: MetaFile, pool: DeckPool, now: number): Map<string, List
 export function metaCounts(meta: MetaFile | null, pool: DeckPool): Map<string, number> {
   const counts = new Map<string, number>();
   if (!meta) return counts;
-  for (const [legend, list] of listings(meta, pool, Date.now())) counts.set(legend, list.length);
+  for (const [legend, list] of listings(meta, pool, Date.now())) {
+    const n = list.filter((l) => !l.deck.community).length;
+    if (n) counts.set(legend, n);
+  }
   return counts;
 }
 
 /** Was die Turnierlisten einer Legende gemeinsam haben. */
 export function metaStats(meta: MetaFile | null, legend: DeckCard, pool: DeckPool, now = Date.now()): MetaStats | null {
-  const list = meta ? listings(meta, pool, now).get(legend.id) : undefined;
-  if (!list?.length) return null;
+  const all = meta ? listings(meta, pool, now).get(legend.id) : undefined;
+  if (!all?.length) return null;
+  // Genug Turnierlisten: nur die; sonst helfen Community-Decks, die Kartenwahl abzusichern
+  const tournament = all.filter((l) => !l.deck.community);
+  const list = tournament.length >= ENOUGH_LISTS ? tournament : all;
   const total = list.reduce((s, l) => s + l.weight, 0);
   const share = new Map<string, number[]>();
   const champions = new Map<string, number>();
   const runes = new Map<string, number>();
   const battlefields = new Map<string, number>();
-  for (const { weight, counts } of list) {
+  const side = new Map<string, number[]>();
+  for (const { weight, counts, side: board } of list) {
     const w = weight / total;
+    for (const [id, n] of board) {
+      const s = side.get(id) ?? [0, 0, 0];
+      for (let k = 0; k < Math.min(n, DECK_RULES.copies); k++) s[k] += w;
+      side.set(id, s);
+    }
     for (const [id, n] of counts) {
       const card = pool.cards.get(id)!;
       if (card.kind === 'rune') runes.set(id, (runes.get(id) ?? 0) + n * w);
@@ -144,14 +178,17 @@ export function metaStats(meta: MetaFile | null, legend: DeckCard, pool: DeckPoo
     }
   }
   let best: MetaStats['best'];
-  for (const { deck } of list) {
+  for (const { deck } of tournament) {
     if (deck.place && (!best || deck.place < best.place || (deck.place === best.place && deck.date > best.date))) best = { place: deck.place, event: deck.event, date: deck.date };
   }
   const dates = list.map((l) => l.deck.date).sort();
+  const lists = tournament.map((l) => l.deck).sort(byPlacement);
   return {
     legend,
-    decks: list.length,
-    events: new Set(list.map((l) => l.deck.event)).size,
+    decks: tournament.length,
+    community: list.length - tournament.length,
+    lists,
+    events: new Set(tournament.map((l) => l.deck.event)).size,
     best,
     newest: dates.at(-1),
     oldest: dates[0],
@@ -159,7 +196,13 @@ export function metaStats(meta: MetaFile | null, legend: DeckCard, pool: DeckPoo
     champions,
     runes,
     battlefields,
+    side,
   };
+}
+
+/** Turnierlisten sortiert: beste Platzierung zuerst, bei gleichem Platz die neueste. */
+export function byPlacement(a: MetaDeck, b: MetaDeck): number {
+  return (a.place ?? Number.MAX_SAFE_INTEGER) - (b.place ?? Number.MAX_SAFE_INTEGER) || b.date.localeCompare(a.date) || a.id.localeCompare(b.id);
 }
 
 /** Champion, den die meisten Listen spielen (unter denen, die zur Legende passen). */
@@ -197,7 +240,7 @@ export function buildFromMeta(deck: Deck, stats: MetaStats, pool: DeckPool, opti
   // Höchster Anteil zuerst; bei Gleichstand die niedrigere Kopie, dann günstigere Karte
   picks.sort((a, b) => b.score - a.score || a.k - b.k || (a.card.energy ?? 99) - (b.card.energy ?? 99) || a.card.id.localeCompare(b.card.id));
 
-  let next: Deck = { ...deck, cards: {}, runes: {}, battlefields: [] };
+  let next: Deck = { ...deck, cards: {}, runes: {}, battlefields: [], side: {} };
   const target = DECK_RULES.main - (next.champion ? 1 : 0);
   let count = 0;
   for (const { card, k } of picks) {
@@ -216,7 +259,56 @@ export function buildFromMeta(deck: Deck, stats: MetaStats, pool: DeckPool, opti
     if (chosen.length >= DECK_RULES.battlefields) break;
     if (!chosen.includes(b.id)) chosen.push(b.id);
   }
-  return { ...next, battlefields: chosen };
+  return fillSide({ ...next, battlefields: chosen }, stats, pool);
+}
+
+/** Side Deck aus den Sideboards der Listen: die Kopien, die am häufigsten dabei sind, bis 10 Karten. */
+function fillSide(deck: Deck, stats: MetaStats, pool: DeckPool): Deck {
+  const picks: { card: DeckCard; k: number; score: number }[] = [];
+  for (const [id, s] of stats.side) {
+    const card = pool.cards.get(id);
+    if (!card || !fitsLegend(card, stats.legend)) continue;
+    s.forEach((value, i) => value >= 0.1 && picks.push({ card, k: i + 1, score: value }));
+  }
+  picks.sort((a, b) => b.score - a.score || a.k - b.k || a.card.id.localeCompare(b.card.id));
+  let next = deck;
+  for (const { card, k } of picks) {
+    if ((next.side?.[card.id] ?? 0) !== k - 1 || sideRoom(next, card) <= 0) continue;
+    next = { ...next, side: { ...next.side, [card.id]: k } };
+  }
+  return next;
+}
+
+/**
+ * Eine bestimmte Turnierliste übernehmen. Der Chosen Champion bleibt, wenn die Liste ihn spielt,
+ * sonst wird es der Champion der Legende, den die Liste am häufigsten spielt.
+ */
+export function deckFromList(deck: Deck, list: MetaDeck, legend: DeckCard, pool: DeckPool): Deck {
+  const cards: Record<string, number> = {};
+  const runes: Record<string, number> = {};
+  const battlefields: string[] = [];
+  for (const [printingId, n] of Object.entries(list.cards)) {
+    const card = pool.cardOf(printingId);
+    if (!card || card.kind === 'legend' || !(n > 0)) continue;
+    if (card.kind === 'rune') runes[card.id] = (runes[card.id] ?? 0) + n;
+    else if (card.kind === 'battlefield') battlefields.includes(card.id) || battlefields.push(card.id);
+    else cards[card.id] = Math.min(DECK_RULES.copies, (cards[card.id] ?? 0) + n);
+  }
+  const champions = Object.keys(cards)
+    .map((id) => pool.cards.get(id)!)
+    .filter((c) => c.champion && c.championOf === legend.championOf)
+    .sort((a, b) => cards[b.id] - cards[a.id] || byCost(a, b));
+  const champion = cards[deck.champion] ? deck.champion : champions[0]?.id ?? deck.champion;
+  if (cards[champion]) {
+    cards[champion]--;
+    if (!cards[champion]) delete cards[champion];
+  }
+  const side: Record<string, number> = {};
+  for (const [printingId, n] of Object.entries(list.side ?? {})) {
+    const card = pool.cardOf(printingId);
+    if (card && n > 0 && card.kind !== 'legend') side[card.id] = Math.min(DECK_RULES.copies, (side[card.id] ?? 0) + n);
+  }
+  return { ...deck, champion, cards, runes, battlefields: battlefields.slice(0, DECK_RULES.battlefields), side };
 }
 
 /** 12 Runen im Verhältnis der Listen (größte Reste zuerst); ohne Daten gleichmäßig. */

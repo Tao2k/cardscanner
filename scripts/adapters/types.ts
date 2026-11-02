@@ -27,7 +27,7 @@ export interface MetaResult {
   /** Listen bis zu dieser Platzierung; seltene Legenden können tiefer reichen. */
   maxPlace: number;
   decks: MetaDeck[];
-  report: { fetched: number; extra: number; unknown: string[] };
+  report: { fetched: number; extra: number; community: number; unknown: string[] };
 }
 
 export interface PriceResult {

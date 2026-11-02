@@ -1,12 +1,17 @@
 import { useMemo, useState } from 'preact/hooks';
-import { DECK_RULES, deckValue, mainCount, missingCount, type Deck, type DeckCard, type DeckPool } from '../core/deck';
-import { buildFromMeta, playRate, type MetaFile, type MetaStats } from '../core/meta';
+import { byCost, DECK_RULES, deckValue, mainCount, missingCount, type CardKind, type Deck, type DeckCard, type DeckPool } from '../core/deck';
+import { buildFromMeta, deckFromList, playRate, type MetaDeck, type MetaFile, type MetaStats } from '../core/meta';
 import { formatEur } from '../core/prices';
 import { Sheet } from './Sheet';
 
 const DATE = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' });
 const day = (iso: string) => DATE.format(new Date(`${iso}T12:00:00Z`));
 const pct = (x: number) => `${Math.round(x * 100)} %`;
+/** Wie im Deck: Einheiten, Zauber, Ausrüstung, jeweils nach Kosten. */
+const KIND_ORDER: Partial<Record<CardKind, number>> = { unit: 1, spell: 2, gear: 3 };
+const byKind = (a: DeckCard, b: DeckCard) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) || byCost(a, b);
+/** So viele Turnierdecks zeigt die Liste zuerst. */
+const FIRST_LISTS = 8;
 
 /**
  * Deck aus der Turnier-Meta bauen: zeigt, worauf der Vorschlag beruht, das vorgeschlagene Hauptdeck als
@@ -24,16 +29,17 @@ export function MetaSheet(props: {
 }) {
   const { deck, stats, meta, pool, owned, priceOf, onApply, onClose } = props;
   const [preferOwned, setPreferOwned] = useState(false);
+  const [allLists, setAllLists] = useState(false);
   const built = useMemo(() => buildFromMeta(deck, stats, pool, { owned, preferOwned }), [deck, stats, pool, owned, preferOwned]);
   const missing = missingCount(built, owned);
   const value = deckValue(built, pool, priceOf);
   const replaces = mainCount(deck) > 1 || Object.keys(deck.runes).length > 0 || deck.battlefields.length > 0;
 
-  // Hauptdeck nach Spielrate: Karten, die fast alle spielen, zuerst
+  // Sortiert wie im Deck
   const cards = Object.entries(built.cards)
     .map(([id, n]) => ({ card: pool.cards.get(id)!, n }))
     .filter((e) => e.card)
-    .sort((a, b) => playRate(stats, b.card.id) - playRate(stats, a.card.id) || a.card.id.localeCompare(b.card.id));
+    .sort((a, b) => byKind(a.card, b.card));
   const core = cards.filter((e) => playRate(stats, e.card.id) >= 0.75).length;
   const champion = pool.cards.get(built.champion);
 
@@ -48,6 +54,8 @@ export function MetaSheet(props: {
         {stats.events > 1 ? ` von ${stats.events} Turnieren` : ''}
         {stats.oldest && stats.newest ? ` (${stats.oldest === stats.newest ? day(stats.newest) : `${day(stats.oldest)} bis ${day(stats.newest)}`})` : ''}.{' '}
         Neue Turniere und bessere Plätze zählen mehr.
+        {stats.community > 0 &&
+          ` Weil es wenige Turnierlisten gibt, zählen ${stats.community} veröffentlichte Decks der Community mit, aber schwächer.`}
       </p>
       {stats.best && (
         <p class="meta-best">
@@ -85,7 +93,10 @@ export function MetaSheet(props: {
           <MetaTile card={card} n={n} have={Math.max(0, (owned.get(card.id) ?? 0) - (card.id === built.champion ? 1 : 0))} rate={playRate(stats, card.id)} />
         ))}
       </div>
-      <p class="meta-note">Prozent: in so vielen Listen gespielt. Blasse Karten fehlen dir. Dazu kommen {DECK_RULES.runes} Runen im Verhältnis der Listen und die 3 meistgespielten Battlefields.</p>
+      <p class="meta-note">
+        Prozent: in so vielen Listen gespielt. Blasse Karten fehlen dir. Dazu kommen {DECK_RULES.runes} Runen im Verhältnis der Listen, die 3 meistgespielten
+        Battlefields und ein Side Deck aus den Sideboards.
+      </p>
 
       <label class="check">
         <input type="checkbox" checked={preferOwned} onChange={(e) => setPreferOwned(e.currentTarget.checked)} />
@@ -101,7 +112,31 @@ export function MetaSheet(props: {
       >
         {replaces ? 'Deck ersetzen' : 'Deck übernehmen'}
       </button>
-      {replaces && <p class="meta-note center">Ersetzt Hauptdeck, Runen und Battlefields. Legende und Champion bleiben.</p>}
+      {replaces && <p class="meta-note center">Ersetzt Hauptdeck, Side Deck, Runen und Battlefields. Legende und Champion bleiben.</p>}
+
+      {stats.lists.length > 0 && (
+        <>
+          <h3 class="meta-lists-head">Turnierdecks</h3>
+          <ul class="meta-lists">
+            {stats.lists.slice(0, allLists ? undefined : FIRST_LISTS).map((list) => (
+              <ListRow
+                key={list.id}
+                list={list}
+                champion={championOf(list, stats, pool)}
+                onApply={() => {
+                  onApply(deckFromList(deck, list, stats.legend, pool));
+                  onClose();
+                }}
+              />
+            ))}
+          </ul>
+          {!allLists && stats.lists.length > FIRST_LISTS && (
+            <button class="link meta-more" onClick={() => setAllLists(true)}>
+              Alle {stats.lists.length} Turnierdecks zeigen
+            </button>
+          )}
+        </>
+      )}
       <p class="meta-note center">
         Turnierlisten von{' '}
         <a href={meta.sourceUrl} target="_blank" rel="noopener">
@@ -110,6 +145,34 @@ export function MetaSheet(props: {
         , Stand {DATE.format(new Date(meta.builtAt))}
       </p>
     </Sheet>
+  );
+}
+
+/** Champion-Einheit der Legende, die die Liste spielt (für die Zeile). */
+function championOf(list: MetaDeck, stats: MetaStats, pool: DeckPool): DeckCard | undefined {
+  let best: { card: DeckCard; n: number } | undefined;
+  for (const [printingId, n] of Object.entries(list.cards)) {
+    const card = pool.cardOf(printingId);
+    if (card?.champion && card.championOf === stats.legend.championOf && (!best || n > best.n)) best = { card, n };
+  }
+  return best?.card;
+}
+
+function ListRow({ list, champion, onApply }: { list: MetaDeck; champion?: DeckCard; onApply(): void }) {
+  return (
+    <li class="meta-list">
+      <b class={`meta-place${list.place === 1 ? ' first' : list.place && list.place <= 8 ? ' top' : ''}`}>{list.place ? `${list.place}.` : '–'}</b>
+      <span>
+        <strong>{list.event}</strong>
+        <small>
+          {day(list.date)}
+          {champion ? ` · ${champion.title ?? champion.name}` : ''}
+        </small>
+      </span>
+      <button class="small" onClick={onApply} aria-label={`Deck vom ${list.place ? `${list.place}. Platz ` : ''}${list.event} übernehmen`}>
+        Übernehmen
+      </button>
+    </li>
   );
 }
 
