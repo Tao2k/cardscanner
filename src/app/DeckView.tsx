@@ -38,12 +38,14 @@ import {
   type DeckPool,
 } from '../core/deck';
 import { newId } from '../core/collection';
+import { loadMeta, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
 import { WishToggle } from './TradeView';
 import { cardSrcSet, printingCode } from './format';
+import { MetaSheet, sparkIcon } from './MetaSheet';
 import { useWishlist, wishlist, type WishlistState } from './wishlist';
 
 interface Props {
@@ -93,6 +95,16 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   const owned = useMemo(() => (pool ? ownedByCard(items, pool) : new Map<string, number>()), [items, pool]);
   const [screen, setScreen] = useState<Screen>({ kind: 'list' });
   const [shown, setShown] = useState<DeckCard | null>(null);
+  // Turnierlisten für Deckvorschläge; fehlen sie, geht alles andere wie gehabt
+  const [meta, setMeta] = useState<MetaFile | null>(null);
+  useEffect(() => {
+    let alive = true;
+    loadMeta(import.meta.env.BASE_URL, gameId).then((m) => alive && setMeta(m));
+    return () => {
+      alive = false;
+    };
+  }, [gameId]);
+  const counts = useMemo(() => (pool ? metaCounts(meta, pool) : new Map<string, number>()), [meta, pool]);
   const wish = useWishlist();
 
   if (!pool) {
@@ -118,7 +130,13 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   if (screen.kind === 'legend') {
     return (
       <>
-        <LegendPicker pool={pool} onBack={() => setScreen({ kind: 'list' })} onPick={(legend) => setScreen({ kind: 'champion', legend: legend.id })} onShow={setShown} />
+        <LegendPicker
+          pool={pool}
+          counts={counts}
+          onBack={() => setScreen({ kind: 'list' })}
+          onPick={(legend) => setScreen({ kind: 'champion', legend: legend.id })}
+          onShow={setShown}
+        />
         {sheet}
       </>
     );
@@ -132,6 +150,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
         <ChampionPicker
           legend={legend}
           pool={pool}
+          stats={metaStats(meta, legend, pool)}
           current={deck?.champion}
           backLabel={deck ? deck.name : 'Legende'}
           onBack={() => setScreen(deck ? { kind: 'edit', deckId: deck.deckId } : { kind: 'legend' })}
@@ -161,6 +180,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           initial={deck}
           pool={pool}
           owned={owned}
+          meta={meta}
           priceOf={priceOf}
           wish={wish}
           urlOf={(card) => catalogs.price(gameId, card.printing.printingId)?.url}
@@ -254,7 +274,8 @@ function DeckBox({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: Dec
   );
 }
 
-function LegendPicker({ pool, onBack, onPick, onShow }: { pool: DeckPool; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
+function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
+  const { pool, counts, onBack, onPick, onShow } = props;
   const [query, setQuery] = useState('');
   const [domain, setDomain] = useState<string | null>(null);
   const q = query.trim().toLowerCase();
@@ -286,7 +307,15 @@ function LegendPicker({ pool, onBack, onPick, onShow }: { pool: DeckPool; onBack
       {legends.length ? (
         <div class="pick-grid">
           {legends.map((l) => (
-            <PickCard key={l.id} card={l} title={legendTitle(l)} detail={l.name} onPick={() => onPick(l)} onShow={() => onShow(l)} />
+            <PickCard
+              key={l.id}
+              card={l}
+              title={legendTitle(l)}
+              detail={l.name}
+              badge={counts.get(l.id) ? { text: String(counts.get(l.id)), label: `${counts.get(l.id)} Turnierlisten` } : undefined}
+              onPick={() => onPick(l)}
+              onShow={() => onShow(l)}
+            />
           ))}
         </div>
       ) : (
@@ -299,14 +328,18 @@ function LegendPicker({ pool, onBack, onPick, onShow }: { pool: DeckPool; onBack
 function ChampionPicker(props: {
   legend: DeckCard;
   pool: DeckPool;
+  stats: MetaStats | null;
   current?: string;
   backLabel: string;
   onBack(): void;
   onPick(champion: DeckCard): void;
   onShow(card: DeckCard): void;
 }) {
-  const { legend, pool, current, backLabel, onBack, onPick, onShow } = props;
+  const { legend, pool, stats, current, backLabel, onBack, onPick, onShow } = props;
   const champions = championsFor(legend, pool);
+  // Champion, den die Turnierlisten am häufigsten spielen
+  const favourite = stats && metaChampion(stats, champions);
+  const favouriteRate = favourite && stats ? stats.champions.get(favourite.id) ?? 0 : 0;
   return (
     <section class="decks">
       <header class="friend-head">
@@ -328,6 +361,7 @@ function ChampionPicker(props: {
               title={c.title ?? c.name}
               detail={c.energy !== null ? `${c.energy} Energie` : ''}
               active={c.id === current}
+              badge={c === favourite && favouriteRate > 0 ? { text: 'Meta', label: `In ${Math.round(favouriteRate * 100)} % der Turnierlisten` } : undefined}
               onPick={() => onPick(c)}
               onShow={() => onShow(c)}
             />
@@ -343,7 +377,17 @@ function ChampionPicker(props: {
 }
 
 /** Karte zum Auswählen: Tipp wählt, die Lupe zeigt die Karte groß. */
-function PickCard({ card, title, detail, active, onPick, onShow }: { card: DeckCard; title: string; detail: string; active?: boolean; onPick(): void; onShow(): void }) {
+function PickCard(props: {
+  card: DeckCard;
+  title: string;
+  detail: string;
+  active?: boolean;
+  /** Kleines Schild oben links, z. B. wie viele Turnierlisten es zur Legende gibt. */
+  badge?: { text: string; label: string };
+  onPick(): void;
+  onShow(): void;
+}) {
+  const { card, title, detail, active, badge, onPick, onShow } = props;
   return (
     <div class={`pick${active ? ' active' : ''}`}>
       <button class="pick-main" onClick={onPick} aria-pressed={active}>
@@ -354,6 +398,12 @@ function PickCard({ card, title, detail, active, onPick, onShow }: { card: DeckC
           alt=""
           loading="lazy"
         />
+        {badge && (
+          <span class="pick-badge" title={badge.label} aria-label={badge.label}>
+            {trophyMini}
+            {badge.text}
+          </span>
+        )}
         <strong>{title}</strong>
         <small>
           <Domains domains={card.domains} />
@@ -420,6 +470,7 @@ function DeckEditor(props: {
   initial: Deck;
   pool: DeckPool;
   owned: Map<string, number>;
+  meta: MetaFile | null;
   priceOf(card: DeckCard): number | undefined;
   urlOf(card: DeckCard): string | undefined;
   wish: WishlistState;
@@ -428,7 +479,7 @@ function DeckEditor(props: {
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, meta, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
   const current = useRef(initial);
@@ -448,7 +499,7 @@ function DeckEditor(props: {
   const [domain, setDomain] = useState<string | null>(null);
   const [ownedOnly, setOwnedOnly] = useState(false);
   const [sort, setSort] = useState<Sort>('energy');
-  const [sheet, setSheet] = useState<'sort' | 'filter' | 'more' | null>(null);
+  const [sheet, setSheet] = useState<'sort' | 'filter' | 'more' | 'meta' | null>(null);
   const [shown, setShown] = useState<DeckCard | null>(null);
   // Zuletzt hineingelegte Kopie: springt ins Deck und wird sichtbar gescrollt
   const [fresh, setFresh] = useState<{ id: string; n: number } | null>(null);
@@ -464,6 +515,7 @@ function DeckEditor(props: {
   const runes = useMemo(() => (legend ? runesFor(legend, pool) : []), [legend, pool]);
   const battlefields = useMemo(() => battlefieldsOf(pool), [pool]);
   const check = checkDeck(deck, pool);
+  const stats = useMemo(() => (legend ? metaStats(meta, legend, pool) : null), [meta, legend, pool]);
   const missing = missingCount(deck, owned);
   const value = deckValue(deck, pool, priceOf);
   const ownedOf = (c: DeckCard) => owned.get(c.id) ?? 0;
@@ -661,10 +713,17 @@ function DeckEditor(props: {
     }
     const isRune = c.kind === 'rune' && runes.some((r) => r.id === c.id);
     if (!isRune && !allowed.has(c.id)) return <WishToggle gameId={pool.gameId} printingId={c.printing.printingId} wish={wish} />;
+    const rate = stats && !isRune ? playRate(stats, c.id) : 0;
     const n = isRune ? deck.runes[c.id] ?? 0 : copiesOf(deck, c.id);
     const side = sideCopiesOf(deck, c.id);
     return (
       <>
+        {rate > 0 && (
+          <p class="meta-rate-line">
+            {sparkIcon}
+            In {Math.round(rate * 100)} % der Turnierlisten mit {legendTitle(stats!.legend)}
+          </p>
+        )}
         <div class="sheet-qty">
           <span>Im Deck</span>
           <div class="qty">
@@ -754,6 +813,18 @@ function DeckEditor(props: {
             </span>
           </div>
           {broken.length > 0 && <p class="deck-problems">{broken.slice(0, 2).join(' · ')}</p>}
+          {stats && check.main <= 1 && check.runes === 0 && (
+            <button class="meta-cta" onClick={() => setSheet('meta')}>
+              {sparkIcon}
+              <span>
+                <strong>Deck aus der Meta bauen</strong>
+                <small>
+                  Grundgerüst aus {stats.decks} {stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}
+                </small>
+              </span>
+              <i aria-hidden="true">›</i>
+            </button>
+          )}
 
           <h2 class="pane-head">
             Hauptdeck
@@ -981,10 +1052,30 @@ function DeckEditor(props: {
           )}
         </Sheet>
       )}
+      {sheet === 'meta' && stats && meta && (
+        <MetaSheet
+          deck={deck}
+          stats={stats}
+          meta={meta}
+          pool={pool}
+          owned={owned}
+          priceOf={priceOf}
+          onApply={(built) => {
+            change(() => built);
+            setFresh(null);
+            setSpoken('Deck aus der Meta übernommen');
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {sheet === 'more' && (
         <Sheet label="Deck" onClose={() => setSheet(null)}>
           <h2>{deck.name}</h2>
           <div class="options">
+            <button disabled={!stats} onClick={() => setSheet('meta')}>
+              <span>Aus der Meta bauen</span>
+              <small class="muted">{stats ? `${stats.decks} ${stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}` : 'Keine Turnierlisten'}</small>
+            </button>
             <button
               onClick={() => {
                 setSheet(null);
@@ -1104,6 +1195,12 @@ function DomainDot({ domain }: { domain: string }) {
 const plusIcon = (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
     <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+  </svg>
+);
+
+const trophyMini = (
+  <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+    <path d="M7 3h10v6a5 5 0 0 1-10 0V3zM7 5H4a3.5 3.5 0 0 0 3 5M17 5h3a3.5 3.5 0 0 1-3 5M12 14v4M8 21h8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 );
 

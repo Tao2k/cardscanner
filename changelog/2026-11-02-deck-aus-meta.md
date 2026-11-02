@@ -1,0 +1,3 @@
+- Neu: Im Deckbau baut dir „Deck aus der Meta bauen“ ein Grundgerüst aus den Decks, die bei aktuellen Turnieren vorne gelandet sind. Karten, die dir fehlen, siehst du sofort.
+- Neu: Auf Wunsch nimmt der Vorschlag lieber Karten aus deiner Sammlung, wenn sie fast genauso oft gespielt werden.
+- Neu: Bei der Legendenwahl siehst du, wie viele Turnierdecks es gibt, und beim Champion, welchen die Profis spielen.

@@ -46,6 +46,10 @@ jobs:
         # Fällt die Preisquelle aus, erscheint die App trotzdem, nur ohne Preise.
         continue-on-error: true
         run: npm run prices -- riftbound
+      - name: Turnierlisten für Deckvorschläge holen
+        # Fällt die Quelle aus, erscheint die App trotzdem, nur ohne Vorschläge aus der Meta.
+        continue-on-error: true
+        run: npm run meta -- riftbound
       - name: Preisverlauf fortschreiben
         # Cardmarket kennt nur den heutigen Preis; der Verlauf liegt dauerhaft im Zweig price-history.
         continue-on-error: true
