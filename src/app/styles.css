@@ -809,3 +809,42 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .profile-legal h2 { margin: 0 0 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .profile-legal p { margin: 0 0 6px; }
 .profile-group > button:not(.primary):not(.danger-text) { background: var(--raised); }
+
+/* Deck aus der Turnier-Meta */
+.pick-badge { position: absolute; top: 11px; left: 11px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 6px; border-radius: 10px;
+  background: color-mix(in srgb, #16131a 72%, transparent); color: #fff; font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
+.meta-cta { width: 100%; justify-content: flex-start; gap: 12px; margin: 2px 0 12px; padding: 12px 14px; border-radius: var(--r-row); text-align: left;
+  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #c86be8)); color: var(--on-accent); box-shadow: var(--shadow-soft); }
+.meta-cta span { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.meta-cta strong { font-size: 0.98rem; }
+.meta-cta small { font-weight: 500; opacity: 0.85; font-size: 0.8rem; }
+.meta-cta i { font-style: normal; font-size: 1.5rem; line-height: 1; opacity: 0.8; }
+.meta-cta svg { flex: none; }
+.meta-cta:active { transform: scale(0.98); }
+.meta-sheet h2 { display: flex; align-items: center; gap: 8px; }
+.meta-sheet h2 svg { color: var(--accent-text); }
+.meta-best { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; background: var(--surface); font-size: 0.9rem; }
+.meta-best svg { flex: none; color: var(--warn); }
+.meta-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; }
+.meta-sum span { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 12px; background: var(--surface); }
+.meta-sum strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.meta-sum small { font-size: 0.72rem; color: var(--muted); }
+.meta-sum .warn strong { color: var(--warn); }
+.meta-sum .ok strong { color: var(--success-text); }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 10px 6px; padding-top: 6px; }
+.meta-tile { position: relative; display: block; min-width: 0; }
+.meta-tile img { display: block; width: 100%; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 4px; background: var(--raised); }
+.meta-tile.champ img { box-shadow: 0 0 0 2px var(--accent); }
+.meta-tile.lacking img { opacity: 0.4; filter: grayscale(0.7); }
+.meta-n { position: absolute; top: -6px; right: -4px; min-width: 22px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px;
+  background: var(--accent); color: var(--on-accent); font-size: 0.68rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.meta-rate { display: block; margin-top: 2px; text-align: center; font-size: 0.66rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta-lack { position: absolute; bottom: 18px; left: 2px; padding: 0 4px; border-radius: 6px; background: var(--warn); color: var(--on-warn);
+  font-size: 0.64rem; font-weight: 750; font-style: normal; }
+.meta-note { font-size: 0.78rem; color: var(--muted); }
+.meta-note.center { text-align: center; }
+.meta-note a { color: inherit; }
+.meta-rate-line { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--accent-text); font-weight: 600; }
+.meta-rate-line svg { width: 16px; height: 16px; flex: none; }
+.options button small { font-weight: 500; }
