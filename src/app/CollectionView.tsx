@@ -11,7 +11,9 @@ import { formatAsOf, formatEur, itemPrice, priceFor } from '../core/prices';
 import type { CollectionSort, CollectionViewMode, Prefs } from './prefs';
 import { collectionMovers, moverKey, type Mover, type PriceHistoryFile } from '../core/priceHistory';
 import { groupBySet, groupChange, MoveCol, SetSection, SIGNED_EUR, toggled, trend } from './SetList';
-import { buildBinders } from './binder';
+import { albumBinder, buildBinders, type Slot } from './binder';
+import { useAlbums } from './albums';
+import { AlbumPicker, AlbumToolbar, NewAlbumChip } from './AlbumUI';
 import { BinderView } from './BinderView';
 import { CloudLine } from './AccountView';
 import { useCloud } from './cloud';
@@ -62,6 +64,9 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   /** Angemeldet ist der Server die Sicherung; dann keine Erinnerung an den Excel-Export. */
   const account = useCloud();
   const wish = useWishlist();
+  const albumState = useAlbums();
+  /** Eigene Alben gibt es nur angemeldet und wenn die Tabelle auf dem Server da ist. */
+  const albumsOn = account.signedIn && albumState.status === 'ready';
   const [sorting, setSorting] = useState(false);
   /** Eintrag, dessen Sprache und Marktplatz-Link aufgeklappt sind. */
   const [open, setOpen] = useState<string | null>(null);
@@ -77,8 +82,11 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   };
 
   const binders = useMemo(
-    () => buildBinders([prefs.gameId, ...items.map((i) => i.gameId)], catalogs.byGame, catalogs.sets, items),
-    [items, catalogs, prefs.gameId],
+    () => [
+      ...buildBinders([prefs.gameId, ...items.map((i) => i.gameId)], catalogs.byGame, catalogs.sets, items),
+      ...(albumsOn ? albumState.albums.map((a) => albumBinder(a, catalogs.byGame, items, prefs.gameId)) : []),
+    ],
+    [items, catalogs, prefs.gameId, albumsOn, albumState.albums],
   );
   const [binderKey, setBinderKey] = useState(() => {
     const fresh = new Set(arriving.current);
@@ -88,7 +96,20 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     setBinderKey(key);
     setPrefs({ binderSet: key });
   };
-  const selectedBinder = binders.find((b) => b.key === binderKey) ?? binders.find((b) => b.owned > 0) ?? binders[0];
+  // Ein Album behält seinen Platz, auch wenn die Karten darin wechseln (der Schlüssel hängt am ersten Spiel)
+  const selectedBinder =
+    binders.find((b) => b.key === binderKey) ??
+    binders.find((b) => b.album && binderKey.endsWith(`|album:${b.album}`)) ??
+    binders.find((b) => b.owned > 0) ??
+    binders[0];
+  const selectedAlbum = selectedBinder?.album ? albumState.albums.find((a) => a.id === selectedBinder.album) : undefined;
+  const cardActions = (slot: Slot) =>
+    account.signedIn && (
+      <>
+        <WishToggle gameId={selectedBinder.gameId} printingId={slot.printing.printingId} wish={wish} />
+        <AlbumPicker cardKey={slot.key} state={albumState} />
+      </>
+    );
 
   // Alle Drucke der Spiele in der Sammlung (und des gewählten Spiels), auch die, die man nicht hat
   const catalogRows = useMemo(() => {
@@ -271,7 +292,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   return (
     <section class="collection">
       <header class="title-row">
-        <h1>Sammlung</h1>
         <div class="title-actions">
           <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
             {(['binder', 'list'] as const).map((v) => (
@@ -302,7 +322,13 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           onSelect={selectBinder}
           arriving={arriving.current}
           wished={account.signedIn ? wish.keys : undefined}
-          cardActions={account.signedIn ? (slot) => <WishToggle gameId={selectedBinder.gameId} printingId={slot.printing.printingId} wish={wish} /> : undefined}
+          cardActions={account.signedIn ? cardActions : undefined}
+          chipsEnd={albumsOn ? <NewAlbumChip onCreated={(a) => selectBinder(`${prefs.gameId}|album:${a.id}`)} /> : undefined}
+          toolbar={
+            selectedAlbum && (
+              <AlbumToolbar album={selectedAlbum} catalogs={catalogs} gameId={prefs.gameId} onDeleted={() => selectBinder(binders[0]?.key ?? '')} />
+            )
+          }
         />
       )}
       {view === 'list' && <>

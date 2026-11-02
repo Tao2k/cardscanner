@@ -8,8 +8,10 @@ import type { CardSet, CollectionItem, GameId, Printing } from './types';
  *   - höchstens 3 Karten mit gleichem Namen, höchstens 3 Signature-Karten und nur die des eigenen Champions
  *   - nur Karten aus den Domains der Legende (farblose passen in jedes Deck)
  *   - genau 12 Runen aus diesen Domains und 3 verschiedene Battlefields
+ *   - Turnierregeln (seit Juli 2026): Side Deck mit höchstens 10 Karten, die auch ins Hauptdeck dürften;
+ *     die Grenze von 3 Kopien gilt für Hauptdeck und Side Deck zusammen
  */
-export const DECK_RULES = { main: 40, copies: 3, signatures: 3, runes: 12, battlefields: 3 } as const;
+export const DECK_RULES = { main: 40, copies: 3, signatures: 3, runes: 12, battlefields: 3, side: 10 } as const;
 
 /** Spiele, für die es Deckbau gibt. */
 export const DECK_GAMES: GameId[] = ['riftbound'];
@@ -33,6 +35,8 @@ export interface DeckCard {
   champion: boolean;
   signature: boolean;
   energy: number | null;
+  /** Power-Kosten (farbige Kostensymbole in den Domains der Karte). */
+  power: number | null;
   /** Druck für Bild und Preis: normaler Druck aus dem ältesten Set. */
   printing: Printing;
 }
@@ -56,6 +60,8 @@ export interface Deck {
   champion: string;
   /** Hauptdeck ohne den Chosen Champion: Karte → Anzahl. */
   cards: Record<string, number>;
+  /** Side Deck: Karte → Anzahl; fehlt bei älteren Decks. */
+  side?: Record<string, number>;
   runes: Record<string, number>;
   battlefields: string[];
   createdAt: string;
@@ -84,6 +90,11 @@ export function deckCardId(p: Printing): string {
   return title ? `${p.cardName}, ${title}` : p.cardName;
 }
 
+/** Name einer Sonderedition, wie dotgg ihn schreibt: „Jinx - Rebel“ → „Jinx, Rebel“. */
+function dotggCardId(p: Printing): string {
+  return p.cardName.replace(/\s+-\s+/, ', ');
+}
+
 function championTitle(p: Printing): string | undefined {
   const subtitle = p.attributes?.subtitle;
   return typeof subtitle === 'string' && subtitle && kindOf(p) === 'unit' && strings(p.attributes?.supertypes).includes('Champion') ? subtitle : undefined;
@@ -104,12 +115,25 @@ export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[])
 
   const best = new Map<string, Printing>();
   const byPrinting = new Map<string, string>();
+  // Promos und Sondereditionen (Box-Sets, Bundles) sind nur andere Drucke vorhandener Karten.
+  // Eigene Karten im Deckbau werden sie nie: Ohne Grundkarte fehlen ihnen Domains und Schlagwörter,
+  // darunter auch Spielmarken wie „Bird // Brush“.
+  const special = (p: Printing) => promoSets.has(p.setCode) || p.variant === 'promo';
+  const later: Printing[] = [];
   for (const p of printings) {
     if (!kindOf(p)) continue;
+    if (special(p)) {
+      later.push(p);
+      continue;
+    }
     const id = deckCardId(p);
     byPrinting.set(p.printingId, id);
     const current = best.get(id);
     if (!current || better(p, current) < 0) best.set(id, p);
+  }
+  for (const p of later) {
+    const id = [deckCardId(p), dotggCardId(p)].find((i) => best.has(i));
+    if (id) byPrinting.set(p.printingId, id);
   }
 
   const championNames = new Set<string>();
@@ -122,6 +146,7 @@ export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[])
     const tags = strings(p.attributes?.tags);
     const title = championTitle(p);
     const energy = p.attributes?.energy;
+    const power = p.attributes?.power;
     cards.set(id, {
       id,
       name: p.cardName,
@@ -133,6 +158,7 @@ export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[])
       champion: !!title,
       signature: supertypes.includes('Signature'),
       energy: typeof energy === 'number' ? energy : null,
+      power: typeof power === 'number' ? power : null,
       printing: p,
     });
   }
@@ -175,6 +201,28 @@ export function byCost(a: DeckCard, b: DeckCard): number {
   return (a.energy ?? 99) - (b.energy ?? 99) || a.id.localeCompare(b.id);
 }
 
+/**
+ * Stelle einer Karte in der Domain-Reihenfolge: erst die Domains der Legende in ihrer Reihenfolge,
+ * dann Karten mit beiden Domains, zuletzt farblose.
+ */
+export function domainRank(card: DeckCard, domains: string[]): number {
+  const own = card.domains.filter((d) => d !== COLORLESS);
+  if (!own.length) return domains.length + 1;
+  if (own.length > 1) return domains.length;
+  const i = domains.indexOf(own[0]);
+  return i < 0 ? domains.length : i;
+}
+
+/** Nach Energie, bei gleichen Kosten nach Domain (z. B. alle 5er in Fury, dann alle 5er in Chaos). */
+export function byCostThenDomain(domains: string[]) {
+  return (a: DeckCard, b: DeckCard) => (a.energy ?? 99) - (b.energy ?? 99) || domainRank(a, domains) - domainRank(b, domains) || byCost(a, b);
+}
+
+/** Nach Power, bei gleicher Power nach Domain, dann nach Energie. */
+export function byPowerThenDomain(domains: string[]) {
+  return (a: DeckCard, b: DeckCard) => (a.power ?? 0) - (b.power ?? 0) || domainRank(a, domains) - domainRank(b, domains) || byCost(a, b);
+}
+
 export function newDeck(gameId: GameId, legend: DeckCard, champion: DeckCard, deckId: string, now: string): Deck {
   return {
     deckId,
@@ -197,6 +245,20 @@ export function copiesOf(deck: Deck, cardId: string): number {
   return (deck.cards[cardId] ?? 0) + (deck.champion === cardId ? 1 : 0);
 }
 
+/** Kopien eines Namens im Side Deck. */
+export function sideCopiesOf(deck: Deck, cardId: string): number {
+  return deck.side?.[cardId] ?? 0;
+}
+
+/** Kopien in Hauptdeck und Side Deck zusammen: Für sie gilt die Grenze von 3. */
+export function allCopiesOf(deck: Deck, cardId: string): number {
+  return copiesOf(deck, cardId) + sideCopiesOf(deck, cardId);
+}
+
+export function sideCount(deck: Deck): number {
+  return sum(deck.side ?? {});
+}
+
 export function mainCount(deck: Deck): number {
   return sum(deck.cards) + (deck.champion ? 1 : 0);
 }
@@ -212,10 +274,58 @@ export function signatureCount(deck: Deck, pool: DeckPool): number {
   return n;
 }
 
-/** Wie viele Kopien noch dazukommen dürfen (Kopien je Name, Signature-Karten gesamt). */
+/** Wie viele Kopien noch ins Hauptdeck dürfen (Kopien je Name mit Side Deck, Signature-Karten gesamt). */
 export function room(deck: Deck, card: DeckCard, pool: DeckPool): number {
-  const copies = DECK_RULES.copies - copiesOf(deck, card.id);
+  const copies = DECK_RULES.copies - allCopiesOf(deck, card.id);
   return Math.max(0, card.signature ? Math.min(copies, DECK_RULES.signatures - signatureCount(deck, pool)) : copies);
+}
+
+/** Wie viele Kopien noch ins Side Deck dürfen (höchstens 10 Karten, Kopien je Name mit Hauptdeck). */
+export function sideRoom(deck: Deck, card: DeckCard): number {
+  return Math.max(0, Math.min(DECK_RULES.copies - allCopiesOf(deck, card.id), DECK_RULES.side - sideCount(deck)));
+}
+
+/** Anzahl einer Karte im Side Deck ändern; nie unter 0 oder über die Grenzen. */
+export function withSideCard(deck: Deck, card: DeckCard, delta: number): Deck {
+  const current = sideCopiesOf(deck, card.id);
+  const next = Math.max(0, current + Math.min(delta, sideRoom(deck, card)));
+  if (next === current) return deck;
+  const side = { ...(deck.side ?? {}) };
+  if (next) side[card.id] = next;
+  else delete side[card.id];
+  return { ...deck, side };
+}
+
+/** Energie und Power des Hauptdecks je Domain; Karten mit zwei Domains zählen unter „beide“, farblose unter Colorless. */
+export interface DomainCost {
+  /** Domain, `${a}+${b}` für zweifarbige oder Colorless. */
+  key: string;
+  domains: string[];
+  cards: number;
+  energy: number;
+  power: number;
+}
+
+export function costByDomain(deck: Deck, pool: DeckPool): DomainCost[] {
+  const legend = pool.cards.get(deck.legend);
+  const order = legend?.domains ?? [];
+  const totals = new Map<string, DomainCost>();
+  const add = (id: string, n: number) => {
+    const card = pool.cards.get(id);
+    if (!card) return;
+    const own = card.domains.filter((d) => d !== COLORLESS);
+    const domains = own.length ? [...own].sort((a, b) => order.indexOf(a) - order.indexOf(b)) : [COLORLESS];
+    const key = domains.join('+');
+    const t = totals.get(key) ?? { key, domains, cards: 0, energy: 0, power: 0 };
+    t.cards += n;
+    t.energy += (card.energy ?? 0) * n;
+    t.power += (card.power ?? 0) * n;
+    totals.set(key, t);
+  };
+  if (deck.champion) add(deck.champion, 1);
+  for (const [id, n] of Object.entries(deck.cards)) add(id, n);
+  const rank = (t: DomainCost) => (t.domains[0] === COLORLESS ? order.length + 1 : t.domains.length > 1 ? order.length : Math.max(0, order.indexOf(t.domains[0])));
+  return [...totals.values()].sort((a, b) => rank(a) - rank(b));
 }
 
 /** Anzahl einer Karte im Hauptdeck ändern; nie unter 0 oder über die Grenzen. */
@@ -279,12 +389,17 @@ export function withChampion(deck: Deck, champion: DeckCard): Deck {
   if (cards[champion.id]) {
     cards[champion.id]--;
     if (!cards[champion.id]) delete cards[champion.id];
+    return { ...deck, champion: champion.id, cards };
   }
-  return { ...deck, champion: champion.id, cards };
+  // Sonst aus dem Side Deck, falls dort schon alle erlaubten Kopien liegen
+  const moved = { ...deck, champion: champion.id, cards };
+  if (allCopiesOf(moved, champion.id) <= DECK_RULES.copies) return moved;
+  return withSideCard(moved, champion, -1);
 }
 
 export interface DeckCheck {
   main: number;
+  side: number;
   runes: number;
   battlefields: number;
   signatures: number;
@@ -308,8 +423,18 @@ export function checkDeck(deck: Deck, pool: DeckPool): DeckCheck {
     const card = pool.cards.get(id);
     if (!card) problems.push(`${id} nicht im Katalog`);
     else if (legend && !fitsLegend(card, legend)) problems.push(`${id} passt nicht zur Legende`);
-    if (copiesOf(deck, id) > DECK_RULES.copies) problems.push(`${id} mehr als ${DECK_RULES.copies}×`);
   }
+  const side = sideCount(deck);
+  for (const id of Object.keys(deck.side ?? {})) {
+    if (deck.cards[id]) continue;
+    const card = pool.cards.get(id);
+    if (!card) problems.push(`${id} nicht im Katalog`);
+    else if (legend && !fitsLegend(card, legend)) problems.push(`${id} passt nicht zur Legende`);
+  }
+  for (const id of new Set([...Object.keys(deck.cards), ...Object.keys(deck.side ?? {})])) {
+    if (allCopiesOf(deck, id) > DECK_RULES.copies) problems.push(`${id} mehr als ${DECK_RULES.copies}×`);
+  }
+  if (side > DECK_RULES.side) problems.push(`Side Deck mit mehr als ${DECK_RULES.side} Karten`);
   if (signatures > DECK_RULES.signatures) problems.push(`Mehr als ${DECK_RULES.signatures} Signature-Karten`);
   if (runes < DECK_RULES.runes) problems.push(`Noch ${DECK_RULES.runes - runes} ${DECK_RULES.runes - runes === 1 ? 'Rune' : 'Runen'}`);
   if (runes > DECK_RULES.runes) problems.push(`${runes - DECK_RULES.runes} ${runes - DECK_RULES.runes === 1 ? 'Rune' : 'Runen'} zu viel`);
@@ -322,16 +447,17 @@ export function checkDeck(deck: Deck, pool: DeckPool): DeckCheck {
     const n = DECK_RULES.battlefields - battlefields;
     problems.push(`Noch ${n} ${n === 1 ? 'Battlefield' : 'Battlefields'}`);
   }
-  return { main, runes, battlefields, signatures, problems, complete: !problems.length };
+  return { main, side, runes, battlefields, signatures, problems, complete: !problems.length };
 }
 
-/** Alle Karten des Decks mit Anzahl: Legende, Champion, Hauptdeck, Runen, Battlefields. */
+/** Alle Karten des Decks mit Anzahl: Legende, Champion, Hauptdeck, Side Deck, Runen, Battlefields. */
 export function deckEntries(deck: Deck): { id: string; count: number }[] {
   const counts = new Map<string, number>();
   const add = (id: string, n: number) => id && counts.set(id, (counts.get(id) ?? 0) + n);
   add(deck.legend, 1);
   add(deck.champion, 1);
   for (const [id, n] of Object.entries(deck.cards)) add(id, n);
+  for (const [id, n] of Object.entries(deck.side ?? {})) add(id, n);
   for (const [id, n] of Object.entries(deck.runes)) add(id, n);
   for (const id of deck.battlefields) add(id, 1);
   return [...counts].map(([id, count]) => ({ id, count }));

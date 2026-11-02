@@ -5,7 +5,9 @@ import type { CollectionItem, Printing } from '../core/types';
 import { wishKey, wishOwners, type Wish, type WishAlert, type WishOwner } from '../core/wishlist';
 import { FriendsApi, friendError, type Friend, type Profile } from '../storage/friends';
 import type { Catalogs } from './App';
-import { buildBinders } from './binder';
+import { albumBinder, buildBinders } from './binder';
+import { albums } from './albums';
+import type { Album } from '../core/albums';
 import { BinderView, heart } from './BinderView';
 import { cloud } from './cloud';
 import { printingCode } from './format';
@@ -15,8 +17,6 @@ import { useWishAlarm, useWishlist, wishlist, wishPrice, type WishAlarmState, ty
 interface Props {
   items: CollectionItem[];
   catalogs: Catalogs;
-  /** Gewähltes Spiel (für die Suche in der Wunschliste zuerst). */
-  gameId: string;
   /** Freundescode aus einem Einladungslink (?freund=CODE). */
   invite: string | null;
   onInviteUsed(): void;
@@ -36,8 +36,8 @@ export function takeInvite(): string | null {
   return code.toUpperCase();
 }
 
-/** Tab „Tausch“: Freunde (mit ihren Bindern und Tauschvorschlägen) und die eigene Wunschliste. */
-export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Props) {
+/** Tab „Community“: Freunde mit ihren Bindern und Tauschvorschlägen. */
+export function CommunityView({ items, catalogs, invite, onInviteUsed }: Props) {
   const [api, setApi] = useState<FriendsApi | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -46,13 +46,11 @@ export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Pro
   const [code, setCode] = useState(invite ?? '');
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
-  const [section, setSection] = useState<'friends' | 'wishlist'>('friends');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const wish = useWishlist();
-  const alarm = useWishAlarm(wish, catalogs);
 
   const load = async (client: FriendsApi) => {
     const [me, list] = await Promise.all([client.profile(), client.list()]);
@@ -171,146 +169,159 @@ export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Pro
   const incoming = friends.filter((f) => f.status === 'pending' && f.incoming);
   const outgoing = friends.filter((f) => f.status === 'pending' && !f.incoming);
   const accepted = friends.filter((f) => f.status === 'accepted');
-  const names = new Map(accepted.map((f) => [f.userId, f.displayName || 'Unbekannt']));
 
   return (
     <section class="friends">
       <header>
-        <h1>Tausch</h1>
+        <h1>Community</h1>
       </header>
-      <div class="segmented" role="radiogroup" aria-label="Bereich">
-        <button role="radio" aria-checked={section === 'friends'} class={section === 'friends' ? 'active' : ''} onClick={() => setSection('friends')}>
-          Freunde
-        </button>
-        <button role="radio" aria-checked={section === 'wishlist'} class={section === 'wishlist' ? 'active' : ''} onClick={() => setSection('wishlist')}>
-          Wunschliste{wish.wishes.length > 0 && ` (${wish.wishes.length})`}
-          {alarm.alerts.length > 0 && section !== 'wishlist' && (
-            <span class="seg-count" aria-label={`${alarm.alerts.length} Preisalarm`}>
-              {alarm.alerts.length}
-            </span>
-          )}
-        </button>
-      </div>
       {error && <p class="banner error">{error}</p>}
       {info && <p class="banner">{info}</p>}
 
-      {section === 'wishlist' && <WishlistSection catalogs={catalogs} items={items} gameId={gameId} wish={wish} alarm={alarm} owners={owners} names={names} />}
+      {loading && <p class="muted">Lade …</p>}
 
-      {section === 'friends' && (
-        <>
-          {loading && <p class="muted">Lade …</p>}
-
-          {profile && (
-            <div class="friend-code">
-              <div>
-                <small class="muted">Dein Code</small>
-                <strong>{profile.friendCode}</strong>
-              </div>
-              <button class="primary" onClick={share}>
-                Teilen
-              </button>
-            </div>
-          )}
-
-          {profile && !profile.displayName && (
-            <form class="inline-form" onSubmit={saveName}>
-              <input value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="Dein Name für Freunde" maxLength={30} required />
-              <button type="submit" disabled={busy || !name.trim()}>
-                Speichern
-              </button>
-            </form>
-          )}
-
-          <form class="inline-form" onSubmit={addFriend}>
-            <input
-              value={code}
-              onInput={(e) => setCode(e.currentTarget.value.toUpperCase())}
-              placeholder="Code eines Freundes"
-              autocapitalize="characters"
-              autocomplete="off"
-              autocorrect="off"
-              spellcheck={false}
-              enterkeyhint="done"
-              maxLength={6}
-              required
-            />
-            <button type="submit" disabled={busy || code.trim().length < 6 || !api}>
-              Hinzufügen
-            </button>
-          </form>
-
-          {incoming.length > 0 && (
-            <ul class="friend-list">
-              {incoming.map((f) => (
-                <li key={f.userId}>
-                  <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
-                  <small class="muted">möchte befreundet sein</small>
-                  <span class="friend-actions">
-                    <button class="primary" disabled={busy} onClick={() => run((c) => c.accept(f.userId))}>
-                      Annehmen
-                    </button>
-                    <button disabled={busy} onClick={() => run((c) => c.remove(f.userId))}>
-                      Ablehnen
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {accepted.length > 0 && (
-            <ul class="friend-list">
-              {accepted.map((f) => {
-                const t = trades.get(f.userId);
-                const wished = wishesAt.get(f.userId) ?? 0;
-                return (
-                  <li key={f.userId}>
-                    <button class="friend-row" onClick={() => setSelected(f.userId)}>
-                      <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
-                      {t && (
-                        <small class="muted">
-                          Bekommen {count(t.get)} · Abgeben {count(t.give)}
-                          {wished > 0 && ' · '}
-                          {wished > 0 && (
-                            <span class="wish-count">
-                              {heart} {wished} {wished === 1 ? 'Wunsch' : 'Wünsche'}
-                            </span>
-                          )}
-                        </small>
-                      )}
-                      <svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                        <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
-                      </svg>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {outgoing.length > 0 && (
-            <ul class="friend-list">
-              {outgoing.map((f) => (
-                <li key={f.userId}>
-                  <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
-                  <small class="muted">Anfrage gesendet</small>
-                  <span class="friend-actions">
-                    <button disabled={busy} onClick={() => run((c) => c.remove(f.userId))}>
-                      Zurückziehen
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {!loading && !error && !friends.length && (
-            <div class="empty-state">
-              <strong>Noch keine Freunde</strong>
-            </div>
-          )}
-        </>
+      {profile && (
+        <div class="friend-code">
+          <div>
+            <small class="muted">Dein Code</small>
+            <strong>{profile.friendCode}</strong>
+          </div>
+          <button class="primary" onClick={share}>
+            Teilen
+          </button>
+        </div>
       )}
+
+      {profile && !profile.displayName && (
+        <form class="inline-form" onSubmit={saveName}>
+          <input value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="Dein Name für Freunde" maxLength={30} required />
+          <button type="submit" disabled={busy || !name.trim()}>
+            Speichern
+          </button>
+        </form>
+      )}
+
+      <form class="inline-form" onSubmit={addFriend}>
+        <input
+          value={code}
+          onInput={(e) => setCode(e.currentTarget.value.toUpperCase())}
+          placeholder="Code eines Freundes"
+          autocapitalize="characters"
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck={false}
+          enterkeyhint="done"
+          maxLength={6}
+          required
+        />
+        <button type="submit" disabled={busy || code.trim().length < 6 || !api}>
+          Hinzufügen
+        </button>
+      </form>
+
+      {incoming.length > 0 && (
+        <ul class="friend-list">
+          {incoming.map((f) => (
+            <li key={f.userId}>
+              <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
+              <small class="muted">möchte befreundet sein</small>
+              <span class="friend-actions">
+                <button class="primary" disabled={busy} onClick={() => run((c) => c.accept(f.userId))}>
+                  Annehmen
+                </button>
+                <button disabled={busy} onClick={() => run((c) => c.remove(f.userId))}>
+                  Ablehnen
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {accepted.length > 0 && (
+        <ul class="friend-list">
+          {accepted.map((f) => {
+            const t = trades.get(f.userId);
+            const wished = wishesAt.get(f.userId) ?? 0;
+            return (
+              <li key={f.userId}>
+                <button class="friend-row" onClick={() => setSelected(f.userId)}>
+                  <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
+                  {t && (
+                    <small class="muted">
+                      Bekommen {count(t.get)} · Abgeben {count(t.give)}
+                      {wished > 0 && ' · '}
+                      {wished > 0 && (
+                        <span class="wish-count">
+                          {heart} {wished} {wished === 1 ? 'Wunsch' : 'Wünsche'}
+                        </span>
+                      )}
+                    </small>
+                  )}
+                  <svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {outgoing.length > 0 && (
+        <ul class="friend-list">
+          {outgoing.map((f) => (
+            <li key={f.userId}>
+              <span class="friend-name">{f.displayName || 'Unbekannt'}</span>
+              <small class="muted">Anfrage gesendet</small>
+              <span class="friend-actions">
+                <button disabled={busy} onClick={() => run((c) => c.remove(f.userId))}>
+                  Zurückziehen
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!loading && !error && !friends.length && (
+        <div class="empty-state">
+          <strong>Noch keine Freunde</strong>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Wunschliste im Tab „Sammlung“. Lädt die Sammlungen der Freunde nur, um zu zeigen, wer eine gewünschte Karte übrig hat;
+ * ohne Freunde oder Verbindung bleibt das einfach leer.
+ */
+export function WishlistView({ items, catalogs, gameId }: { items: CollectionItem[]; catalogs: Catalogs; gameId: string }) {
+  const wish = useWishlist();
+  const alarm = useWishAlarm(wish, catalogs);
+  const [collections, setCollections] = useState<Map<string, FriendCard[]>>(new Map());
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    // Wünsche können auf einem anderen Gerät dazugekommen sein
+    wishlist.load(true);
+    (async () => {
+      try {
+        const client = new FriendsApi(await cloud.getClient());
+        const accepted = (await client.list()).filter((f) => f.status === 'accepted');
+        setNames(new Map(accepted.map((f) => [f.userId, f.displayName || 'Unbekannt'])));
+        setCollections(new Map(await Promise.all(accepted.map(async (f) => [f.userId, await client.collection(f.userId)] as const))));
+      } catch {
+        /* ohne Freunde keine Hinweise, wer die Karte hat */
+      }
+    })();
+  }, []);
+
+  const owners = useMemo(() => wishOwners(wish.wishes, collections, KEEP), [wish.wishes, collections]);
+  return (
+    <section class="wishes">
+      <WishlistSection catalogs={catalogs} items={items} gameId={gameId} wish={wish} alarm={alarm} owners={owners} names={names} />
     </section>
   );
 }
@@ -570,10 +581,20 @@ function FriendDetail({
   const value = (list: TradeCard[]) => list.reduce((n, c) => n + (priceOf(c) ?? 0) * c.spare, 0);
   const owned = useMemo(() => ownedCounts(items), [items]);
 
-  // Binder wie in der eigenen Sammlung, aber nur Sets, aus denen der Freund etwas hat
+  // Eigene Alben des Freundes (leer, solange 0006 auf dem Server fehlt)
+  const [friendAlbums, setFriendAlbums] = useState<Album[]>([]);
+  useEffect(() => {
+    albums.ofFriend(friend.userId).then(setFriendAlbums, () => setFriendAlbums([]));
+  }, [friend.userId]);
+
+  // Binder wie in der eigenen Sammlung, aber nur Sets, aus denen der Freund etwas hat; dahinter seine Alben
   const binders = useMemo(() => {
-    return buildBinders(cards.map((c) => c.gameId), catalogs.byGame, catalogs.sets, cards).filter((b) => b.owned > 0);
-  }, [cards, catalogs]);
+    const gameId = cards[0]?.gameId ?? catalogs.games[0]?.gameId ?? '';
+    return [
+      ...buildBinders(cards.map((c) => c.gameId), catalogs.byGame, catalogs.sets, cards).filter((b) => b.owned > 0),
+      ...friendAlbums.map((a) => albumBinder(a, catalogs.byGame, cards, gameId)).filter((b) => b.slots.length > 0),
+    ];
+  }, [cards, catalogs, friendAlbums]);
   const [binderKey, setBinderKey] = useState<string | null>(null);
   const binder = binders.find((b) => b.key === binderKey) ?? binders[0];
 
@@ -581,7 +602,7 @@ function FriendDetail({
     <section class="friends">
       <header class="friend-head">
         <button class="link back" onClick={onBack}>
-          ‹ Tausch
+          ‹ Community
         </button>
         <h1>{name}</h1>
       </header>

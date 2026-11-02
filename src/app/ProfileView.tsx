@@ -9,15 +9,22 @@ import { cloud, cloudConfigured, useCloud, type CloudState } from './cloud';
 interface Props {
   items: CollectionItem[];
   catalogs: Catalogs | null;
+  /** Zurück zum Tab, von dem aus das Profil (oben rechts) geöffnet wurde. */
+  onBack(): void;
 }
 
 /** Profil: Anzeigename, Anmeldedaten, Abgleich mit dem Server, Abmelden und die rechtlichen Hinweise. */
-export function ProfileView({ items, catalogs }: Props) {
+export function ProfileView({ items, catalogs, onBack }: Props) {
   const state = useCloud();
   const signedIn = cloudConfigured && state.signedIn;
   return (
     <section class="profile">
-      <h1>Profil</h1>
+      <header class="friend-head">
+        <button class="link back" onClick={onBack}>
+          ‹ Zurück
+        </button>
+        <h1>Profil</h1>
+      </header>
       {signedIn && (
         <>
           <DisplayName />
@@ -241,7 +248,7 @@ function SignOut() {
 }
 
 /** Hinweise zu Riot Games, Kartendaten und Preisquellen. */
-function LegalNotice({ items, catalogs }: Props) {
+function LegalNotice({ items, catalogs }: Omit<Props, 'onBack'>) {
   const gameIds = items.length ? [...new Set(items.map((i) => i.gameId))] : (catalogs?.games.map((g) => g.gameId) ?? []);
   const priceSources = catalogs ? gameIds.map((g) => catalogs.prices.get(g)).filter((f) => !!f) : [];
   return (

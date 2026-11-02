@@ -9,6 +9,17 @@ import type { CardSet, Printing } from './types';
 export const PROMO_FOLDER = 'PROMO';
 export const PROMO_NAME = 'Promos';
 
+/** Gesamtordner über alle Sets: alle Rare, Epic und Showcase (Alternate Art, Overnumbered, Signature). */
+export const HIGHLIGHT_FOLDER = 'HIGHLIGHTS';
+export const HIGHLIGHT_NAME = 'Rare, Epic, Showcase';
+const HIGHLIGHT_RARITIES = ['rare', 'epic', 'showcase'];
+
+/** Gehört der Druck in den Gesamtordner? Promos nicht, die haben ihren eigenen Ordner. */
+export function isHighlight(p: Printing, set?: CardSet): boolean {
+  if (set?.promo || p.variant === 'promo') return false;
+  return HIGHLIGHT_RARITIES.includes((p.rarity ?? '').toLowerCase()) || ['alt_art', 'overnumbered', 'signature'].includes(p.variant);
+}
+
 export interface Folder {
   /** Set-Kürzel oder PROMO_FOLDER */
   code: string;
