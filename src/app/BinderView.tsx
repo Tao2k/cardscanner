@@ -7,6 +7,7 @@ import { Sheet } from './Sheet';
 import { flightPace, flightStops, pages, PER_PAGE, withoutFirst, type Binder, type Slot } from './binder';
 import { flyInto, reducedMotion, settle, type Flight } from './binderFx';
 import { CoverMotif } from './BinderMotif';
+import { updates } from './updates';
 import { themeOf, themeStyle, uiColor } from './binderThemes';
 import { cardSrcSet, printingCode } from './format';
 
@@ -434,6 +435,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
     }
     let stopped = false;
     const inAir = new Set<Flight>();
+    // Eine neue App-Version lädt erst danach neu, sonst bricht das Neuladen das Einfliegen mittendrin ab
+    const release = updates.hold();
     const land = (key: string) => {
       setPending((p) => withoutFirst(p, key));
       markFresh([key]);
@@ -446,6 +449,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       markFresh(queue);
       setSkip(null);
       setCover('open');
+      release();
     };
     setSkip(() => stop);
 
@@ -453,8 +457,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       await sleep(320);
       await reveal();
       await openCover();
-      // Alle neuen Karten fliegen, bei vielen schneller; Seite für Seite, erst alle einer Seite, dann umblättern
-      const { duration, gap, turn: turnMs } = flightPace(queue.length, stops.length);
+      // Alle neuen Karten fliegen, Seite für Seite: erst alle einer Seite, dann umblättern
+      const { duration, gap, turn: turnMs } = flightPace(queue.length);
       for (const halt of stops) {
         if (stopped) return;
         const binder = binders.find((b) => b.key === halt.binder)!;
@@ -498,9 +502,11 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       if (stopped) return;
       stopped = true;
       setSkip(null);
+      release();
     })();
 
     return () => {
+      release();
       stopped = true;
       for (const f of inAir) f.cancel();
     };

@@ -178,13 +178,10 @@ export function flightStops(queue: string[], binderOrder: string[], where: (key:
 }
 
 /**
- * Tempo des Einfliegens: wenige Karten fliegen gemächlich, viele schneller und dichter hintereinander,
- * damit auch ein großer Stapel bis zur letzten Karte durchläuft (früher war nach 40 Karten Schluss).
+ * Tempo des Einfliegens: wenige Karten fliegen gemächlich, mehr etwas dichter hintereinander,
+ * ab etwa 25 Karten bleibt es bei diesem Tempo, egal wie viele es sind.
  * @returns Flugzeit, Abstand zwischen zwei Karten und Dauer des Umblätterns in ms
  */
-export function flightPace(cards: number, stops: number): { duration: number; gap: number; turn: number } {
-  const duration = cards <= 40 ? Math.max(560, 900 - cards * 18) : Math.max(420, 560 - (cards - 40) * 3);
-  const gap = Math.max(90, 620 - cards * 25, Math.min(240, 9600 / Math.max(1, cards)));
-  const turn = Math.max(220, 380 - Math.max(0, stops - 8) * 10);
-  return { duration: Math.round(duration), gap: Math.round(gap), turn };
+export function flightPace(cards: number): { duration: number; gap: number; turn: number } {
+  return { duration: Math.round(Math.max(560, 900 - cards * 18)), gap: Math.round(Math.max(240, 620 - cards * 25)), turn: 380 };
 }

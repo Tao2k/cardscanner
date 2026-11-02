@@ -1,0 +1,2 @@
+- Behoben: Das Einsortieren neuer Karten in den Binder wird nicht mehr von einem App-Update unterbrochen. Neu laden geht danach mit „Neu laden“.
+- Verbessert: Die Karten fliegen wieder im gewohnten Tempo ein, auch wenn es viele sind.
