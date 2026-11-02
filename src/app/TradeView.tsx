@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { KEEP, tradeBetween, type FriendCard, type Trade, type TradeCard } from '../core/friends';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem, Printing } from '../core/types';
-import { wishKey, wishOwners, type Wish, type WishOwner } from '../core/wishlist';
+import { wishKey, wishOwners, type Wish, type WishAlert, type WishOwner } from '../core/wishlist';
 import { FriendsApi, friendError, type Friend, type Profile } from '../storage/friends';
 import type { Catalogs } from './App';
 import { buildBinders } from './binder';
 import { BinderView, heart } from './BinderView';
 import { cloud } from './cloud';
 import { printingCode } from './format';
-import { useWishlist, wishlist, type WishlistState } from './wishlist';
+import { WishAlarmSheet } from './WishAlarmSheet';
+import { useWishAlarm, useWishlist, wishlist, wishPrice, type WishAlarmState, type WishlistState } from './wishlist';
 
 interface Props {
   items: CollectionItem[];
@@ -35,9 +36,6 @@ export function takeInvite(): string | null {
   return code.toUpperCase();
 }
 
-/** Ausführung, mit der eine gesuchte Karte bewertet wird: Foil nur bei reinen Foil-Drucken. */
-const defaultFinish = (p?: Printing) => (p?.finishes?.length === 1 && p.finishes[0] === 'foil' ? 'foil' : 'normal');
-
 /** Tab „Tausch“: Freunde (mit ihren Bindern und Tauschvorschlägen) und die eigene Wunschliste. */
 export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Props) {
   const [api, setApi] = useState<FriendsApi | null>(null);
@@ -54,6 +52,7 @@ export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Pro
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const wish = useWishlist();
+  const alarm = useWishAlarm(wish, catalogs);
 
   const load = async (client: FriendsApi) => {
     const [me, list] = await Promise.all([client.profile(), client.list()]);
@@ -155,6 +154,7 @@ export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Pro
         friend={friend}
         cards={collections.get(friend.userId) ?? []}
         trade={trades.get(friend.userId) ?? { get: [], give: [] }}
+        wishes={friendWishes.get(friend.userId) ?? []}
         items={items}
         catalogs={catalogs}
         wish={wish}
@@ -184,12 +184,17 @@ export function TradeView({ items, catalogs, gameId, invite, onInviteUsed }: Pro
         </button>
         <button role="radio" aria-checked={section === 'wishlist'} class={section === 'wishlist' ? 'active' : ''} onClick={() => setSection('wishlist')}>
           Wunschliste{wish.wishes.length > 0 && ` (${wish.wishes.length})`}
+          {alarm.alerts.length > 0 && section !== 'wishlist' && (
+            <span class="seg-count" aria-label={`${alarm.alerts.length} Preisalarm`}>
+              {alarm.alerts.length}
+            </span>
+          )}
         </button>
       </div>
       {error && <p class="banner error">{error}</p>}
       {info && <p class="banner">{info}</p>}
 
-      {section === 'wishlist' && <WishlistSection catalogs={catalogs} items={items} gameId={gameId} wish={wish} owners={owners} names={names} />}
+      {section === 'wishlist' && <WishlistSection catalogs={catalogs} items={items} gameId={gameId} wish={wish} alarm={alarm} owners={owners} names={names} />}
 
       {section === 'friends' && (
         <>
@@ -342,6 +347,20 @@ const heartOutline = (
   </svg>
 );
 
+/** Glocke für den Preisalarm. */
+const bell = (
+  <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+    <path
+      d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 0 0 4 0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </svg>
+);
+
 /** Eigene Anzahl je Druck (über Sprache, Zustand und Ausführung). */
 function ownedCounts(items: CollectionItem[]) {
   const counts = new Map<string, number>();
@@ -354,6 +373,7 @@ function WishlistSection({
   items,
   gameId,
   wish,
+  alarm,
   owners,
   names,
 }: {
@@ -361,13 +381,22 @@ function WishlistSection({
   items: CollectionItem[];
   gameId: string;
   wish: WishlistState;
+  alarm: WishAlarmState;
   owners: Map<string, WishOwner[]>;
   names: Map<string, string>;
 }) {
   const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  /** Preisalarme, die beim Öffnen neu waren; bleiben als „Neu“ markiert, solange die Liste offen ist. */
+  const [fresh, setFresh] = useState<Map<string, WishAlert>>(new Map());
   const owned = useMemo(() => ownedCounts(items), [items]);
-  const priceOf = (gameId: string, printing?: Printing) =>
-    printing ? priceFor(catalogs.price(gameId, printing.printingId), defaultFinish(printing), printing) : undefined;
+  const priceOf = (gameId: string, printing?: Printing) => (printing ? wishPrice(catalogs, gameId, printing.printingId) : undefined);
+
+  useEffect(() => {
+    if (!alarm.alerts.length) return;
+    setFresh((old) => new Map([...old, ...alarm.alerts.map((a) => [a.key, a] as const)]));
+    alarm.seen(alarm.alerts);
+  }, [alarm.alerts]);
 
   // Suche über alle Drucke, das gewählte Spiel zuerst; Name, Set und Nummer („OGN 42“) zählen
   const q = query.trim().toLowerCase();
@@ -458,11 +487,13 @@ function WishlistSection({
             const key = wishKey(w);
             const at = ownersText(key);
             const have = owned.get(key) ?? 0;
+            const news = fresh.get(key);
+            const reached = w.target !== undefined && price !== undefined && price <= w.target;
             return (
-              <li key={key}>
+              <li key={key} class={news ? 'alarm' : undefined}>
                 <div class="main">
                   {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
-                  <span class="info">
+                  <button class="info" aria-label={`${printing?.cardName ?? w.printingId}, Preisalarm einstellen`} onClick={() => setEditing(key)}>
                     <strong>{printing?.cardName ?? w.printingId}</strong>
                     <small>
                       {printing ? printingCode(printing) : ''}
@@ -470,9 +501,16 @@ function WishlistSection({
                     </small>
                     <span class="line">
                       {price !== undefined && <span class="price">{formatEur(price)}</span>}
+                      {reached ? (
+                        <em class="tag up">{bell} Ziel erreicht</em>
+                      ) : (
+                        w.target !== undefined && <em class="tag alarm-target">{bell} {formatEur(w.target)}</em>
+                      )}
+                      {news?.kind === 'drop' && <em class="tag down">▼ {Math.round((1 - news.price / news.from) * 100)} %</em>}
+                      {news && <em class="tag new">Neu</em>}
                       {at && <em class="tag up">{at}</em>}
                     </span>
-                  </span>
+                  </button>
                   <WishToggle gameId={w.gameId} printingId={w.printingId} wish={wish} compact />
                 </div>
               </li>
@@ -480,6 +518,14 @@ function WishlistSection({
           })}
         </ol>
       )}
+      {editing &&
+        (() => {
+          const w = wish.wishes.find((x) => wishKey(x) === editing);
+          if (!w) return null;
+          const printing = catalogs.lookup(w.gameId, w.printingId);
+          return <WishAlarmSheet wish={w} printing={printing} price={priceOf(w.gameId, printing)} targets={wish.targets} onClose={() => setEditing(null)} />;
+        })()}
+      {wish.wishes.length > 0 && <p class="muted wish-hint">Tippe auf eine Karte für den Preisalarm.</p>}
       {wish.status === 'ready' && !wish.wishes.length && !q && (
         <div class="empty-state">
           <span class="empty-heart" aria-hidden="true">
@@ -492,12 +538,13 @@ function WishlistSection({
   );
 }
 
-type FriendTab = 'binder' | 'get' | 'give';
+type FriendTab = 'binder' | 'wishes' | 'get' | 'give';
 
 function FriendDetail({
   friend,
   cards,
   trade,
+  wishes,
   items,
   catalogs,
   wish,
@@ -507,6 +554,8 @@ function FriendDetail({
   friend: Friend;
   cards: FriendCard[];
   trade: Trade;
+  /** Wunschliste des Freundes. */
+  wishes: Wish[];
   items: CollectionItem[];
   catalogs: Catalogs;
   wish: WishlistState;
@@ -539,6 +588,9 @@ function FriendDetail({
       <div class="segmented" role="radiogroup" aria-label="Ansicht">
         <button role="radio" aria-checked={side === 'binder'} class={side === 'binder' ? 'active' : ''} onClick={() => setSide('binder')}>
           Binder
+        </button>
+        <button role="radio" aria-checked={side === 'wishes'} class={side === 'wishes' ? 'active' : ''} onClick={() => setSide('wishes')}>
+          Wünsche
         </button>
         <button role="radio" aria-checked={side === 'get'} class={side === 'get' ? 'active' : ''} onClick={() => setSide('get')}>
           Bekommen ({count(trade.get)})
@@ -575,7 +627,9 @@ function FriendDetail({
           </div>
         ))}
 
-      {side !== 'binder' && (
+      {side === 'wishes' && <FriendWishes name={name} wishes={wishes} owned={owned} catalogs={catalogs} />}
+
+      {(side === 'get' || side === 'give') && (
         <>
           <p class="muted trade-sum">
             {side === 'get' ? 'Hat übrig, fehlt dir oder steht auf deiner Wunschliste' : 'Hast du übrig, fehlt ihr/ihm oder steht auf ihrer/seiner Wunschliste'} ·{' '}
@@ -618,5 +672,50 @@ function FriendDetail({
         Freund entfernen
       </button>
     </section>
+  );
+}
+
+/** Wunschliste eines Freundes: was du davon hast, zuerst die Karten, die du abgeben kannst. */
+function FriendWishes({ name, wishes, owned, catalogs }: { name: string; wishes: Wish[]; owned: Map<string, number>; catalogs: Catalogs }) {
+  const rows = useMemo(() => {
+    const list = wishes.map((w) => {
+      const have = owned.get(wishKey(w)) ?? 0;
+      return { wish: w, printing: catalogs.lookup(w.gameId, w.printingId), price: wishPrice(catalogs, w.gameId, w.printingId), have, spare: Math.max(0, have - KEEP) };
+    });
+    return list.sort((a, b) => Number(b.spare > 0) - Number(a.spare > 0) || (b.price ?? -1) - (a.price ?? -1));
+  }, [wishes, owned, catalogs]);
+  if (!rows.length) {
+    return (
+      <div class="empty-state">
+        <strong>{name} hat noch keine Wünsche</strong>
+      </div>
+    );
+  }
+  const value = rows.reduce((n, r) => n + (r.price ?? 0) * r.wish.quantity, 0);
+  const giveable = rows.filter((r) => r.spare > 0).length;
+  return (
+    <>
+      <p class="muted trade-sum">
+        {rows.length} {rows.length === 1 ? 'Karte' : 'Karten'} · {formatEur(value)}
+        {giveable > 0 && ` · ${giveable} hast du übrig`}
+      </p>
+      <ol class="items wish-list" aria-label={`Wunschliste von ${name}`}>
+        {rows.map(({ wish: w, printing, price, have, spare }) => (
+          <li key={wishKey(w)}>
+            <div class="main">
+              {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
+              <span class="info">
+                <strong>{printing?.cardName ?? w.printingId}</strong>
+                <small>{printing ? printingCode(printing) : ''}</small>
+                <span class="line">
+                  {price !== undefined && <span class="price">{formatEur(price)}</span>}
+                  {spare > 0 ? <em class="tag up">{spare}× übrig bei dir</em> : have > 0 ? <em class="tag">{have}× bei dir</em> : null}
+                </span>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }

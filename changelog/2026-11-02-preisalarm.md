@@ -1,0 +1,3 @@
+- Neu: Preisalarm für deine Wunschliste. Tippe auf eine Karte und leg einen Zielpreis fest. Sobald sie so günstig ist, siehst du einen Hinweis.
+- Neu: Auch ohne Zielpreis meldet ScannR, wenn eine gewünschte Karte deutlich günstiger wird.
+- Neu: Bei deinen Freunden gibt es „Wünsche“: Du siehst ihre Wunschliste und welche Karten du davon übrig hast.

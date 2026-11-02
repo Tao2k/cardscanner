@@ -809,3 +809,23 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .profile-legal h2 { margin: 0 0 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .profile-legal p { margin: 0 0 6px; }
 .profile-group > button:not(.primary):not(.danger-text) { background: var(--raised); }
+
+/* Preisalarm der Wunschliste */
+.segmented .seg-count { display: inline-block; margin-left: 6px; min-width: 18px; padding: 2px 5px; border-radius: 999px; font-size: 0.7rem; line-height: 1.1;
+  background: var(--accent); color: var(--on-accent); vertical-align: 1px; }
+.wish-list li.alarm { box-shadow: inset 3px 0 0 var(--accent); }
+.wish-list button.info { flex: 1; }
+.tag.alarm-target, .tag.up:has(svg) { gap: 4px; }
+.tag.alarm-target { background: var(--accent-soft); color: var(--accent-text); }
+.wish-hint { font-size: 0.82rem; text-align: center; margin: 2px 0 0; }
+.wish-alarm-card { display: flex; gap: 12px; align-items: center; }
+.wish-alarm-card img { width: 56px; border-radius: 6px; flex: none; }
+.wish-alarm h2 { margin: 0; }
+.wish-alarm-form { display: flex; gap: 8px; }
+.wish-alarm-input { flex: 1; min-width: 0; position: relative; display: flex; }
+.wish-alarm-input input { width: 100%; padding-right: 36px; font-size: 1.15rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.wish-alarm-input > span[aria-hidden] { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 650; pointer-events: none; }
+.wish-alarm-form button { flex: none; }
+.wish-alarm .chips button { padding-inline: 12px; font-variant-numeric: tabular-nums; }
+.wish-alarm-remove { align-self: flex-start; padding: 0; }
+.wish-alarm-note { font-size: 0.82rem; }

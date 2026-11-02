@@ -22,6 +22,7 @@ import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
 import { markChangesSeen, pendingChanges, WhatsNewSheet } from './WhatsNew';
+import { useWishAlarm, useWishlist } from './wishlist';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -62,6 +63,8 @@ export function App() {
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
   const account = useCloud();
+  /** Preisalarme der Wunschliste, als Zähler am Tab „Tausch“. */
+  const wishAlarm = useWishAlarm(useWishlist(), catalogs);
 
   const setPrefs = (patch: Partial<Prefs>) => {
     setPrefsState((p) => {
@@ -268,7 +271,7 @@ export function App() {
         {account.signedIn && (
           <button data-tab="trade" class={tab === 'trade' ? 'active' : ''} aria-current={tab === 'trade' ? 'page' : undefined} onClick={() => setTab('trade')}>
             {tabIcon('M7 4L3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7')}
-            Tausch
+            Tausch {wishAlarm.alerts.length > 0 && tab !== 'trade' && <span class="count accent">{wishAlarm.alerts.length}</span>}
           </button>
         )}
         <button data-tab="profile" class={tab === 'profile' ? 'active' : ''} aria-current={tab === 'profile' ? 'page' : undefined} onClick={() => setTab('profile')}>

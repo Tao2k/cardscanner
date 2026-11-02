@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { dotggKey, guideEntry, isoTime, matchPrices, nameKey, parseDotgg, sameName, type CmProduct, type GuideRow } from '../scripts/adapters/riftbound-prices';
-import { collectionValue, priceFor } from '../src/core/prices';
+import { collectionValue, parseEur, priceFor } from '../src/core/prices';
 import type { CollectionItem, Printing } from '../src/core/types';
 
 const printing = (setCode: string, collectorNumber: string, cardName: string, extra: Partial<Printing> = {}): Printing => ({
@@ -141,5 +141,16 @@ describe('Preise in der App', () => {
     const items = [item('normal', 3), { ...item('foil', 2), printingId: 'q' }];
     const value = collectionValue(items, (_, id) => (id === 'p' ? { n: 0.1 } : undefined), () => undefined);
     expect(value).toEqual({ total: 0.3, unpriced: 2 });
+  });
+});
+
+describe('parseEur', () => {
+  it('liest Eingaben mit Komma, Punkt und Eurozeichen', () => {
+    expect(parseEur('4,50')).toBe(4.5);
+    expect(parseEur(' 4.5 € ')).toBe(4.5);
+    expect(parseEur('0,999')).toBe(1);
+    expect(parseEur('')).toBeUndefined();
+    expect(parseEur('abc')).toBeUndefined();
+    expect(parseEur('0')).toBeUndefined();
   });
 });

@@ -75,6 +75,12 @@ export function formatEur(value: number): string {
   return EUR.format(value);
 }
 
+/** „4,50“, „4.5“ oder „4,50 €“ → 4.5; leer oder ungültig → undefined. */
+export function parseEur(text: string): number | undefined {
+  const n = Number(text.replace(/[€\s]/g, '').replace(',', '.'));
+  return text.trim() && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : undefined;
+}
+
 /** Datum des Preisstands, z. B. „21.10.2026“. */
 export function formatAsOf(iso: string): string {
   const d = new Date(iso);

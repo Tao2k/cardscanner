@@ -1,3 +1,4 @@
+import { isStrong } from './priceHistory';
 import type { Finish } from './types';
 
 /** Ein Druck auf der Wunschliste. */
@@ -8,6 +9,8 @@ export interface Wish {
   quantity: number;
   /** Wann die Karte auf die Liste kam (ISO), neueste zuerst. */
   addedAt: string;
+  /** Zielpreis in Euro: Preisalarm, sobald die Karte so viel oder weniger kostet. */
+  target?: number;
 }
 
 export const wishKey = (w: { gameId: string; printingId: string }) => `${w.gameId}|${w.printingId}`;
@@ -48,4 +51,69 @@ export function withWish(list: Wish[], wish: Wish): Wish[] {
 
 export function withoutWish(list: Wish[], key: string): Wish[] {
   return list.filter((w) => wishKey(w) !== key);
+}
+
+/**
+ * Preisalarm je Wunsch, nur auf diesem Gerät gemerkt (Schlüssel wishKey):
+ * `ref` = Preis, mit dem verglichen wird (beim ersten Sehen bzw. beim letzten Alarm),
+ * `hit` = Erreichen des Zielpreises wurde schon gemeldet (fällt weg, sobald der Preis wieder darüber liegt).
+ */
+export interface WishWatch {
+  ref: number;
+  hit?: boolean;
+}
+export type WishWatches = Record<string, WishWatch>;
+
+/** target: Zielpreis erreicht; drop: ohne Zielpreis deutlich günstiger geworden (wie bei den Preiswarnungen). */
+export interface WishAlert {
+  key: string;
+  kind: 'target' | 'drop';
+  price: number;
+  /** Vergleichspreis (bei drop) bzw. der Zielpreis (bei target). */
+  from: number;
+}
+
+type PriceOfWish = (wish: Wish) => number | undefined;
+
+/** Offene Preisalarme der Wunschliste. */
+export function wishAlerts(wishes: Wish[], priceOf: PriceOfWish, watches: WishWatches): WishAlert[] {
+  const alerts: WishAlert[] = [];
+  for (const w of wishes) {
+    const price = priceOf(w);
+    if (price === undefined) continue;
+    const key = wishKey(w);
+    const watch = watches[key];
+    if (w.target !== undefined) {
+      if (price <= w.target && !watch?.hit) alerts.push({ key, kind: 'target', price, from: w.target });
+    } else if (watch && price < watch.ref && isStrong(watch.ref, price)) {
+      alerts.push({ key, kind: 'drop', price, from: watch.ref });
+    }
+  }
+  return alerts;
+}
+
+/**
+ * Merkliste nachführen: neue Wünsche bekommen ihren heutigen Preis als Vergleich, Zielpreise über dem
+ * Preis werden wieder scharf, entfernte Wünsche fallen weg. Mit `seen` gelten diese Alarme als gemeldet.
+ * Gibt dasselbe Objekt zurück, wenn sich nichts ändert.
+ */
+export function watchWishes(wishes: Wish[], priceOf: PriceOfWish, watches: WishWatches, seen: WishAlert[] = []): WishWatches {
+  const next: WishWatches = {};
+  let changed = false;
+  const shown = new Map(seen.map((a) => [a.key, a]));
+  for (const w of wishes) {
+    const key = wishKey(w);
+    const price = priceOf(w);
+    let watch = watches[key];
+    if (price !== undefined) {
+      const alert = shown.get(key);
+      if (!watch) watch = { ref: price };
+      else if (alert) watch = { ref: price, hit: alert.kind === 'target' ? true : watch.hit };
+      else if (watch.hit && (w.target === undefined || price > w.target)) watch = { ref: watch.ref };
+    }
+    if (watch) next[key] = watch;
+    if (watch !== watches[key]) changed = true;
+  }
+  if (Object.keys(watches).length !== Object.keys(next).length) changed = true;
+  return changed ? next : watches;
 }
