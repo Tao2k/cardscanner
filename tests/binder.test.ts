@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBinders, pages, withoutFirst, withoutLast } from '../src/app/binder';
+import { buildBinders, flightPace, flightStops, pages, withoutFirst, withoutLast } from '../src/app/binder';
 import type { CardSet, CollectionItem, Printing } from '../src/core/types';
 
 const card = (setCode: string, collectorNumber: string): Printing => ({
@@ -91,5 +91,48 @@ describe('Binder', () => {
     expect(withoutLast(['a', 'b', 'a'], 'a')).toEqual(['a', 'b']);
     expect(withoutFirst(['a', 'b', 'a'], 'a')).toEqual(['b', 'a']);
     expect(withoutLast(['a'], 'x')).toEqual(['a']);
+  });
+});
+
+describe('Einfliegen neuer Karten', () => {
+  // Wie bei Yalisa: einige Origins, dann viele Spiritforged über Seite 8 hinaus und noch Karten aus dem nächsten Set
+  const at = new Map<string, { binder: string; at: number }>();
+  const queue: string[] = [];
+  const add = (binder: string, slots: number[]) =>
+    slots.forEach((n) => {
+      const key = `${binder}-${n}`;
+      at.set(key, { binder, at: n });
+      queue.push(key);
+    });
+  add('UNL', [3, 40]);
+  add('SFD', Array.from({ length: 45 }, (_, i) => i * 5));
+  add('OGN', [80, 2, 30]);
+  queue.push('unbekannt');
+  const stops = flightStops(queue, ['OGN', 'SFD', 'UNL'], (k) => at.get(k));
+
+  it('lässt jede neue Karte einfliegen, auch nach mehr als 40 Karten', () => {
+    const flown = stops.flatMap((s) => s.keys);
+    expect(flown).toHaveLength(50);
+    expect(new Set(flown)).toEqual(new Set(queue.filter((k) => k !== 'unbekannt')));
+    // Hört nicht mitten in Spiritforged auf: der letzte Halt ist die letzte Seite des letzten Sets
+    expect(stops.at(-1)).toEqual({ binder: 'UNL', page: 4, keys: ['UNL-40'] });
+  });
+
+  it('blättert nur vorwärts, Binder für Binder und Seite für Seite', () => {
+    expect(stops[0]).toEqual({ binder: 'OGN', page: 0, keys: ['OGN-2'] });
+    const order = stops.map((s) => ['OGN', 'SFD', 'UNL'].indexOf(s.binder) * 1000 + s.page);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(new Set(order).size).toBe(order.length);
+    expect(stops.find((s) => s.binder === 'SFD' && s.page === 7)?.keys).toEqual(['SFD-65', 'SFD-70']);
+  });
+
+  it('wird bei vielen Karten schneller, bleibt aber sichtbar', () => {
+    const few = flightPace(5, 2);
+    const many = flightPace(200, 60);
+    expect(few).toEqual({ duration: 810, gap: 495, turn: 380 });
+    expect(many.duration).toBeLessThan(few.duration);
+    expect(many.gap).toBeLessThan(few.gap);
+    expect(many.turn).toBeLessThan(few.turn);
+    expect(many).toEqual({ duration: 420, gap: 90, turn: 220 });
   });
 });
