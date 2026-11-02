@@ -68,6 +68,16 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .brand img { border-radius: 8px; }
 .brand span { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; }
 .brand b { color: var(--accent-text); font-weight: 900; }
+/* Profil oben rechts in der Markenzeile */
+.profile-button { margin-left: auto; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: var(--surface); color: var(--text); }
+.profile-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.profile-button.active { background: var(--accent-soft); color: var(--accent-text); }
+/* Sammlung: Überschrift und Umschalter Karten | Decks | Wunschliste über dem gewählten Bereich */
+.shelf-head { display: flex; flex-direction: column; gap: 12px; padding: 20px 16px 0; }
+.shelf-head + section { padding-top: 14px; }
+/* Beim Bauen eines Decks (Legende, Champion, Editor) hat der Deckbau die ganze Seite */
+main:has(> section.deck-edit) > .shelf-head, main:has(> section.decks > header.friend-head) > .shelf-head { display: none; }
+main:has(> section.decks > header.friend-head) > .shelf-head + section { padding-top: 16px; }
 main { flex: 1; overflow-y: auto; padding-bottom: 24px; overscroll-behavior: contain; }
 h1 { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; line-height: 1.1; }
 h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
@@ -294,16 +304,14 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 /* Navigation unten */
 .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: var(--bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 -1px 0 var(--border); }
-.tabs button { flex-direction: column; gap: 3px; background: transparent; min-height: 56px; padding: 6px 2px; border-radius: 18px;
-  font-size: 0.72rem; font-weight: 600; color: var(--muted); position: relative; }
-.tabs button svg { width: 24px; height: 24px; }
-.tabs button.active { color: var(--text); }
+.tabs.three { grid-template-columns: repeat(3, 1fr); }
+/* Nur Symbole, keine Beschriftung: der Name steht im aria-label */
+.tabs button { background: transparent; min-height: 52px; padding: 6px 2px; border-radius: 18px; color: var(--muted); position: relative; }
+.tabs button svg { width: 26px; height: 26px; }
 .tabs button.active svg { color: var(--accent-text); }
 .tabs button.active .tab-icon { background: var(--accent-soft); }
-.tab-icon { display: inline-flex; padding: 3px 16px; border-radius: 999px; transition: background-color 0.2s; }
-.tabs.five { grid-template-columns: repeat(5, 1fr); }
-.tabs.five .tab-icon { padding: 3px 12px; }
-.count { position: absolute; top: 2px; left: calc(50% + 8px); font-size: 0.7rem; line-height: 1; background: var(--text); color: var(--bg);
+.tab-icon { display: inline-flex; padding: 5px 20px; border-radius: 999px; transition: background-color 0.2s; }
+.count { position: absolute; top: 2px; left: calc(50% + 10px); font-size: 0.7rem; line-height: 1; background: var(--text); color: var(--bg);
   border-radius: 999px; padding: 3px 6px; font-weight: 700; border: 2px solid var(--bg); }
 .count.warn { background: var(--warn); color: var(--on-warn); }
 .count.accent { background: var(--accent); color: var(--on-accent); }
@@ -402,7 +410,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .items .price em.move { margin-left: 6px; vertical-align: 1px; }
 
 @media (min-width: 720px) {
-  main > section { max-width: 680px; margin: 0 auto; width: 100%; }
+  main > section, main > .shelf-head { max-width: 680px; margin: 0 auto; width: 100%; }
   .viewfinder { max-width: 656px; margin: 0 auto; }
   .recent, .section-title { max-width: 680px; margin-left: auto; margin-right: auto; }
   .tabs { padding-left: calc(50% - 320px); padding-right: calc(50% - 320px); }
@@ -624,9 +632,6 @@ button.wish-toggle.icon.on { background: var(--accent-soft); color: var(--accent
 .tag.change-behoben { background: var(--success-soft); color: var(--success-text); }
 
 /* Decks: Legende und Champion wählen, Karten, Runen und Battlefields zusammenstellen */
-.tabs.six { grid-template-columns: repeat(6, 1fr); gap: 0; padding-left: 4px; padding-right: 4px; }
-.tabs.six .tab-icon { padding: 3px 10px; }
-.tabs.six button { font-size: 0.68rem; letter-spacing: -0.01em; }
 /* Gespeicherte Decks als Deckboxen wie in Master Duel: Titelkarte vor einem kleinen Stapel, vorn „Neues Deck“ */
 .deck-boxes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 16px 12px; }
 .deck-boxes > li { min-width: 0; }
@@ -732,6 +737,18 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 .deck-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
 .deck-grid.runes { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
 .deck-grid.fields { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.deck-grid.side { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; }
+.pane-head b.over { color: var(--warn); }
+/* Kosten des Hauptdecks je Farbe: Power groß, Energie klein darunter */
+.cost-bar { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px; background: var(--raised); font-variant-numeric: tabular-nums; }
+.cost-bar h3 { margin: 0; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+.cost-bar ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(58px, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cost-bar li { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
+.cost-bar li b { font-size: 1.05rem; }
+.cost-bar li small { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+.cost-bar li.cost-all { border-right: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); }
+.cost-bar p { margin: 0; font-size: 0.68rem; color: var(--muted); text-align: center; }
+.cost-dots { display: inline-flex; gap: 2px; height: 0.9rem; align-items: center; }
 /* Freie Plätze: zeigen, wie viel noch fehlt */
 .slot { display: block; aspect-ratio: 63 / 88; border-radius: 3px; border: 1.5px dashed color-mix(in srgb, var(--muted) 38%, transparent); }
 .slot.landscape { aspect-ratio: 88 / 63; }
@@ -761,7 +778,7 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 
 .list-pane { position: relative; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .deck-parts { flex: none; }
-.deck-parts button { flex-direction: column; gap: 0; min-height: 44px; padding: 4px; line-height: 1.15; }
+.deck-parts button { flex-direction: column; gap: 0; min-height: 44px; padding: 4px 2px; font-size: 0.82rem; line-height: 1.15; }
 .deck-parts small { font-size: 0.72rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .deck-parts small.done { color: var(--success-text); }
 .list-tools { flex: none; display: flex; gap: 8px; }
@@ -785,8 +802,6 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .binder-card img.landscape { width: min(86vw, 420px); aspect-ratio: 88 / 63; }
 .binder-card-info h2 { margin: 0; }
 .binder-card-info small { display: flex; align-items: center; flex-wrap: wrap; }
-
-/* Siebte Spalte für „Profil“ (angemeldet) */
 
 /* Profil: Anzeigename, Anmeldung, Abgleich, Rechtliches */
 .profile { display: flex; flex-direction: column; gap: 16px; }

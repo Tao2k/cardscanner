@@ -271,7 +271,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   return (
     <section class="collection">
       <header class="title-row">
-        <h1>Sammlung</h1>
         <div class="title-actions">
           <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
             {(['binder', 'list'] as const).map((v) => (

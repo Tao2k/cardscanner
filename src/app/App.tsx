@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
@@ -16,8 +17,8 @@ import { Recognizer } from './recognizer';
 import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { PriceView } from './PriceView';
-import { TradeView, takeInvite } from './TradeView';
-import { DECK_ICON_PATH, DeckView } from './DeckView';
+import { CommunityView, WishlistView, takeInvite } from './TradeView';
+import { DeckView } from './DeckView';
 import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
@@ -41,7 +42,9 @@ export interface Catalogs {
   compareRefs(gameId: string, printingId: string): string[];
 }
 
-type Tab = 'scan' | 'collection' | 'decks' | 'prices' | 'trade' | 'profile';
+type Tab = 'scan' | 'collection' | 'prices' | 'community' | 'profile';
+/** Bereiche im Tab „Sammlung“: Karten (Binder/Liste), Decks und Wunschliste. */
+type Shelf = 'cards' | 'decks' | 'wishlist';
 
 export function App() {
   const store = useMemo(() => new SyncingStore(), []);
@@ -55,9 +58,16 @@ export function App() {
   const [status, setStatus] = useState('Lade Kartenkataloge …');
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
-  /** Freundescode aus einem Einladungslink: App startet dann bei „Tausch“. */
+  /** Freundescode aus einem Einladungslink: App startet dann bei „Community“. */
   const [invite, setInvite] = useState(() => (cloudConfigured ? takeInvite() : null));
-  const [tab, setTab] = useState<Tab>(invite ? 'trade' : 'scan');
+  const [tab, setTabState] = useState<Tab>(invite ? 'community' : 'scan');
+  const [shelf, setShelf] = useState<Shelf>('cards');
+  /** Tab, zu dem „Zurück“ im Profil führt (das Profil sitzt oben rechts, nicht in der Leiste). */
+  const [lastTab, setLastTab] = useState<Tab>('scan');
+  const setTab = (next: Tab) => {
+    if (next === 'profile' && tab !== 'profile') setLastTab(tab);
+    setTabState(next);
+  };
   /** Preisverlauf je Spiel; lädt nach den Katalogen, weil ihn nur „Preise“ und die Markierungen brauchen. */
   const [histories, setHistories] = useState<Map<string, PriceHistoryFile>>(new Map());
   const updatePending = useUpdatePending();
@@ -162,7 +172,7 @@ export function App() {
 
   useEffect(() => {
     // Die Sammlung hat die neuen Karten beim Öffnen übernommen (für den Binder), danach zählen sie nicht mehr als neu
-    if (tab === 'collection' && catalogs && (prefs.newScans || prefs.binderNew.length)) setPrefs({ newScans: 0, binderNew: [] });
+    if (tab === 'collection' && shelf === 'cards' && catalogs && (prefs.newScans || prefs.binderNew.length)) setPrefs({ newScans: 0, binderNew: [] });
     if (tab !== 'prices') {
       if (freshAlerts.size) setFreshAlerts(new Set());
       return;
@@ -172,7 +182,7 @@ export function App() {
     const next = { ...seenPrices, ...Object.fromEntries(alerts.map((m) => [moverKey(m), m.to])) };
     setSeenPrices(next);
     saveSeenPrices(next);
-  }, [tab, alerts, prefs.newScans, catalogs]);
+  }, [tab, shelf, alerts, prefs.newScans, catalogs]);
 
   /**
    * Gescannt oder rückgängig gemacht: Zähler am Tab „Sammlung“ und Karten, die in den Binder fliegen
@@ -196,6 +206,10 @@ export function App() {
 
   if (needsLogin(account)) return <LoginScreen state={account} />;
 
+  // Die Wunschliste liegt auf dem Server, also nur angemeldet
+  const shelves: [Shelf, string][] = [['cards', 'Karten'], ['decks', 'Decks'], ...(account.signedIn ? [['wishlist', 'Wunschliste'] as [Shelf, string]] : [])];
+  const currentShelf = shelves.some(([s]) => s === shelf) ? shelf : 'cards';
+
   return (
     <div class="app">
       <header class="brand">
@@ -203,6 +217,17 @@ export function App() {
         <span>
           Scann<b>R</b>
         </span>
+        <button
+          class={`profile-button${tab === 'profile' ? ' active' : ''}`}
+          aria-label="Profil"
+          aria-current={tab === 'profile' ? 'page' : undefined}
+          onClick={() => setTab(tab === 'profile' ? lastTab : 'profile')}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="9" r="3.5" />
+            <path d="M5.5 19a7 7 0 0 1 13 0" />
+          </svg>
+        </button>
       </header>
       <main>
         {/* Auf „Scannen“ steht derselbe Fehler schon unter dem Startknopf */}
@@ -228,19 +253,32 @@ export function App() {
             onLearn={relearn}
           />
         )}
-        {tab === 'collection' && catalogs && (
+        {tab === 'collection' && (
+          <div class="shelf-head">
+            <h1>Sammlung</h1>
+            <div class="segmented" role="radiogroup" aria-label="Bereich der Sammlung">
+              {shelves.map(([value, label]) => (
+                <button role="radio" aria-checked={currentShelf === value} class={currentShelf === value ? 'active' : ''} onClick={() => setShelf(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {tab === 'collection' && currentShelf === 'cards' && catalogs && (
           <CollectionView items={items} catalogs={catalogs} service={service} prefs={prefs} setPrefs={setPrefs} histories={histories} onChange={refresh} onOpenProfile={() => setTab('profile')} />
         )}
-        {tab === 'decks' && catalogs && (
+        {tab === 'collection' && currentShelf === 'decks' && catalogs && (
           <DeckView catalogs={catalogs} items={items} decks={decks} gameId={prefs.gameId} onSave={saveDeck} onDelete={deleteDeck} />
         )}
+        {tab === 'collection' && currentShelf === 'wishlist' && catalogs && <WishlistView items={items} catalogs={catalogs} gameId={prefs.gameId} />}
         {tab === 'prices' && catalogs && (
           <PriceView items={items} catalogs={catalogs} histories={histories} prefs={prefs} setPrefs={setPrefs} fresh={freshAlerts} />
         )}
-        {tab === 'trade' && catalogs && account.signedIn && (
-          <TradeView items={items} catalogs={catalogs} gameId={prefs.gameId} invite={invite} onInviteUsed={() => setInvite(null)} />
+        {tab === 'community' && catalogs && account.signedIn && (
+          <CommunityView items={items} catalogs={catalogs} invite={invite} onInviteUsed={() => setInvite(null)} />
         )}
-        {tab === 'profile' && <ProfileView items={items} catalogs={catalogs} />}
+        {tab === 'profile' && <ProfileView items={items} catalogs={catalogs} onBack={() => setTab(lastTab)} />}
         {tab !== 'scan' && tab !== 'profile' && !catalogs && !error && (
           <p class="loading" role="status">
             <span class="spinner" />
@@ -248,33 +286,48 @@ export function App() {
           </p>
         )}
       </main>
-      <nav class={`tabs ${account.signedIn ? 'six' : 'five'}`} aria-label="Bereiche">
-        <button class={tab === 'scan' ? 'active' : ''} aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
-          {tabIcon('M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 8h6v8H9z')}
-          Scannen
+      <nav class={`tabs ${account.signedIn ? 'four' : 'three'}`} aria-label="Bereiche">
+        <button data-tab="scan" class={tab === 'scan' ? 'active' : ''} aria-label="Scannen" aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
+          {tabIcon(<>
+            <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
+            <path d="M4 12h16" />
+          </>)}
         </button>
-        <button data-tab="collection" class={tab === 'collection' ? 'active' : ''} aria-current={tab === 'collection' ? 'page' : undefined} onClick={() => setTab('collection')}>
-          {tabIcon('M8 4h10a2 2 0 0 1 2 2v12M6 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z')}
-          Sammlung {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
+        <button
+          data-tab="collection"
+          class={tab === 'collection' ? 'active' : ''}
+          aria-label={prefs.newScans > 0 ? `Sammlung, ${prefs.newScans} neu` : 'Sammlung'}
+          aria-current={tab === 'collection' ? 'page' : undefined}
+          onClick={() => {
+            // Neue Scans fliegen in den Binder, also dann direkt zu den Karten
+            if (prefs.newScans > 0) setShelf('cards');
+            setTab('collection');
+          }}
+        >
+          {tabIcon(<>
+            <rect x="3" y="7" width="12" height="14" rx="2" />
+            <path d="M8 3h11a2 2 0 0 1 2 2v12" />
+          </>)}
+          {prefs.newScans > 0 && <span class="count" key={prefs.newScans}>{prefs.newScans}</span>}
         </button>
-        <button data-tab="decks" class={tab === 'decks' ? 'active' : ''} aria-current={tab === 'decks' ? 'page' : undefined} onClick={() => setTab('decks')}>
-          {tabIcon(DECK_ICON_PATH)}
-          Deck
-        </button>
-        <button data-tab="prices" class={tab === 'prices' ? 'active' : ''} aria-current={tab === 'prices' ? 'page' : undefined} onClick={() => setTab('prices')}>
-          {tabIcon('M3 17l6-6 4 4 8-8M15 7h6v6')}
-          Preise {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
+        <button
+          data-tab="prices"
+          class={tab === 'prices' ? 'active' : ''}
+          aria-label={alerts.length > 0 ? `Preise, ${alerts.length} Warnungen` : 'Preise'}
+          aria-current={tab === 'prices' ? 'page' : undefined}
+          onClick={() => setTab('prices')}
+        >
+          {tabIcon(<path d="M3 17l6-6 4 4 8-8M15 7h6v6" />)}
+          {alerts.length > 0 && <span class="count accent">{alerts.length}</span>}
         </button>
         {account.signedIn && (
-          <button data-tab="trade" class={tab === 'trade' ? 'active' : ''} aria-current={tab === 'trade' ? 'page' : undefined} onClick={() => setTab('trade')}>
-            {tabIcon('M7 4L3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7')}
-            Tausch
+          <button data-tab="community" class={tab === 'community' ? 'active' : ''} aria-label="Community" aria-current={tab === 'community' ? 'page' : undefined} onClick={() => setTab('community')}>
+            {tabIcon(<>
+              <circle cx="9" cy="8" r="3.5" />
+              <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.2a6.5 6.5 0 0 1 3 5.8" />
+            </>)}
           </button>
         )}
-        <button data-tab="profile" class={tab === 'profile' ? 'active' : ''} aria-current={tab === 'profile' ? 'page' : undefined} onClick={() => setTab('profile')}>
-          {tabIcon('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1')}
-          Profil
-        </button>
       </nav>
       {news.length > 0 && (
         <WhatsNewSheet
@@ -289,12 +342,12 @@ export function App() {
   );
 }
 
-/** Strich-Symbol für die Navigation unten. */
-function tabIcon(d: string) {
+/** Strich-Symbol für die Navigation unten (ohne Beschriftung; der Name steht im aria-label). */
+function tabIcon(shape: ComponentChildren) {
   return (
     <span class="tab-icon">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d={d} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        {shape}
       </svg>
     </span>
   );
