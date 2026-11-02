@@ -36,7 +36,7 @@ export function buildBinders(
   gameIds: Iterable<string>,
   byGame: Map<string, Map<string, Printing>>,
   sets: Map<string, CardSet[]>,
-  items: CollectionItem[],
+  items: Pick<CollectionItem, 'gameId' | 'printingId' | 'quantity' | 'finish'>[],
 ): Binder[] {
   const owned = new Map<string, { quantity: number; foil: boolean }>();
   for (const i of items) {

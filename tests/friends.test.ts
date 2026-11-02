@@ -30,4 +30,15 @@ describe('Freunde-Abgleich', () => {
     const trade = tradeBetween([card('a', 0)], [card('a', 2)]);
     expect(trade.get.map((c) => c.printingId)).toEqual(['a']);
   });
+
+  it('schlägt Karten von der Wunschliste auch vor, wenn man sie schon hat', () => {
+    const mine = [card('a', 1), card('b', 3)];
+    const friend = [card('a', 2), card('b', 1), card('c', 2)];
+    const trade = tradeBetween(mine, friend, 1, { mine: ['riftbound|a'], friend: ['riftbound|b'] });
+    expect(trade.get.map((c) => [c.printingId, c.wished ?? false])).toEqual([
+      ['a', true],
+      ['c', false],
+    ]);
+    expect(trade.give).toEqual([{ gameId: 'riftbound', printingId: 'b', spare: 2, finish: 'normal', wished: true }]);
+  });
 });
