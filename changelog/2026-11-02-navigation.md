@@ -1,0 +1,3 @@
+- Verbessert: Deine Decks und deine Wunschliste findest du jetzt im Tab „Sammlung“, oben umschaltbar neben deinen Karten.
+- Verbessert: „Tausch“ heißt jetzt „Community“.
+- Verbessert: Dein Profil öffnest du oben rechts. Die Leiste unten zeigt nur noch schlichte Symbole.
