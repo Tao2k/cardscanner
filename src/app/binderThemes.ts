@@ -66,6 +66,8 @@ const THEMES: Record<string, BinderTheme> = {
   },
   // Promo-Ordner (Events, Bundles, Box-Sets): kein eigenes Set, daher schlicht Anthrazit mit Gold wie eine Sammlerbox
   'riftbound|PROMO': { light: '#4d443b', base: '#2b2622', deep: '#171310', glow: '50% 32%', accent: '#d8b25a', strap: '#a8842f', ui: '#8a6a1f' },
+  // Gesamtordner (Rare, Epic, Showcase aus allen Sets): tiefes Violett der App mit Gold, wie eine Sammlermappe
+  'riftbound|HIGHLIGHTS': { light: '#6a2a8c', base: '#3a1450', deep: '#200a2e', glow: '50% 20%', accent: '#e2bf68', strap: '#b48a2e', ui: '#6b2a8a' },
 };
 
 /** Thema eines Binders („gameId|setCode“). */

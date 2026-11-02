@@ -23,6 +23,10 @@ interface Props {
   wished?: Set<string>;
   /** Zusätzliches im Blatt einer angetippten Karte, z. B. „Auf die Wunschliste“. */
   cardActions?(slot: Slot): ComponentChildren;
+  /** Am Ende der Set-Chips, z. B. „Neues Album“. */
+  chipsEnd?: ComponentChildren;
+  /** Unter dem Kopf des gewählten Binders, z. B. Knöpfe eines eigenen Albums. */
+  toolbar?: ComponentChildren;
 }
 
 /** Wie lange ein frisch eingesteckter Platz grün leuchtet. */
@@ -101,10 +105,11 @@ const POCKET_WIDTHS = [120, 240, 360];
 const COVER_WIDTHS = [240, 480, 720];
 const SHEET_WIDTHS = [480, 800];
 
-export function BinderView({ binders, catalogs, selected, onSelect, arriving, owner, wished, cardActions }: Props) {
+export function BinderView({ binders, catalogs, selected, onSelect, arriving, owner, wished, cardActions, chipsEnd, toolbar }: Props) {
   const slotIndex = useMemo(() => {
     const index = new Map<string, { binder: Binder; at: number }>();
-    binders.forEach((binder) => binder.slots.forEach((s, at) => index.set(s.key, { binder, at })));
+    // Eine Karte steckt auch im Gesamtordner und in Alben: neue Karten fliegen in den Binder ihres Sets (den ersten)
+    binders.forEach((binder) => binder.slots.forEach((s, at) => index.has(s.key) || index.set(s.key, { binder, at })));
     return index;
   }, [binders]);
   // Reihenfolge des Einfliegens: Binder für Binder, Platz für Platz, damit nur vorwärts geblättert wird
@@ -151,7 +156,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
 
   const shown = (s: Slot) => s.quantity - pending.filter((k) => k === s.key).length;
   const owned = selected.slots.filter((s) => shown(s) > 0).length;
-  const sheets = pages(selected.slots);
+  // Ein leeres Album hat eine leere Seite
+  const sheets = selected.slots.length ? pages(selected.slots) : [[]];
 
   const markFresh = (keys: string[]) => {
     setFresh((f) => new Set([...f, ...keys]));
@@ -555,7 +561,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
 
   return (
     <div class="binder-view" style={themeStyle(theme)} data-motif={theme.motif}>
-      {binders.length > 1 && (
+      {(binders.length > 1 || chipsEnd) && (
         <div class="chips filters binder-sets" role="tablist" aria-label="Sets">
           {binders.map((b) => (
             <button role="tab" aria-selected={b.key === selected.key} class={b.key === selected.key ? 'active' : ''} onClick={() => select(b.key)}>
@@ -563,6 +569,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
               {b.name}
             </button>
           ))}
+          {chipsEnd}
         </div>
       )}
       <div class="binder-head">
@@ -582,6 +589,7 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       <div class="binder-progress" role="progressbar" aria-valuemin={0} aria-valuemax={selected.slots.length} aria-valuenow={owned} aria-label="Gesammelt">
         <span style={{ width: `${pct}%` }} />
       </div>
+      {toolbar}
       <div class="binder-stage" key={selected.key}>
       <div
         class="binder"
