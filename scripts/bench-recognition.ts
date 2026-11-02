@@ -300,7 +300,9 @@ async function main() {
       continue;
     }
     // Katalog einbetten (zwischengespeichert)
-    const cacheFile = path.join(CACHE, `v2-${file.refs.length}-${c.key}${augment ? `-aug${augment}b` : ''}.json`);
+    // Kennung über alle Referenzbilder: Ändert sich der Katalog (auch bei gleicher Anzahl), passen alte Vektoren nicht mehr
+    const refsKey = createHash('sha1').update(JSON.stringify(file.refs.map((r) => [file.printings[r.p].printingId, r.lang, r.g]))).digest('hex').slice(0, 12);
+    const cacheFile = path.join(CACHE, `v3-${refsKey}-${c.key}${augment ? `-aug${augment}b` : ''}.json`);
     let refCls: Float32Array[], refMix: (Float32Array | undefined)[], refAug: Float32Array[] | null = null;
     try {
       const t0 = Date.now();
