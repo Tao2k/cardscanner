@@ -185,6 +185,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   prefsRef.current = prefs;
 
   const [running, setRunning] = useState(false);
+  /** Kamera lief, als die App in den Hintergrund ging: beim Zurückkommen wieder starten. */
+  const resumeRef = useRef(false);
   const [camError, setCamError] = useState<string | null>(null);
   const [guess, setGuess] = useState<{ printing: Printing; score: number; ms: number } | null>(null);
   const [recent, setRecent] = useState<Saved[]>([]);
@@ -255,7 +257,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     stabilizer.current = new Stabilizer({ ...DEFAULT_STABILIZER, confidentMargin: DEFAULT_STABILIZER.confidentMargin + extraMargin });
   }, [extraMargin]);
   // Während gescannt, nachgefragt oder korrigiert wird, kommt kein Update dazwischen
-  useEffect(() => updates.setBusy(running || !!question || !!fixing || !!confirming), [running, question, fixing, confirming]);
+  useEffect(() => updates.setBusy(running || resumeRef.current || !!question || !!fixing || !!confirming), [running, question, fixing, confirming]);
   useEffect(() => () => updates.setBusy(false), []);
   const recordAsked = () => setStats(updateStats((s) => ({ asked: s.asked + 1 })));
   const ocrCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -338,6 +340,25 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       shadows.current = [];
     };
   }, [running]);
+
+  // App im Hintergrund (Home-Taste, anderer App, Bildschirm aus): Kamera und Licht aus, beim Zurückkommen
+  // wieder an. Sonst friert das Bild auf manchen Handys ein oder das Licht ist aus, obwohl der Knopf „An“ zeigt.
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (!runningRef.current) return;
+        resumeRef.current = true;
+        setRunning(false);
+      } else if (resumeRef.current) {
+        resumeRef.current = false;
+        setRunning(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
 
   // Ändert sich die Größe des Kamerabilds (z. B. wenn die erste Karte in der Liste darunter erscheint), wandert der Rahmen mit
   useEffect(() => {

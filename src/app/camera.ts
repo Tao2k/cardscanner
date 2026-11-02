@@ -13,7 +13,24 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
   });
   video.srcObject = stream;
   await video.play();
+  void keepFocusing(stream);
   return stream;
+}
+
+/**
+ * Dauernd nachfokussieren, wo die Kamera das kann (Chrome auf Android). Manche Android-Kameras starten
+ * sonst mit festem Fokus und sehen eine nahe Karte unscharf. Safari kennt focusMode nicht, dort passiert nichts.
+ */
+async function keepFocusing(stream: MediaStream) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || typeof track.getCapabilities !== 'function') return;
+  const modes = (track.getCapabilities() as MediaTrackCapabilities & { focusMode?: string[] }).focusMode;
+  if (!modes?.includes('continuous')) return;
+  try {
+    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] });
+  } catch {
+    /* dann eben der Fokus, den die Kamera von sich aus wählt */
+  }
 }
 
 export function stopCamera(stream: MediaStream | null) {

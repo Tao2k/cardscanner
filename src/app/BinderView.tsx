@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useBack } from './back';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
@@ -545,6 +546,9 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
   const numberOf = (s: Slot) => (selected.mixed ? `${s.printing.setCode} ${s.printing.collectorNumber}` : s.printing.collectorNumber);
   // Farben und Motiv wie das Display des Sets
   const theme = themeOf(selected.key);
+
+  // Zurück-Taste (Android) klappt den offenen Binder zu
+  useBack(isOpen && !skip, () => void closeCover());
 
   // Antippen neben dem offenen Binder klappt ihn zu; Knöpfe, Felder, Links und offene Blätter tun weiter das Ihre.
   // Am Scrollbereich statt am document, sonst meldet Safari auf dem iPhone kein Antippen von Text und leeren Flächen.

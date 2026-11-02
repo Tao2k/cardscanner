@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { useBack } from './back';
 
 interface Props {
   /** Zusätzliche Klasse am Blatt, z. B. `ask` oder `account-sheet`. */
@@ -15,7 +16,8 @@ const CLOSE_DISTANCE = 0.25;
 const CLOSE_SPEED = 0.5;
 
 /**
- * Blatt von unten wie auf dem iPhone: am Griff nach unten wischen, daneben tippen oder Escape schließt es;
+ * Blatt von unten wie auf dem iPhone: am Griff nach unten wischen, daneben tippen, Escape oder die
+ * Zurück-Taste (Android) schließt es;
  * es fährt dabei wieder hinaus statt zu verschwinden. Der Fokus springt ins Blatt und danach zurück,
  * damit VoiceOver und Tastatur dort weitermachen, wo das Blatt geöffnet wurde.
  */
@@ -37,6 +39,12 @@ export function Sheet({ class: cls, label, onClose, children }: Props) {
     if (!ref.current?.contains(document.activeElement)) ref.current?.focus({ preventScroll: true });
     return () => before?.isConnected && before.focus({ preventScroll: true });
   }, []);
+
+  // Ohne onClose bleibt das Blatt bei „Zurück“ offen, statt dass die App dahinter zurückgeht
+  useBack(true, () => {
+    if (!onClose) return false;
+    close();
+  });
 
   useEffect(() => {
     if (!onClose) return;
