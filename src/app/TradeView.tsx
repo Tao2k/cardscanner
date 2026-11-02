@@ -5,7 +5,9 @@ import type { CollectionItem, Printing } from '../core/types';
 import { wishKey, wishOwners, type Wish, type WishOwner } from '../core/wishlist';
 import { FriendsApi, friendError, type Friend, type Profile } from '../storage/friends';
 import type { Catalogs } from './App';
-import { buildBinders } from './binder';
+import { albumBinder, buildBinders } from './binder';
+import { albums } from './albums';
+import type { Album } from '../core/albums';
 import { BinderView, heart } from './BinderView';
 import { cloud } from './cloud';
 import { printingCode } from './format';
@@ -535,10 +537,20 @@ function FriendDetail({
   const value = (list: TradeCard[]) => list.reduce((n, c) => n + (priceOf(c) ?? 0) * c.spare, 0);
   const owned = useMemo(() => ownedCounts(items), [items]);
 
-  // Binder wie in der eigenen Sammlung, aber nur Sets, aus denen der Freund etwas hat
+  // Eigene Alben des Freundes (leer, solange 0006 auf dem Server fehlt)
+  const [friendAlbums, setFriendAlbums] = useState<Album[]>([]);
+  useEffect(() => {
+    albums.ofFriend(friend.userId).then(setFriendAlbums, () => setFriendAlbums([]));
+  }, [friend.userId]);
+
+  // Binder wie in der eigenen Sammlung, aber nur Sets, aus denen der Freund etwas hat; dahinter seine Alben
   const binders = useMemo(() => {
-    return buildBinders(cards.map((c) => c.gameId), catalogs.byGame, catalogs.sets, cards).filter((b) => b.owned > 0);
-  }, [cards, catalogs]);
+    const gameId = cards[0]?.gameId ?? catalogs.games[0]?.gameId ?? '';
+    return [
+      ...buildBinders(cards.map((c) => c.gameId), catalogs.byGame, catalogs.sets, cards).filter((b) => b.owned > 0),
+      ...friendAlbums.map((a) => albumBinder(a, catalogs.byGame, cards, gameId)).filter((b) => b.slots.length > 0),
+    ];
+  }, [cards, catalogs, friendAlbums]);
   const [binderKey, setBinderKey] = useState<string | null>(null);
   const binder = binders.find((b) => b.key === binderKey) ?? binders[0];
 
