@@ -44,6 +44,25 @@ export class UpdateScheduler {
     if (!busy && this.checkSkipped && !this.pending) void this.maybeCheck();
   }
 
+  private holds = 0;
+
+  /**
+   * Gerade läuft etwas, das ein Neuladen abbrechen würde (z. B. Karten fliegen in den Binder):
+   * so lange weder suchen noch neu laden. Gibt die Freigabe zurück (mehrfach aufrufen schadet nicht).
+   */
+  hold(): () => void {
+    this.holds++;
+    this.setBusy(true);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds--;
+      // Wie nach einem Scan: eine wartende Version zeigt den Hinweis, eine ausgefallene Suche wird nachgeholt
+      if (!this.holds) this.setBusy(false);
+    };
+  }
+
   /** App geht in den Hintergrund oder kommt zurück. */
   setVisible(visible: boolean) {
     if (this.visible === visible) return;

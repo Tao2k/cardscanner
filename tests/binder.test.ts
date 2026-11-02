@@ -126,13 +126,11 @@ describe('Einfliegen neuer Karten', () => {
     expect(stops.find((s) => s.binder === 'SFD' && s.page === 7)?.keys).toEqual(['SFD-65', 'SFD-70']);
   });
 
-  it('wird bei vielen Karten schneller, bleibt aber sichtbar', () => {
-    const few = flightPace(5, 2);
-    const many = flightPace(200, 60);
-    expect(few).toEqual({ duration: 810, gap: 495, turn: 380 });
-    expect(many.duration).toBeLessThan(few.duration);
-    expect(many.gap).toBeLessThan(few.gap);
-    expect(many.turn).toBeLessThan(few.turn);
-    expect(many).toEqual({ duration: 420, gap: 90, turn: 220 });
+  it('fliegt auch bei vielen Karten im gewohnten Tempo', () => {
+    expect(flightPace(5)).toEqual({ duration: 810, gap: 495, turn: 380 });
+    // Wie vor der Änderung mit 40 Karten, auch für 70 oder 200
+    expect(flightPace(40)).toEqual({ duration: 560, gap: 240, turn: 380 });
+    expect(flightPace(70)).toEqual(flightPace(40));
+    expect(flightPace(200)).toEqual(flightPace(40));
   });
 });

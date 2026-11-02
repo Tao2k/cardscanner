@@ -83,6 +83,33 @@ describe('App-Updates', () => {
     expect(log).toEqual(['reload']);
   });
 
+  it('lädt nicht neu, während Karten in den Binder fliegen', async () => {
+    const { s, log, pending } = setup();
+    const release = s.hold();
+    // Die neue Version wird mitten in der Animation aktiv: kein Neuladen, das sie abbricht
+    s.activated();
+    expect(log).toEqual([]);
+    expect(pending).toEqual([true]);
+    release();
+    release();
+    expect(log).toEqual([]);
+    s.applyNow();
+    expect(log).toEqual(['reload']);
+  });
+
+  it('sucht erst wieder, wenn alle Sperren frei sind', async () => {
+    const { s, log } = setup();
+    const a = s.hold();
+    const b = s.hold();
+    expect(await s.maybeCheck()).toBe(false);
+    a();
+    await Promise.resolve();
+    expect(log).toEqual([]);
+    b();
+    await Promise.resolve();
+    expect(log).toEqual(['check']);
+  });
+
   it('übersteht fehlendes Netz', async () => {
     const s = new UpdateScheduler({ check: () => Promise.reject(new Error('offline')), reload: () => {}, now: () => 0 });
     expect(await s.maybeCheck()).toBe(false);
