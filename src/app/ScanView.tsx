@@ -10,6 +10,7 @@ import { ChangelogSheet } from './WhatsNew';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
 import { SHADOW_FRAMES, SHADOW_HINT } from '../core/shading';
+import { GLARE_FRAMES, GLARE_HINT } from '../core/glare';
 import { CONDITION_MARGIN, learnConditionScale, scaleThresholds } from '../core/condition';
 import { finishesOf, learnFoilShare } from '../core/foil';
 import { conditionFeedback, foilFeedback, languageFeedback } from './feedback';
@@ -284,6 +285,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   /** Starker Schatten auf der Karte in den letzten Frames: Hinweis zeigen. */
   const [shaded, setShaded] = useState(false);
   const shadows = useRef<number[]>([]);
+  const [glaring, setGlaring] = useState(false);
+  const glares = useRef<number[]>([]);
 
   const switchTorch = async (on: boolean) => {
     if (await setTorch(streamRef.current, on)) setTorchOn(on);
@@ -338,6 +341,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       setDark(false);
       setShaded(false);
       shadows.current = [];
+      setGlaring(false);
+      glares.current = [];
     };
   }, [running]);
 
@@ -568,10 +573,13 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
-        const { matches, ms, vector, imageLanguages, shadow } = await recognizer.match(gameId, grabbed.frame, grabbed.guide, 8);
+        const { matches, ms, vector, imageLanguages, shadow, glare } = await recognizer.match(gameId, grabbed.frame, grabbed.guide, 8);
         if (!active) break;
         shadows.current = [...shadows.current, shadow].slice(-SHADOW_FRAMES);
         setShaded(shadows.current.length === SHADOW_FRAMES && shadows.current.every((s) => s >= SHADOW_HINT));
+        // Spiegelt sich das Licht über mehrere Frames deutlich auf der Karte, hilft schräg halten am meisten
+        glares.current = [...glares.current, glare].slice(-GLARE_FRAMES);
+        setGlaring(glares.current.length === GLARE_FRAMES && glares.current.every((g) => g >= GLARE_HINT));
         const printings = catalogs.ordered.get(gameId) ?? [];
         const top = matches[0];
         // Bildähnlichkeit je Sprachfassung über die Frames desselben Treffers mitteln
@@ -1007,6 +1015,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
               </span>
             ) : holding ? (
               <span>Gespeichert. Nächste Karte.</span>
+            ) : glaring ? (
+              <span>{torchOn ? 'Blitz spiegelt. Halte das Handy etwas schräg.' : 'Licht spiegelt. Halte die Karte etwas schräg.'}</span>
             ) : shaded ? (
               <span>{torchAvailable && !torchOn ? 'Schatten auf der Karte. Tippe auf den Blitz.' : 'Schatten auf der Karte.'}</span>
             ) : collecting > DEFAULT_STABILIZER.requiredFrames ? (

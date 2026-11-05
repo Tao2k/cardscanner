@@ -25,6 +25,7 @@ import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 import { buildTextIndex, decide, latinMatch, matchText, textWinner, type TextMatch } from '../src/core/textmatch';
+import { glareMap, repairGlare } from '../src/core/glare';
 import { DEFAULT_SHADING, evenLighting, lightField, prepareForRecognition, SHADOW_EVEN, shadowStrength, type ShadingConfig } from '../src/core/shading';
 
 const args = process.argv.slice(2);
@@ -41,6 +42,7 @@ const conditionSamples = option('--condition', 40);
 const foilSamples = option('--foil', 60);
 const textSamples = option('--text', 200);
 const shadowSamples = option('--shadow', 200);
+const flashSamples = option('--flash', 200);
 const cardName = args.includes('--card') ? args[args.indexOf('--card') + 1] : '';
 /** Sprache wie in der App prüfen: Karten, deren Name oder Typ das enthält (z. B. "Battlefield"), plus Stichprobe. */
 const langCheck = args.includes('--langcheck') ? args[args.indexOf('--langcheck') + 1] : '';
@@ -204,6 +206,7 @@ async function main() {
     }
   }
   if (shadowSamples) await evalShadow(file, shadowSamples, embeddings, embedder);
+  if (flashSamples) await evalFlash(file, flashSamples, embeddings, embedder);
   if (conditionSamples) await evalCondition(file, conditionSamples);
   if (foilSamples) await evalFoil(file, foilSamples);
   if (learnSamples) await evalLearning(file, embeddings, embedder, learnSamples);
@@ -907,6 +910,96 @@ async function evalShadow(file: CatalogFile, n: number, embeddings: Float32Array
     const s = [...strength.get(scene)!].sort((a, b) => a - b);
     const q = (f: number) => s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(2);
     console.log(`  ${scene.padEnd(14)} ${q(0.1)}, ${q(0.5)}, ${q(0.9)}, ${q(0.95)}, ${q(0.99)}`);
+  }
+}
+
+/**
+ * Spiegelung des Kameralichts: Handy gerade über der Karte, die Lampe spiegelt sich als runder Fleck nahe
+ * der Mitte (Kern übersteuert, weicher Rand), dazu fällt das Licht zum Rand hin ab. Größe und Stärke
+ * zufällig: Radius 6–22 % der Kartenbreite, Kern bis 3-fach übersteuert (RGB, verändert data).
+ */
+function flashParams() {
+  return { fx: 0.5 + between(-0.12, 0.12), fy: 0.5 + between(-0.1, 0.1), size: between(0.06, 0.22), strength: between(1.1, 3), falloff: between(0.08, 0.25) };
+}
+
+function addFlash(data: Uint8Array | Uint8ClampedArray | Buffer, w: number, h: number, channels: number, { fx, fy, size, strength, falloff }: ReturnType<typeof flashParams>) {
+  const cx = w * fx, cy = h * fy, r = size * w;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const d2 = ((x - cx) ** 2 + (y - cy) ** 2) / (r * r);
+    const a = Math.min(1, strength * Math.exp(-d2));
+    const edge = 1 - falloff * Math.min(1, ((x - cx) ** 2 + (y - cy) ** 2) / (0.36 * (w * w + h * h)));
+    const k = (y * w + x) * channels;
+    for (let ch = 0; ch < 3; ch++) data[k + ch] = Math.round(Math.min(255, data[k + ch] * edge * (1 - a) + 255 * a));
+  }
+}
+
+/**
+ * Blitz-Spiegelung: dieselben verzerrten Karten ohne und mit Spiegelung, erkannt ohne und mit Ausbessern
+ * (src/core/glare.ts, wie in der App). Entscheidung wie in der App aus 3 Frames. Dazu, wie groß die gefundene
+ * Spiegelung ist (für die Schwellen GLARE_FIX und GLARE_HINT).
+ */
+async function evalFlash(file: CatalogFile, n: number, embeddings: Float32Array, embedder: Embedder) {
+  const refRows = file.refs.map((r) => r.p);
+  const imageOfRow = (row: number) => {
+    const { p, lang } = file.refs[row];
+    return readFile(path.join('.cache/images', createHash('sha1').update(imageIn(file.printings[p], lang).imageUrl).digest('hex')));
+  };
+  const variants = [
+    { name: 'ohne Ausbessern', prep: (p: Pixels) => p },
+    { name: 'App (ab GLARE_FIX)', prep: (p: Pixels) => repairGlare(p).pixels },
+    { name: 'App + Schattenausgleich', prep: (p: Pixels) => prepareForRecognition(repairGlare(p).pixels).pixels },
+  ];
+  const scenes = ['ohne Blitz', 'mit Blitz'];
+  type Stat = { n: number; top1: number; auto: number; autoRight: number };
+  const stats = new Map<string, Stat>();
+  const shares = new Map<string, number[]>();
+  const rows = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, n);
+  for (const row of rows) {
+    const truth = file.refs[row].p;
+    const base = await (await distortTo(await imageOfRow(row), 320)).jpeg({ quality: 90 }).toBuffer();
+    // Die Spiegelung hängt an der Kamera, nicht an der Karte: in jedem Frame an derselben Stelle
+    const flash = flashParams();
+    for (const scene of scenes) {
+      const frames: Pixels[] = [];
+      for (let f = 0; f < 3; f++) {
+        const fr = await rawOf(f === 0 ? sharp(base) : await nextFrame(base));
+        if (scene === 'mit Blitz') addFlash(fr.data, fr.width, fr.height, 3, flash);
+        frames.push(fr);
+      }
+      shares.set(scene, [...(shares.get(scene) ?? []), glareMap(frames[0]).share]);
+      for (const v of variants) {
+        const matches: Match[][] = [];
+        for (const fr of frames) {
+          const q = await embedder.embed(v.prep(fr));
+          matches.push(collapseToPrintings(topK(q, embeddings, file.meta.dim, 24), (r) => refRows[r], 8));
+        }
+        const avg = averageMatches(matches);
+        const key = `${scene}|${v.name}`;
+        const st = stats.get(key) ?? { n: 0, top1: 0, auto: 0, autoRight: 0 };
+        st.n++;
+        if (matches[0][0]?.index === truth) st.top1++;
+        if (isConfident(avg, { minScore: DEFAULT_STABILIZER.minScore, confidentMargin: DEFAULT_STABILIZER.confidentMargin })) {
+          st.auto++;
+          if (avg[0]?.index === truth) st.autoRight++;
+        }
+        stats.set(key, st);
+      }
+    }
+  }
+  const pct = (k: number, m: number) => `${m ? ((100 * k) / m).toFixed(1) : '-'} %`;
+  console.log(`\n=== Blitz-Spiegelung: ${rows.length} Karten, je ohne und mit Spiegelung, 3 Frames`);
+  for (const scene of scenes) {
+    console.log(`${scene}:`);
+    for (const v of variants) {
+      const st = stats.get(`${scene}|${v.name}`)!;
+      console.log(`  ${v.name.padEnd(26)} Top-1 ${pct(st.top1, st.n)} · automatisch ${pct(st.auto, st.n)}, davon richtig ${pct(st.autoRight, st.auto)}`);
+    }
+  }
+  console.log('Gefundene Spiegelung (Anteil der Fläche), Quantile 50/90/95/99 % und Anteil ab 0,004 / 0,015:');
+  for (const scene of scenes) {
+    const s = [...shares.get(scene)!].sort((a, b) => a - b);
+    const q = (f: number) => s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(4);
+    console.log(`  ${scene.padEnd(12)} ${q(0.5)}, ${q(0.9)}, ${q(0.95)}, ${q(0.99)} · ${pct(s.filter((x) => x >= 0.004).length, s.length)} / ${pct(s.filter((x) => x >= 0.015).length, s.length)}`);
   }
 }
 

@@ -14,6 +14,8 @@ export interface MatchResult {
   warped: boolean;
   /** Wie ungleichmäßig die Karte beleuchtet ist (0 = gleichmäßig), siehe shadowStrength. */
   shadow: number;
+  /** Anteil der Karte, auf dem sich das Licht spiegelt (übersteuert), siehe glareMap. */
+  glare: number;
 }
 
 export interface Learned {
@@ -51,8 +53,8 @@ export class Recognizer {
   match(gameId: string, frame: Pixels, guide: Rect, k = 4): Promise<MatchResult> {
     return this.request((id) => ({ type: 'match', id, gameId, frame, guide, k }), [frame.data.buffer as ArrayBuffer]).then((r) =>
       r.type === 'result'
-        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages, warped: r.warped, shadow: r.shadow }
-        : { matches: [], ms: 0, vector: null, imageLanguages: [], warped: false, shadow: 0 },
+        ? { matches: r.matches, ms: r.ms, vector: r.vector, imageLanguages: r.imageLanguages, warped: r.warped, shadow: r.shadow, glare: r.glare }
+        : { matches: [], ms: 0, vector: null, imageLanguages: [], warped: false, shadow: 0, glare: 0 },
     );
   }
 
