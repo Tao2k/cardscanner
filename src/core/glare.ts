@@ -299,8 +299,12 @@ export function fillGlare(img: Pixels, map: GlareMap): Pixels {
 }
 
 /**
- * Ab diesem Flächenanteil wird ausgebessert und in jedem der letzten GLARE_FRAMES Frames ein Hinweis
- * gezeigt. Vorläufig, gemessen mit `npm run eval -- --flash 300` (siehe dort).
+ * Ab GLARE_FIX (Anteil der Kartenfläche) wird ausgebessert, ab GLARE_HINT in jedem der letzten GLARE_FRAMES
+ * Frames ein Hinweis gezeigt. Gemessen mit `npm run eval -- --flash 300` (synthetischer Blitzfleck nahe der
+ * Mitte, 3 Frames): Ohne Blitz liegen 95 % der Karten unter 0,004 und 98,7 % unter 0,015 (weiße Textfelder
+ * zählen dank Saum-Prüfung nicht), mit Blitz 69 % darüber. Der Blitzfleck kostet etwa 10 Punkte Top-1
+ * (76 → 67 %); Ausbessern holt gut 2 davon zurück (69 %), Karten ohne Blitz bleiben gleich. Mehr gibt das Bild
+ * nicht her, im Fleck ist das Motiv weg: Schräg halten (Hinweis) hilft am meisten.
  */
 export const GLARE_FIX = 0.004;
 export const GLARE_HINT = 0.015;
