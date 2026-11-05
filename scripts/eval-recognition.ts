@@ -25,7 +25,7 @@ import { compareReference } from './compare-ref';
 import { FOIL_PIXEL, FOIL_SHARE, finishesOf, foilResidual, shimmerShare } from '../src/core/foil';
 import type { Pixels } from '../src/core/imageops';
 import { buildTextIndex, decide, latinMatch, matchText, textWinner, type TextMatch } from '../src/core/textmatch';
-import { glareMap, repairGlare } from '../src/core/glare';
+import { DEFAULT_GLARE, glareMap, repairGlare } from '../src/core/glare';
 import { DEFAULT_SHADING, evenLighting, lightField, prepareForRecognition, SHADOW_EVEN, shadowStrength, type ShadingConfig } from '../src/core/shading';
 
 const args = process.argv.slice(2);
@@ -946,13 +946,17 @@ async function evalFlash(file: CatalogFile, n: number, embeddings: Float32Array,
   };
   const variants = [
     { name: 'ohne Ausbessern', prep: (p: Pixels) => p },
-    { name: 'App (ab GLARE_FIX)', prep: (p: Pixels) => repairGlare(p).pixels },
+    { name: 'Saum egal (halo 0)', prep: (p: Pixels) => repairGlare(p, { ...DEFAULT_GLARE, halo: 0 }).pixels },
+    { name: 'Saum ab 0,1', prep: (p: Pixels) => repairGlare(p, { ...DEFAULT_GLARE, halo: 0.1 }).pixels },
+    { name: `App (Saum ab ${DEFAULT_GLARE.halo})`, prep: (p: Pixels) => repairGlare(p).pixels },
+    { name: 'Saum ab 0,3', prep: (p: Pixels) => repairGlare(p, { ...DEFAULT_GLARE, halo: 0.3 }).pixels },
     { name: 'App + Schattenausgleich', prep: (p: Pixels) => prepareForRecognition(repairGlare(p).pixels).pixels },
   ];
   const scenes = ['ohne Blitz', 'mit Blitz'];
   type Stat = { n: number; top1: number; auto: number; autoRight: number };
   const stats = new Map<string, Stat>();
   const shares = new Map<string, number[]>();
+  const lifts = new Map<string, number[]>();
   const rows = [...file.refs.keys()].sort(() => rand() - 0.5).slice(0, n);
   for (const row of rows) {
     const truth = file.refs[row].p;
@@ -966,7 +970,9 @@ async function evalFlash(file: CatalogFile, n: number, embeddings: Float32Array,
         if (scene === 'mit Blitz') addFlash(fr.data, fr.width, fr.height, 3, flash);
         frames.push(fr);
       }
-      shares.set(scene, [...(shares.get(scene) ?? []), glareMap(frames[0]).share]);
+      const map = glareMap(frames[0]);
+      shares.set(scene, [...(shares.get(scene) ?? []), map.share]);
+      lifts.set(scene, [...(lifts.get(scene) ?? []), map.lift]);
       for (const v of variants) {
         const matches: Match[][] = [];
         for (const fr of frames) {
@@ -1000,6 +1006,12 @@ async function evalFlash(file: CatalogFile, n: number, embeddings: Float32Array,
     const s = [...shares.get(scene)!].sort((a, b) => a - b);
     const q = (f: number) => s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(4);
     console.log(`  ${scene.padEnd(12)} ${q(0.5)}, ${q(0.9)}, ${q(0.95)}, ${q(0.99)} · ${pct(s.filter((x) => x >= 0.004).length, s.length)} / ${pct(s.filter((x) => x >= 0.015).length, s.length)}`);
+  }
+  console.log('Aufhellung im Saum des größten übersteuerten Flecks (nur Bilder mit Fleck), Quantile 10/25/50/75/90/95 %:');
+  for (const scene of scenes) {
+    const s = lifts.get(scene)!.filter((x) => x >= 0).sort((a, b) => a - b);
+    const q = (f: number) => (s.length ? s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(3) : '-');
+    console.log(`  ${scene.padEnd(12)} ${s.length} Bilder: ${[0.1, 0.25, 0.5, 0.75, 0.9, 0.95].map(q).join(', ')}`);
   }
 }
 

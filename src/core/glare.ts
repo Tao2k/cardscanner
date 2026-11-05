@@ -23,13 +23,19 @@ export interface GlareConfig {
   minBlob: number;
   /** So viel (0–255) heller als weiter außen dürfen die dunklen Stellen eines Rings sein, ohne als Schleier zu gelten. */
   tolerance: number;
+  /**
+   * Ein Fleck zählt nur als Spiegelung, wenn sein Umfeld (Saum, bis 5 % der Bildbreite) mindestens so
+   * stark aufgehellt ist (0–1, dunkle Stellen im Saum gegenüber der übrigen Karte). Eine Spiegelung
+   * strahlt weich aus; eine weiße Fläche im Motiv (Textfeld) hört an ihrem Rand hart auf.
+   */
+  halo: number;
   /** Bis zu so vielen Fleckradien um die Mitte wird nach dem Schleier gesucht. */
   reach: number;
   /** Ab so viel Schleier (0–1) ist vom Motiv zu wenig übrig: dort auffüllen statt zurückrechnen. */
   fillFrom: number;
 }
 
-export const DEFAULT_GLARE: GlareConfig = { core: 238, chroma: 40, minBlob: 0.004, tolerance: 8, reach: 2, fillFrom: 0.6 };
+export const DEFAULT_GLARE: GlareConfig = { core: 238, chroma: 40, minBlob: 0.004, tolerance: 8, halo: 0.2, reach: 2, fillFrom: 0.6 };
 
 export interface GlareMap {
   width: number;
@@ -40,6 +46,8 @@ export interface GlareMap {
   weight: Float32Array;
   /** Anteil der Fläche in übersteuerten Flecken (Kern), 0–1. */
   share: number;
+  /** Aufhellung im Saum des größten übersteuerten Flecks (auch wenn er nicht als Spiegelung zählt), −1 ohne Fleck; zum Kalibrieren. */
+  lift: number;
 }
 
 const minOf = (d: ArrayLike<number>, o: number) => Math.min(d[o], d[o + 1], d[o + 2]);
@@ -64,6 +72,10 @@ export function glareMap(img: Pixels, config: GlareConfig = DEFAULT_GLARE): Glar
   const minSize = Math.max(4, Math.round(config.minBlob * n));
   let kept = 0;
   let largest: number[] = [];
+  let lift = -1, biggest = 0;
+  // Vergleich: typische dunkle Stellen der Karte (Median der 10-%-Quantile je Zelle ohne Kern)
+  const ref = typicalDark(data, w, h, c, core);
+  const band = Math.max(3, Math.round(0.05 * w));
   for (let start = 0; start < n; start++) {
     if (!core[start] || seen[start]) continue;
     const members: number[] = [];
@@ -84,13 +96,19 @@ export function glareMap(img: Pixels, config: GlareConfig = DEFAULT_GLARE): Glar
       if (y > 0) visit(i - w);
       if (y < h - 1) visit(i + w);
     }
-    if (members.length >= minSize) {
+    if (members.length < minSize) continue;
+    const l = haloLift(members, data, w, h, c, core, band, ref);
+    if (members.length > biggest) {
+      biggest = members.length;
+      lift = l;
+    }
+    if (l >= config.halo) {
       for (const i of members) keep[i] = 1;
       kept += members.length;
       if (members.length > largest.length) largest = members;
     }
   }
-  if (!kept) return { width: w, height: h, veil, weight, share: 0 };
+  if (!kept) return { width: w, height: h, veil, weight, share: 0, lift };
 
   // Lichtschleier um den größten Fleck: Die Lampe spiegelt sich rund, also je Ring um seine Mitte
   // messen, wie weit die dunklen Pixel angehoben sind (10-%-Quantil des dunkelsten Kanals), verglichen
@@ -119,10 +137,10 @@ export function glareMap(img: Pixels, config: GlareConfig = DEFAULT_GLARE): Glar
   });
   const inner = Math.ceil((config.reach * radius) / ring);
   const far = lo.slice(inner).filter((v) => !Number.isNaN(v)).sort((p, q) => p - q);
-  const ref = far.length ? far[far.length >> 1] : Math.min(...lo.filter((v) => !Number.isNaN(v)));
+  const ringRef = far.length ? far[far.length >> 1] : Math.min(...lo.filter((v) => !Number.isNaN(v)));
   const ringVeil = new Float32Array(inner + 1);
   for (let k = 0; k <= inner; k++) {
-    const v = Number.isNaN(lo[k]) ? 0 : Math.max(0, (lo[k] - ref - config.tolerance) / Math.max(1, 255 - ref));
+    const v = Number.isNaN(lo[k]) ? 0 : Math.max(0, (lo[k] - ringRef - config.tolerance) / Math.max(1, 255 - ringRef));
     // Nach außen nur schwächer werdend; einmal null bleibt null
     ringVeil[k] = k ? Math.min(v, ringVeil[k - 1]) : Math.min(1, v);
   }
@@ -141,7 +159,76 @@ export function glareMap(img: Pixels, config: GlareConfig = DEFAULT_GLARE): Glar
     veil[i] = v;
     weight[i] = keep[i] ? 1 : Math.min(1, Math.max(0, (v - config.fillFrom + 0.15) / 0.3));
   }
-  return { width: w, height: h, veil, weight, share: kept / n };
+  return { width: w, height: h, veil, weight, share: kept / n, lift };
+}
+
+/** 10-%-Quantil aus einem Histogramm (64 Stufen). */
+function q10(hist: Uint32Array, count: number): number {
+  let q = 0, acc = 0;
+  while (q < 63 && acc + hist[q] < 0.1 * count) acc += hist[q++];
+  return q * 4 + 2;
+}
+
+/** Wie hell sind die dunklen Stellen der Karte normalerweise? Median der Zellen (8 × 11) ohne übersteuerte Pixel. */
+function typicalDark(data: ArrayLike<number>, w: number, h: number, c: number, core: Uint8Array): number {
+  const cols = 8, rows = 11, values: number[] = [];
+  const hist = new Uint32Array(64);
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    hist.fill(0);
+    let count = 0, clipped = false;
+    for (let y = Math.floor((r * h) / rows); y < Math.floor(((r + 1) * h) / rows); y++)
+      for (let x = Math.floor((q * w) / cols); x < Math.floor(((q + 1) * w) / cols); x++) {
+        const i = y * w + x;
+        if (core[i]) clipped = true;
+        hist[minOf(data, i * c) >> 2]++;
+        count++;
+      }
+    if (!clipped && count) values.push(q10(hist, count));
+  }
+  if (!values.length) return 0;
+  values.sort((a, b) => a - b);
+  return values[values.length >> 1];
+}
+
+/**
+ * Aufhellung im Saum um einen Fleck (Abstand 2 bis band Pixel): 10-%-Quantil des dunkelsten Kanals
+ * dort, verglichen mit ref, als Anteil des Wegs bis Weiß.
+ */
+function haloLift(members: number[], data: ArrayLike<number>, w: number, h: number, c: number, core: Uint8Array, band: number, ref: number): number {
+  let x0 = w, y0 = h, x1 = 0, y1 = 0;
+  for (const i of members) {
+    const x = i % w, y = (i - x) / w;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  x0 = Math.max(0, x0 - band); y0 = Math.max(0, y0 - band); x1 = Math.min(w - 1, x1 + band); y1 = Math.min(h - 1, y1 + band);
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  // Schachbrett-Abstand zum Fleck (zwei Durchläufe)
+  const dist = new Float32Array(bw * bh).fill(1e9);
+  for (const i of members) {
+    const x = i % w, y = (i - x) / w;
+    dist[(y - y0) * bw + (x - x0)] = 0;
+  }
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = y * bw + x;
+    if (x) dist[i] = Math.min(dist[i], dist[i - 1] + 1);
+    if (y) dist[i] = Math.min(dist[i], dist[i - bw] + 1);
+  }
+  for (let y = bh - 1; y >= 0; y--) for (let x = bw - 1; x >= 0; x--) {
+    const i = y * bw + x;
+    if (x < bw - 1) dist[i] = Math.min(dist[i], dist[i + 1] + 1);
+    if (y < bh - 1) dist[i] = Math.min(dist[i], dist[i + bw] + 1);
+  }
+  const hist = new Uint32Array(64);
+  let count = 0;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const d = dist[y * bw + x];
+    const i = (y + y0) * w + (x + x0);
+    if (d < 2 || d > band || core[i]) continue;
+    hist[minOf(data, i * c) >> 2]++;
+    count++;
+  }
+  if (count < 8) return 0;
+  return Math.max(0, (q10(hist, count) - ref) / Math.max(1, 255 - ref));
 }
 
 /**
