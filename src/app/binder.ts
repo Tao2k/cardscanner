@@ -1,10 +1,10 @@
-import { folderIndex, HIGHLIGHT_FOLDER, HIGHLIGHT_NAME, isHighlight, PROMO_FOLDER, slotOrder } from '../core/folders';
+import { folderIndex, HIGHLIGHT_FOLDER, HIGHLIGHT_NAME, highlightOrder, isHighlight, PROMO_FOLDER, slotOrder } from '../core/folders';
 import type { CardSet, CollectionItem, Printing } from '../core/types';
 
 /**
  * Binder je Set: jeder Druck hat einen festen Platz, sortiert nach Sammlernummer, 9 Plätze je Seite.
- * Die Promo-Sets teilen sich einen Binder, darin nach Set und Nummer. Dazu kommt ein Gesamtordner mit allen
- * Rare, Epic und Showcase über alle Sets, und eigene Alben mit Karten nach Wahl.
+ * Die Promo-Sets teilen sich einen Binder, darin nach Set und Nummer. Dazu kommt ein Gesamtordner mit den
+ * eigenen Rare, Epic und Showcase über alle Sets (Runen am Ende ihrer Domain), und eigene Alben mit Karten nach Wahl.
  */
 
 export const PER_PAGE = 9;
@@ -47,18 +47,21 @@ export function buildBinders(
     const list = sets.get(gameId) ?? [];
     const folderOf = folderIndex(list);
     const order = slotOrder(list);
+    const catalog = byGame.get(gameId)?.values() ?? [];
     const setOf = new Map(list.map((s) => [s.code, s]));
     const byFolder = new Map<string, Printing[]>();
     const highlights: Printing[] = [];
-    for (const p of byGame.get(gameId)?.values() ?? []) {
+    for (const p of catalog) {
       const code = folderOf(p.setCode).code;
       byFolder.set(code, [...(byFolder.get(code) ?? []), p]);
-      if (isHighlight(p, setOf.get(p.setCode))) highlights.push(p);
+      // Im Gesamtordner nur, was man besitzt
+      if (isHighlight(p, setOf.get(p.setCode)) && (owned.get(slotKey(gameId, p.printingId))?.quantity ?? 0) > 0) highlights.push(p);
     }
     // Gesamtordner hinter allen Sets und den Promos
     if (highlights.length) byFolder.set(HIGHLIGHT_FOLDER, highlights);
+    const runesLast = highlightOrder(list, byGame.get(gameId)?.values() ?? []);
     for (const [code, printings] of byFolder) {
-      printings.sort(order);
+      printings.sort(code === HIGHLIGHT_FOLDER ? runesLast : order);
       const slots = printings.map((printing) => {
         const key = slotKey(gameId, printing.printingId);
         return { key, printing, quantity: owned.get(key)?.quantity ?? 0, foil: owned.get(key)?.foil ?? false };
