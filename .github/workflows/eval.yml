@@ -27,6 +27,9 @@ on:
       shadow:
         description: Karten für den Test mit Handyschatten (0 = aus)
         default: '0'
+      flash:
+        description: Karten für den Test mit Blitz-Spiegelung (0 = aus)
+        default: '0'
       langcheck:
         description: Sprache wie in der App prüfen, Karten nach Name oder Typ, mehrere mit | (leer = aus)
         default: ''
@@ -52,7 +55,7 @@ jobs:
           key: catalog-none
           restore-keys: catalog-
       - run: npm run catalog -- riftbound
-      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }} --foil ${{ inputs.foil }} --text ${{ inputs.text }} --shadow ${{ inputs.shadow }} ${CARD:+--card "$CARD"} ${LANGCHECK:+--langcheck "$LANGCHECK"}
+      - run: npm run eval -- riftbound --samples ${{ inputs.samples }} --ocr ${{ inputs.ocr }} --learn ${{ inputs.learn }} --condition ${{ inputs.condition }} --foil ${{ inputs.foil }} --text ${{ inputs.text }} --shadow ${{ inputs.shadow }} --flash ${{ inputs.flash }} ${CARD:+--card "$CARD"} ${LANGCHECK:+--langcheck "$LANGCHECK"}
         env:
           CARD: ${{ inputs.card }}
           LANGCHECK: ${{ inputs.langcheck }}

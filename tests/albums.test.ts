@@ -51,9 +51,48 @@ describe('Gesamtordner', () => {
     expect(binders.map((b) => b.code)).toEqual(['OGN', 'SFD', 'PROMO', HIGHLIGHT_FOLDER]);
     const all = binders.at(-1)!;
     expect(all.mixed).toBe(true);
-    expect(all.slots.map((s) => s.printing.printingId)).toEqual(['OGN-2', 'OGN-4a', 'OGN-300', 'SFD-3']);
+    expect(all.slots.map((s) => s.printing.printingId)).toEqual(['OGN-2']);
     expect(all.owned).toBe(1);
     expect(all.slots[0].quantity).toBe(2);
+  });
+
+  it('zeigt nur eigene Karten, setübergreifend nach Set und Nummer', () => {
+    const binders = buildBinders(['riftbound'], byGame, sets, [own('SFD-3'), own('OGN-300'), own('OGN-4a'), own('OGN-2')]);
+    expect(binders.at(-1)!.slots.map((s) => s.printing.printingId)).toEqual(['OGN-2', 'OGN-4a', 'OGN-300', 'SFD-3']);
+  });
+
+  it('fehlt, solange man keine seltenen Karten besitzt', () => {
+    expect(buildBinders(['riftbound'], byGame, sets, [own('OGN-1')]).map((b) => b.code)).toEqual(['OGN', 'SFD', 'PROMO']);
+  });
+
+  it('stellt Runen ans Ende ihrer Domain', () => {
+    const dom = (p: Printing, domain: string, type = 'Unit'): Printing => ({ ...p, type, attributes: { domains: [domain] } });
+    const list = [
+      dom(card('OGN', '120', 'Rare'), 'Body'),
+      dom(card('OGN', '126', 'Common'), 'Body', 'Rune'),
+      dom(card('OGN', '126a', 'Showcase', 'alt_art'), 'Body', 'Rune'),
+      dom(card('OGN', '130', 'Epic'), 'Body'),
+      dom(card('OGN', '160', 'Common'), 'Body'),
+      dom(card('OGN', '160a', 'Showcase', 'alt_art'), 'Body'),
+      dom(card('OGN', '170', 'Rare'), 'Chaos'),
+      dom(card('SFD', 'R04a', 'Showcase', 'alt_art'), 'Body', 'Rune'),
+      dom(card('SFD', '100', 'Common'), 'Body'),
+      dom(card('SFD', '101', 'Rare'), 'Body'),
+      dom(card('SFD', '200', 'Rare'), 'Chaos'),
+    ];
+    const game = new Map([['riftbound', new Map(list.map((p) => [p.printingId, p]))]]);
+    const mine = list.filter((p) => p.rarity !== 'Common').map((p) => own(p.printingId));
+    const all = buildBinders(['riftbound'], game, sets, mine).at(-1)!;
+    expect(all.slots.map((s) => s.printing.printingId)).toEqual([
+      'OGN-120',
+      'OGN-130',
+      'OGN-160a',
+      'OGN-126a',
+      'OGN-170',
+      'SFD-101',
+      'SFD-R04a',
+      'SFD-200',
+    ]);
   });
 
   it('fehlt, wenn ein Spiel keine seltenen Karten kennt', () => {

@@ -1,0 +1,2 @@
+- Verbessert: Spiegelt sich der Blitz als heller Fleck auf der Karte, rechnet ScannR ihn vor der Erkennung heraus. Karten werden mit Blitz besser erkannt.
+- Neu: Bleibt die Spiegelung, sagt dir der Scanner, dass du das Handy etwas schräg halten sollst. Dann wandert der Fleck von der Karte.
