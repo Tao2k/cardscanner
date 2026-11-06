@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useBack } from './back';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { HIGHLIGHT_FOLDER } from '../core/folders';
 import { formatEur, priceFor } from '../core/prices';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
@@ -520,6 +521,8 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
     onSelect(key);
   };
 
+  // Der Gesamtordner zeigt nur eigene Karten, ein Fortschritt ergäbe dort immer 100 %
+  const onlyOwned = selected.code === HIGHLIGHT_FOLDER;
   const pct = selected.slots.length ? Math.round((owned / selected.slots.length) * 100) : 0;
   const lastPage = Math.max(0, sheets.length - 1);
   const shownPage = Math.min(page, lastPage);
@@ -578,20 +581,20 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
       <div class="binder-head">
         <div>
           <strong>{selected.name}</strong>
-          <small class="muted">
-            {owned} von {selected.slots.length}
-          </small>
+          <small class="muted">{onlyOwned ? `${owned} ${owned === 1 ? 'Karte' : 'Karten'}` : `${owned} von ${selected.slots.length}`}</small>
         </div>
-        <span class="binder-pct">{pct} %</span>
+        {!onlyOwned && <span class="binder-pct">{pct} %</span>}
         {isOpen && !skip && (
           <button class="binder-close" onClick={closeCover}>
             Zuklappen
           </button>
         )}
       </div>
-      <div class="binder-progress" role="progressbar" aria-valuemin={0} aria-valuemax={selected.slots.length} aria-valuenow={owned} aria-label="Gesammelt">
-        <span style={{ width: `${pct}%` }} />
-      </div>
+      {!onlyOwned && (
+        <div class="binder-progress" role="progressbar" aria-valuemin={0} aria-valuemax={selected.slots.length} aria-valuenow={owned} aria-label="Gesammelt">
+          <span style={{ width: `${pct}%` }} />
+        </div>
+      )}
       {toolbar}
       <div class="binder-stage" key={selected.key}>
       <div

@@ -1,0 +1,2 @@
+- Verbessert: Der Ordner „Rare, Epic, Showcase“ zeigt nur noch Karten, die du wirklich besitzt.
+- Verbessert: Runen stehen dort immer am Ende ihrer Domain.
