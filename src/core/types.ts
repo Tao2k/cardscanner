@@ -71,6 +71,8 @@ export interface CatalogMeta {
   source: string;
   builtAt: string;
   model: string;
+  /** Leicht gestörte Lernfotos, die je Referenzbild in den Vektor eingerechnet sind (fehlt = keine). */
+  augment?: number;
   dim: number;
   /** Anzahl Embedding-Zeilen (Referenzbilder), nicht Anzahl Drucke. */
   count: number;

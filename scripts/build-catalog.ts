@@ -4,6 +4,9 @@
  *
  * Lädt Kartendaten und Referenzbilder über den Spiel-Adapter, berechnet pro Druck ein
  * Bild-Embedding und schreibt catalog.json + embeddings.f32 nach <out>/<gameId>/.
+ * Jeder Vektor ist das Mittel aus dem Originalbild und AUGMENT leicht gestörten Handyfotos davon
+ * (scripts/synth.ts), damit er näher an echten Kamerabildern liegt. Die Vektoren werden in
+ * .cache/embeddings zwischengespeichert, sodass nur neue Bilder Rechenzeit kosten.
  * Das Modell landet in public/models/ und wird mit der App ausgeliefert.
  */
 import { createHash } from 'node:crypto';
@@ -11,15 +14,24 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { createEmbedder, MODEL_ID } from '../src/core/embedder';
+import { createEmbedder, MODEL_ID, MODEL_KEY, type Embedder } from '../src/core/embedder';
+import { l2normalize } from '../src/core/matcher';
 import { patchOf, PATCH_DIM, quantizePatch } from '../src/core/cardview';
 import type { CatalogFile, GameEntry } from '../src/core/catalog';
 import type { Pixels } from '../src/core/imageops';
 import type { ReferenceRow } from '../src/core/types';
 import { adapters } from './adapters';
 import { compareReference } from './compare-ref';
+import { augmentedViews } from './synth';
 
 const IMAGE_CACHE = '.cache/images';
+const VECTOR_CACHE = '.cache/embeddings';
+/**
+ * Lernfotos je Referenzbild. Gemessen mit `npm run bench -- --augment 4` (siehe embedder.ts).
+ * Ändert sich die Erzeugung der Lernfotos, AUGMENT_VERSION erhöhen, damit der Zwischenspeicher neu rechnet.
+ */
+const AUGMENT = 4;
+const AUGMENT_VERSION = 1;
 const MODEL_DIR = 'public/models';
 const DOWNLOAD_CONCURRENCY = 4;
 
@@ -46,6 +58,25 @@ async function fetchImage(url: string): Promise<Buffer> {
     if (attempt >= 3) throw new Error(`HTTP ${res.status}`);
     await new Promise((r) => setTimeout(r, 1000 * attempt));
   }
+}
+
+/** Bildvektor eines Referenzbilds: Original plus Lernfotos, gemittelt; aus dem Zwischenspeicher, wenn schon gerechnet. */
+async function referenceVector(embedder: Embedder, url: string, buf: Buffer, pixels: Pixels): Promise<Float32Array> {
+  const id = createHash('sha1').update(`${url}|${MODEL_KEY}|${AUGMENT}|${AUGMENT_VERSION}`).digest('hex');
+  const file = path.join(VECTOR_CACHE, `${id}.f32`);
+  if (existsSync(file)) {
+    const b = await readFile(file);
+    return new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length));
+  }
+  const sum = Float32Array.from(await embedder.embed(pixels));
+  const seed = parseInt(createHash('sha1').update(url).digest('hex').slice(0, 8), 16);
+  for (const view of await augmentedViews(buf, AUGMENT, seed)) {
+    const v = await embedder.embed(view);
+    for (let i = 0; i < sum.length; i++) sum[i] += v[i];
+  }
+  const vector = l2normalize(sum);
+  await writeFile(file, Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength));
+  return vector;
 }
 
 async function decode(buf: Buffer): Promise<Pixels> {
@@ -79,6 +110,7 @@ async function main() {
     process.exit(1);
   }
   await mkdir(IMAGE_CACHE, { recursive: true });
+  await mkdir(VECTOR_CACHE, { recursive: true });
   const outDir = path.join(args.out, adapter.gameId);
   await mkdir(path.join(outDir, 'ref'), { recursive: true });
 
@@ -111,7 +143,7 @@ async function main() {
     try {
       if (result instanceof Error) throw result;
       const pixels = await decode(result);
-      vectors.push(await embedder.embed(pixels));
+      vectors.push(await referenceVector(embedder, urls[index], result, pixels));
       patches.push(quantizePatch(patchOf(pixels)));
       const compare = `ref/${createHash('sha1').update(urls[index]).digest('hex').slice(0, 16)}.webp`;
       await compareReference(result).webp({ quality: 85 }).toFile(path.join(outDir, compare));
@@ -136,6 +168,7 @@ async function main() {
       source: adapter.source,
       builtAt,
       model: embedder.model,
+      augment: AUGMENT,
       dim,
       count: keptRows.length,
       sets,

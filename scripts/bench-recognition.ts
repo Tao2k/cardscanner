@@ -17,10 +17,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { imageIn, type CatalogFile } from '../src/core/catalog';
-import { squareToQuad, type Quad } from '../src/core/condition';
 import { patchOf, warpCardView } from '../src/core/cardview';
 import { letterboxToSquare, type Pixels } from '../src/core/imageops';
 import { collapseToPrintings, l2normalize, topK, type Match } from '../src/core/matcher';
+import { prepareForRecognition } from '../src/core/shading';
+import { augmentedViews, augmentSeed, rand, synthShot, type Shot } from './synth';
 
 const args = process.argv.slice(2);
 const game = args.find((a) => !a.startsWith('--')) ?? 'riftbound';
@@ -143,130 +144,6 @@ function modelSize(c: Candidate): string {
   return bytes ? `${(bytes / 2 ** 20).toFixed(0)} MB` : '?';
 }
 
-// --- Zufall und Bildsynthese --------------------------------------------------------------------
-
-let seed = 7;
-const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
-const between = (a: number, b: number) => a + rand() * (b - a);
-
-function invert3(m: number[]): number[] {
-  const [a, b, c, d, e, f, g, h, i] = m;
-  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
-  const det = a * A + b * B + c * C;
-  return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((x) => x / det);
-}
-
-/** Bilinear abtasten, liefert RGBA (Alpha 0 außerhalb). */
-function sampleRgba(img: { data: Uint8Array | Uint8ClampedArray; width: number; height: number }, x: number, y: number, out: number[]) {
-  if (x < 0 || y < 0 || x > img.width - 1 || y > img.height - 1) return void out.fill(0);
-  const x0 = Math.floor(x), y0 = Math.floor(y), x1 = Math.min(x0 + 1, img.width - 1), y1 = Math.min(y0 + 1, img.height - 1);
-  const fx = x - x0, fy = y - y0;
-  for (let k = 0; k < 4; k++) {
-    const p = (yy: number, xx: number) => img.data[(yy * img.width + xx) * 4 + k];
-    out[k] = (p(y0, x0) * (1 - fx) + p(y0, x1) * fx) * (1 - fy) + (p(y1, x0) * (1 - fx) + p(y1, x1) * fx) * fy;
-  }
-}
-
-export interface Shot {
-  /** Kamerabild um den Zielrahmen (RGB) */
-  frame: Pixels;
-  guide: { x: number; y: number; width: number; height: number };
-  tags: string[];
-}
-
-const GUIDE_H = 400;
-const GUIDE_W = Math.round((GUIDE_H * 63) / 88);
-const MARGIN = Math.round(GUIDE_H * 0.1);
-
-/**
- * Legt die Karte als Handyfoto in einen Kamerausschnitt: Tisch, Lage und Kippung, Licht, Kamera.
- * hard=false erzeugt nur leichte Störungen (für zusätzliche Referenzbilder).
- */
-export async function synthShot(card: Buffer, hard = true): Promise<Shot> {
-  const tags: string[] = [];
-  const { data: cd, info } = await sharp(card).ensureAlpha().resize({ height: 560 }).raw().toBuffer({ resolveWithObject: true });
-  const src = { data: new Uint8ClampedArray(cd.buffer, cd.byteOffset, cd.length), width: info.width, height: info.height };
-  // Spiegelung (Lampe auf Hülle/Foil) und Hüllenschleier direkt auf der Karte
-  if (rand() < (hard ? 0.45 : 0.25)) {
-    tags.push('Spiegelung');
-    const u0 = between(0.1, 0.9) * src.width, v0 = between(0.1, 0.9) * src.height;
-    const rx = between(0.08, 0.35) * src.width, ry = between(0.05, 0.25) * src.height, a = between(0.4, hard ? 0.95 : 0.6);
-    for (let y = 0; y < src.height; y++) for (let x = 0; x < src.width; x++) {
-      const d = ((x - u0) / rx) ** 2 + ((y - v0) / ry) ** 2;
-      const w = a * Math.exp(-d);
-      const k = (y * src.width + x) * 4;
-      for (let ch = 0; ch < 3; ch++) src.data[k + ch] += (255 - src.data[k + ch]) * w;
-    }
-  }
-  if (rand() < 0.3) {
-    tags.push('Hülle');
-    const haze = between(0.04, 0.14);
-    for (let k = 0; k < src.data.length; k += 4) for (let ch = 0; ch < 3; ch++) src.data[k + ch] = src.data[k + ch] * (1 - haze) + 235 * haze;
-  }
-  // Lage im Zielrahmen: Größe, Versatz, Drehung, Kippung
-  const W = GUIDE_W + 2 * MARGIN, H = GUIDE_H + 2 * MARGIN;
-  const scale = hard ? between(0.86, 1.04) : between(0.95, 1.02);
-  const cx = W / 2 + between(-0.06, 0.06) * GUIDE_W * (hard ? 1 : 0.4), cy = H / 2 + between(-0.05, 0.05) * GUIDE_H * (hard ? 1 : 0.4);
-  const angle = ((hard ? between(-6, 6) : between(-2, 2)) * Math.PI) / 180;
-  const hw = (GUIDE_W * scale) / 2, hh = (GUIDE_H * scale) / 2;
-  const tilt = hard ? between(0, 0.08) : between(0, 0.02);
-  if (tilt > 0.04) tags.push('Gekippt');
-  const tiltSide = Math.floor(rand() * 4);
-  const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y], i) => {
-    // Kippung: eine Seite der Karte erscheint kleiner (weiter weg)
-    const far = (tiltSide === 0 && i < 2) || (tiltSide === 1 && (i === 1 || i === 2)) || (tiltSide === 2 && i >= 2) || (tiltSide === 3 && (i === 0 || i === 3));
-    const f = far ? 1 - tilt : 1;
-    const px = x * f, py = y * f;
-    return { x: cx + px * Math.cos(angle) - py * Math.sin(angle), y: cy + px * Math.sin(angle) + py * Math.cos(angle) };
-  }) as Quad;
-  const inv = invert3(squareToQuad(corners));
-  // Tisch: Grundfarbe, Verlauf, Maserung
-  const bg = [between(15, 235), between(15, 235), between(15, 235)];
-  const grain = rand() < 0.4 ? between(4, 18) : 0;
-  const out = new Uint8ClampedArray(W * H * 3);
-  const px = [0, 0, 0, 0];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const w = inv[6] * x + inv[7] * y + inv[8];
-    const u = (inv[0] * x + inv[1] * y + inv[2]) / w, v = (inv[3] * x + inv[4] * y + inv[5]) / w;
-    sampleRgba(src, u * src.width - 0.5, v * src.height - 0.5, px);
-    const a = px[3] / 255;
-    const tex = grain * Math.sin(y * 0.15 + Math.sin(x * 0.02) * 3) + (rand() - 0.5) * 8;
-    const k = (y * W + x) * 3;
-    for (let ch = 0; ch < 3; ch++) out[k + ch] = px[ch] * a + (bg[ch] + tex) * (1 - a);
-  }
-  // Schatten (Hand/Handy) als weicher Verlauf über einen Teil des Bilds
-  if (rand() < (hard ? 0.4 : 0.2)) {
-    tags.push('Schatten');
-    const dir = between(0, 2 * Math.PI), dx = Math.cos(dir), dy = Math.sin(dir);
-    const off = between(-0.2, 0.3), depth = between(0.3, hard ? 0.65 : 0.4), soft = between(0.05, 0.2);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const s = ((x / W - 0.5) * dx + (y / H - 0.5) * dy - off) / soft;
-      const f = 1 - depth / (1 + Math.exp(-s));
-      const k = (y * W + x) * 3;
-      for (let ch = 0; ch < 3; ch++) out[k + ch] *= f;
-    }
-  }
-  // Kamera: Belichtung, Weißabgleich, Unschärfe, Rauschen, Kompression
-  const bright = hard ? between(0.55, 1.25) : between(0.8, 1.15);
-  if (bright < 0.75) tags.push('Dunkel');
-  const cast = [between(0.88, 1.12), between(0.92, 1.08), between(0.85, 1.15)];
-  const sigma = hard ? between(0.4, 2.0) : between(0.3, 1.0);
-  if (sigma > 1.4) tags.push('Unscharf');
-  const noise = hard ? between(2, 9) : between(1, 4);
-  for (let k = 0; k < out.length; k++) out[k] = out[k] * bright * cast[k % 3] + (rand() - 0.5) * 2 * noise;
-  const jpeg = await sharp(Buffer.from(out.buffer), { raw: { width: W, height: H, channels: 3 } })
-    .blur(sigma)
-    .jpeg({ quality: Math.round(hard ? between(45, 85) : between(70, 90)) })
-    .toBuffer();
-  const { data, info: fi } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
-  if (!tags.length) tags.push('Ohne');
-  return {
-    frame: { data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), width: fi.width, height: fi.height, channels: 3 },
-    guide: { x: MARGIN, y: MARGIN, width: GUIDE_W, height: GUIDE_H },
-    tags,
-  };
-}
-
 /** Ausschnitt wie in der App: genau der Zielrahmen, auf 320 px Höhe. */
 async function guideCrop(shot: Shot): Promise<Pixels> {
   const { frame, guide } = shot;
@@ -281,6 +158,12 @@ async function guideCrop(shot: Shot): Promise<Pixels> {
 /** Karte entzerren wie in der App (src/core/cardview.ts). */
 export function warpShot(shot: Shot): Pixels | null {
   return warpCardView(shot.frame, shot.guide);
+}
+
+/** warp: entzerrt und mit Schattenausgleich wie im Worker der App, raw: nur entzerrt; null, wenn die Kanten nicht gefunden werden. */
+function views(shot: Shot): { warp: Pixels | null; raw: Pixels | null } {
+  const raw = warpShot(shot);
+  return { raw, warp: raw && prepareForRecognition(raw).pixels };
 }
 
 // --- Nachsortieren der besten Treffer per Pixelvergleich ----------------------------------------
@@ -376,17 +259,17 @@ async function main() {
     console.log(`Fokus: ${p.printingId} [${file.refs[row].lang}] ${p.cardName} (${p.variant})`);
   }
   console.log(`Erzeuge ${rows.length} Testfotos …`);
-  const shots: { row: number; truth: number; shot: Shot; crop: Pixels; warp: Pixels | null }[] = [];
+  const shots: { row: number; truth: number; shot: Shot; crop: Pixels; warp: Pixels | null; raw: Pixels | null }[] = [];
   for (const row of rows) {
     const shot = await synthShot(await readFile(imagePath(row)));
-    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: warpShot(shot) });
+    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), ...views(shot) });
   }
   // Fokus-Karten kommen dazu, zählen aber nicht in die Gesamtwerte
   const mainCount = shots.length;
   for (const row of focusRows) for (let i = 0; i < 8; i++) {
     const shot = await synthShot(await readFile(imagePath(row)));
     shot.tags = ['Fokus'];
-    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), warp: warpShot(shot) });
+    shots.push({ row, truth: file.refs[row].p, shot, crop: await guideCrop(shot), ...views(shot) });
   }
   // Leerer Tisch ohne Karte: so hoch dürfen die Werte nicht kommen, sonst „erkennt“ die App Karten im Nichts
   const transparent = await sharp({ create: { width: 63, height: 88, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
@@ -402,6 +285,7 @@ async function main() {
   const refPatches: (Float32Array | null)[] = [];
   for (let row = 0; row < file.refs.length; row++) refPatches.push(patchOf(await decodeRef(await readFile(imagePath(row)))));
   const shotPatches = shots.map((s) => patchOf(s.warp ?? s.crop));
+  const rawPatches = shots.map((s) => patchOf(s.raw ?? s.crop));
 
   const table: string[] = [];
   const header = `| Modell / Verfahren | Top-1 | Top-3 | automatisch (≥95 %) | App-Regel: stumm / gespeichert (richtig) | Fokus Top-1 | ms/Bild 1 Kern | Größe |`;
@@ -416,7 +300,9 @@ async function main() {
       continue;
     }
     // Katalog einbetten (zwischengespeichert)
-    const cacheFile = path.join(CACHE, `v2-${file.refs.length}-${c.key}${augment ? `-aug${augment}` : ''}.json`);
+    // Kennung über alle Referenzbilder: Ändert sich der Katalog (auch bei gleicher Anzahl), passen alte Vektoren nicht mehr
+    const refsKey = createHash('sha1').update(JSON.stringify(file.refs.map((r) => [file.printings[r.p].printingId, r.lang, r.g]))).digest('hex').slice(0, 12);
+    const cacheFile = path.join(CACHE, `v3-${refsKey}-${c.key}${augment ? `-aug${augment}b` : ''}.json`);
     let refCls: Float32Array[], refMix: (Float32Array | undefined)[], refAug: Float32Array[] | null = null;
     try {
       const t0 = Date.now();
@@ -435,16 +321,12 @@ async function main() {
           refCls.push(v.cls);
           refMix.push(v.mix);
           if (augment) {
-            // Prototyp: Mittel aus Original und leicht gestörten Fotos derselben Karte (anderer Zufall als die Testfotos)
+            // Wie im Katalog-Build: Mittel aus Original und leicht gestörten Fotos derselben Karte (anderer Zufall als die Testfotos)
             const sum = Float32Array.from(v.cls);
-            const saved = seed;
-            seed = 1000003 + row * 7919;
-            for (let a = 0; a < augment; a++) {
-              const s = await synthShot(buf, false);
-              const e = await embedder.embed(warpShot(s) ?? (await guideCrop(s)));
+            for (const view of await augmentedViews(buf, augment, augmentSeed(row))) {
+              const e = await embedder.embed(view);
               for (let i = 0; i < sum.length; i++) sum[i] += e.cls[i];
             }
-            seed = saved;
             aug.push(l2normalize(sum));
           }
           if ((row + 1) % 500 === 0) console.log(`  Katalog ${row + 1}/${file.refs.length}`);
@@ -469,11 +351,12 @@ async function main() {
     if (refAug) indexes.aug = flat(refAug);
 
     // Testfotos einbetten: Zielrahmen wie heute und entzerrt
-    const q: Record<'crop' | 'warp', Vectors[]> = { crop: [], warp: [] };
+    const q: Record<'crop' | 'warp' | 'raw', Vectors[]> = { crop: [], warp: [], raw: [] };
     for (const s of shots) {
       const crop = await embedder.embed(s.crop);
       q.crop.push(crop);
       q.warp.push(s.warp ? await embedder.embed(s.warp) : crop);
+      q.raw.push(s.raw ? await embedder.embed(s.raw) : crop);
     }
     // Rechenzeit mit einem Kern
     let ms = NaN;
@@ -506,12 +389,12 @@ async function main() {
       console.log(`  Leerer Tisch (40 Bilder, mit Pixelvergleich 0.2): Bestwert Median ${tops[20].toFixed(3)}, 90 % ${tops[36].toFixed(3)}, Max ${tops[39].toFixed(3)}`);
     }
 
-    const run = (label: string, index: { out: Float32Array; d: number }, vecs: (v: Vectors) => Float32Array | undefined, source: 'crop' | 'warp', rerank = 0) => {
+    const run = (label: string, index: { out: Float32Array; d: number }, vecs: (v: Vectors) => Float32Array | undefined, source: 'crop' | 'warp' | 'raw', rerank = 0) => {
       const results: Result[] = shots.map((s, i) => {
         const v = vecs(q[source][i])!;
         let ranked = collapseToPrintings(topK(v, index.out, index.d, 24), (row) => file.refs[row].p, 8);
         if (rerank) {
-          const sp = shotPatches[i];
+          const sp = (source === 'raw' ? rawPatches : shotPatches)[i];
           ranked = ranked
             .map((m) => {
               const rowsOf = file.refs.flatMap((r, row) => (r.p === m.index ? [row] : []));
@@ -539,9 +422,12 @@ async function main() {
     run('entzerrt', indexes.cls, (v) => v.cls, 'warp');
     if (indexes.mix) run('entzerrt + Feldmittel', indexes.mix, (v) => v.mix, 'warp');
     for (const w of [0.05, 0.1, 0.2]) run(`entzerrt + Pixelvergleich ${w}`, indexes.cls, (v) => v.cls, 'warp', w);
+    run('entzerrt ohne Schattenausgleich + Pixelvergleich 0.2', indexes.cls, (v) => v.cls, 'raw', 0.2);
     if (indexes.aug) {
       run(`entzerrt + ${augment} Lernfotos je Karte`, indexes.aug, (v) => v.cls, 'warp');
       run(`entzerrt + ${augment} Lernfotos + Pixelvergleich 0.1`, indexes.aug, (v) => v.cls, 'warp', 0.1);
+      run(`entzerrt + ${augment} Lernfotos + Pixelvergleich 0.2`, indexes.aug, (v) => v.cls, 'warp', 0.2);
+      run(`entzerrt ohne Schattenausgleich + ${augment} Lernfotos + Pixelvergleich 0.2`, indexes.aug, (v) => v.cls, 'raw', 0.2);
     }
   }
   console.log(`\n=== Übersicht (${mainCount} synthetische Fotos, Karte entzerrt in ${pct(found / mainCount)})\n${header}\n|---|---|---|---|---|---|---|---|\n${table.join('\n')}`);

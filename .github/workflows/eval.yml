@@ -51,6 +51,7 @@ jobs:
         with:
           path: |
             .cache/images
+            .cache/embeddings
             public/models
           key: catalog-none
           restore-keys: catalog-

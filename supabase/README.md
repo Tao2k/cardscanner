@@ -17,7 +17,9 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
    [`migrations/0003_decks.sql`](migrations/0003_decks.sql) (Decks) und
    [`migrations/0004_wishlist.sql`](migrations/0004_wishlist.sql) (Wunschliste),
    [`migrations/0005_wishlist_alarm.sql`](migrations/0005_wishlist_alarm.sql) (Zielpreis für den Preisalarm) und
-   [`migrations/0006_albums.sql`](migrations/0006_albums.sql) (eigene Alben). Die Skripte dürfen mehrfach laufen.
+   [`migrations/0006_albums.sql`](migrations/0006_albums.sql) (eigene Alben) und
+   [`migrations/0007_cloud_scan.sql`](migrations/0007_cloud_scan.sql) (Tageslimit der Cloud-Hilfe beim Scannen).
+   Die Skripte dürfen mehrfach laufen.
 3. **Anmeldung mit Passwort:** *Authentication → Sign In / Providers → Email* öffnen und **Confirm email**
    ausschalten. Dann ist man nach „Konto erstellen“ sofort angemeldet. Supabase verschickt ohne
    eigenen E-Mail-Versand (SMTP) nur Links, und die öffnen sich auf dem iPhone in Safari statt in der
@@ -51,3 +53,26 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
   in der Wunschliste an, alles andere läuft weiter.
 - **Alben:** Tabelle `albums` (Name und Karten als Liste), nur selbst schreibbar. Bestätigte Freunde lesen
   sie über `friend_albums`. Fehlt die Tabelle noch, blendet die App die Alben einfach aus.
+
+## Cloud-Hilfe beim Scannen (Claude)
+
+Ist ein Scan unsicher, schickt die App das Kamerabild und die besten Treffer an die Funktion
+[`functions/identify-card`](functions/identify-card/index.ts). Claude liest Name und Sammlernummer,
+vergleicht das Motiv mit den Originalbildern und wählt die Karte. Ist Claude sich sicher, speichert die
+App ohne Nachfrage („von Claude bestimmt“), sonst steht Claudes Vorschlag in der Auswahl oben. Ohne
+Einrichtung fragt die App wie bisher nach.
+
+1. Bei [console.anthropic.com](https://console.anthropic.com) einen **API-Schlüssel** anlegen und unter
+   *Billing* etwas Guthaben aufladen (z. B. 5 $).
+2. In Supabase *Edge Functions → Secrets* den Schlüssel als **`ANTHROPIC_API_KEY`** eintragen. Er bleibt
+   auf dem Server; die App sieht ihn nie.
+3. *SQL Editor*: [`migrations/0007_cloud_scan.sql`](migrations/0007_cloud_scan.sql) ausführen.
+4. *Edge Functions → Deploy a new function → Via Editor*: Name **`identify-card`**, den Inhalt von
+   [`functions/identify-card/index.ts`](functions/identify-card/index.ts) einfügen und **Deploy** drücken.
+   „Verify JWT“ eingeschaltet lassen (nur angemeldete Personen).
+
+**Kosten:** Mit Claude Opus 5.5 kostet eine Anfrage etwa 1 bis 2 Cent (Foto, bis zu 8 kleine Vergleichsbilder,
+kurze Antwort). Gefragt wird nur bei unsicheren Scans. Je Person sind höchstens 200 Anfragen am Tag
+erlaubt; ändern lässt sich das mit dem Secret `CLOUD_SCANS_PER_DAY`, das Modell mit `CLAUDE_MODEL`
+(z. B. `claude-haiku-5-5`, etwa zehnmal günstiger, aber ungenauer beim Lesen).
+
