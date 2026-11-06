@@ -926,3 +926,29 @@ button.album-toggle.icon.on { background: var(--accent); color: var(--on-accent)
 .meta-place.top { color: var(--text); }
 .meta-place.first { color: var(--warn); }
 .meta-more { align-self: center; }
+
+/* Karten von Hand hinzufügen und löschen */
+.add-card-button { flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: var(--surface); color: var(--accent-text); }
+.add-card-button svg { width: 20px; height: 20px; }
+.add-card input[type='search'] { width: 100%; font-size: 16px; }
+.add-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.add-results button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 64px; padding: 6px 14px 6px 6px; border-radius: var(--r-row); background: var(--surface); text-align: left; }
+.add-results img { flex: none; width: 40px; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 5px; }
+.add-results span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.add-results strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-results small { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+.add-chosen { display: flex; gap: 14px; align-items: center; }
+.add-chosen img { flex: none; width: 84px; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 8px; box-shadow: var(--shadow-soft); }
+.add-chosen > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.add-chosen h2 { margin: 0; font-size: 1.15rem; }
+.add-chosen button.link { padding: 0; min-height: 36px; text-decoration: none; font-weight: 600; }
+.add-card .sheet-qty .qty { background: var(--raised); }
+.binder-card-info .sheet-qty.entry { margin-top: 8px; }
+.binder-card-info .sheet-qty.entry + .sheet-qty.entry { margin-top: 0; }
+.binder-card-info .sheet-qty .qty { background: var(--raised); }
+.binder-card-info > button.add-button { align-self: stretch; margin-top: 8px; min-height: 44px; background: var(--surface); color: var(--accent-text); }
+.details button.add-row { color: var(--accent-text); }
+.details button.delete-row { color: var(--error); }
+.banner.undo { align-items: center; justify-content: space-between; gap: 8px; }
+.banner.undo button.link { min-height: 44px; padding: 0 4px; font-weight: 600; text-decoration: none; }
+.add-card { min-height: 72dvh; }

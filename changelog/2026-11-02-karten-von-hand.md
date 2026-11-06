@@ -1,0 +1,3 @@
+- Neu: Mit dem Plus in der Sammlung fügst du Karten ohne Scannen hinzu: Namen oder Nummer suchen, Foil, Sprache, Zustand und Anzahl wählen.
+- Neu: Tippst du im Binder auf eine Karte, kannst du sie dort hinzufügen oder löschen.
+- Verbessert: Karten löschst du in der Liste mit „Löschen“ und holst sie mit „Rückgängig“ zurück, ohne Rückfrage.

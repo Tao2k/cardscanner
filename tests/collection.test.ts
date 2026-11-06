@@ -52,6 +52,24 @@ describe('CollectionService', () => {
     expect(await s.list()).toHaveLength(0);
   });
 
+  it('trägt von Hand mehrere Exemplare auf einmal ein und zählt sie zu gleichen dazu', async () => {
+    const s = service();
+    await s.addScan(scan());
+    const added = await s.addScan(scan({ quantity: 3, matchScore: undefined }));
+    expect((await s.list())[0].quantity).toBe(4);
+    await s.undo(added);
+    expect((await s.list())[0].quantity).toBe(1);
+  });
+
+  it('löscht einen Eintrag und holt ihn mit „Rückgängig“ zurück', async () => {
+    const s = service();
+    const { item } = await s.addScan(scan({ quantity: 2 }));
+    await s.remove(item.itemId);
+    expect(await s.list()).toHaveLength(0);
+    await s.restore(item);
+    expect(await s.list()).toMatchObject([{ itemId: item.itemId, quantity: 2 }]);
+  });
+
   it('bestätigt und korrigiert unsichere Treffer', async () => {
     const s = service();
     const { item } = await s.addScan(scan({ confirmed: false, alternatives: ['ogn-002-298'] }));

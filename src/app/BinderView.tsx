@@ -141,7 +141,9 @@ export function BinderView({ binders, catalogs, selected, onSelect, arriving, ow
   const swipe = useRef<Swipe | null>(null);
   /** Nach einem Wischen keinen Platz öffnen. */
   const swiped = useRef(false);
-  const [open, setOpen] = useState<Slot | null>(null);
+  const [openSlot, setOpen] = useState<Slot | null>(null);
+  /** Angetippte Karte mit aktueller Stückzahl (sie ändert sich, wenn man im Blatt hinzufügt oder löscht). */
+  const open = openSlot && (selected.slots.find((s) => s.key === openSlot.key) ?? openSlot);
   const pagesRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected.key);
   selectedRef.current = selected.key;

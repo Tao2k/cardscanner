@@ -19,6 +19,7 @@ import { CloudLine } from './AccountView';
 import { useCloud } from './cloud';
 import { useWishlist } from './wishlist';
 import { WishToggle } from './TradeView';
+import { AddCardSheet } from './AddCard';
 
 interface Props {
   items: CollectionItem[];
@@ -49,6 +50,8 @@ const defaultFinish = (p: Printing): Finish => (p.finishes?.length === 1 && p.fi
 const day = (d: string) => formatAsOf(`${d}T12:00:00Z`);
 const basisLabel = (m: Mover) => (m.basis.kind === 'history' ? `seit ${day(m.basis.since)}` : `ggü. Ø ${m.basis.days} Tage`);
 
+/** So lange bleibt „Rückgängig“ nach dem Löschen stehen. */
+const UNDO_MS = 8000;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const EXPORT_REMINDER_DAYS = 7;
 const SORTS: { value: CollectionSort; label: string }[] = [
@@ -61,6 +64,15 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Karte von Hand hinzufügen: offen mit oder ohne schon gewählte Karte. */
+  const [adding, setAdding] = useState<{ printing?: Printing } | null>(null);
+  /** Zuletzt gelöschter Eintrag, für „Rückgängig“. */
+  const [deleted, setDeleted] = useState<CollectionItem | null>(null);
+  useEffect(() => {
+    if (!deleted) return;
+    const t = setTimeout(() => setDeleted(null), UNDO_MS);
+    return () => clearTimeout(t);
+  }, [deleted]);
   /** Angemeldet ist der Server die Sicherung; dann keine Erinnerung an den Excel-Export. */
   const account = useCloud();
   const wish = useWishlist();
@@ -103,13 +115,38 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     binders.find((b) => b.owned > 0) ??
     binders[0];
   const selectedAlbum = selectedBinder?.album ? albumState.albums.find((a) => a.id === selectedBinder.album) : undefined;
-  const cardActions = (slot: Slot) =>
-    account.signedIn && (
+  const cardActions = (slot: Slot) => {
+    const entries = items.filter((i) => i.gameId === selectedBinder.gameId && i.printingId === slot.printing.printingId);
+    const languages = catalogs.languages.get(selectedBinder.gameId) ?? [];
+    return (
       <>
-        <WishToggle gameId={selectedBinder.gameId} printingId={slot.printing.printingId} wish={wish} />
-        <AlbumPicker cardKey={slot.key} state={albumState} />
+        {entries.map((item) => (
+          <div class="sheet-qty entry" key={item.itemId}>
+            <span>
+              {[
+                item.condition,
+                languages.length > 1 ? languages.find((l) => l.code === item.language)?.label : undefined,
+                item.finish === 'foil' ? 'Foil' : undefined,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+            {qtyControl(item)}
+          </div>
+        ))}
+        <button class="add-button" onClick={() => setAdding({ printing: slot.printing })}>
+          {icon('M12 5v14M5 12h14')}
+          {entries.length ? 'Weitere hinzufügen' : 'Zur Sammlung hinzufügen'}
+        </button>
+        {account.signedIn && (
+          <>
+            <WishToggle gameId={selectedBinder.gameId} printingId={slot.printing.printingId} wish={wish} />
+            <AlbumPicker cardKey={slot.key} state={albumState} />
+          </>
+        )}
       </>
     );
+  };
 
   // Alle Drucke der Spiele in der Sammlung (und des gewählten Spiels), auch die, die man nicht hat
   const catalogRows = useMemo(() => {
@@ -208,10 +245,36 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     }
   };
 
+  /** Löscht sofort; „Rückgängig“ im Hinweis holt den Eintrag zurück. */
+  const removeItem = async (item: CollectionItem) => {
+    await service.remove(item.itemId);
+    setMessage(null);
+    setDeleted(item);
+    onChange();
+  };
+  const undoRemove = async () => {
+    if (!deleted) return;
+    await service.restore(deleted);
+    setDeleted(null);
+    onChange();
+  };
+
   const changeQty = (item: CollectionItem, delta: number) => {
-    if (item.quantity + delta <= 0 && !confirm('Eintrag löschen?')) return;
+    if (item.quantity + delta <= 0) return removeItem(item);
     service.update(item.itemId, { quantity: item.quantity + delta }).then(onChange);
   };
+
+  const qtyControl = (item: CollectionItem) => (
+    <div class="qty">
+      <button onClick={() => changeQty(item, -1)} aria-label={item.quantity > 1 ? 'weniger' : 'löschen'}>
+        {item.quantity > 1 ? '−' : trash}
+      </button>
+      <span>{item.quantity}</span>
+      <button onClick={() => changeQty(item, 1)} aria-label="mehr">
+        +
+      </button>
+    </div>
+  );
 
   const row = (r: Row) => {
     const { item, printing } = r;
@@ -246,11 +309,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
             {item && (
               <div class="qty-row">
                 <span>Anzahl</span>
-                <div class="qty">
-                  <button onClick={() => changeQty(item, -1)} aria-label="weniger">−</button>
-                  <span>{item.quantity}</span>
-                  <button onClick={() => changeQty(item, 1)} aria-label="mehr">+</button>
-                </div>
+                {qtyControl(item)}
                 {r.price !== undefined && item.quantity > 1 && <small>zusammen {formatEur(r.price * item.quantity)}</small>}
               </div>
             )}
@@ -283,6 +342,18 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
                 Bei Cardmarket ansehen ↗
               </a>
             )}
+            {!item && printing && (
+              <button class="add-row" onClick={() => setAdding({ printing })}>
+                {icon('M12 5v14M5 12h14')}
+                Zur Sammlung hinzufügen
+              </button>
+            )}
+            {item && (
+              <button class="danger delete-row" onClick={() => removeItem(item)}>
+                {trash}
+                Löschen
+              </button>
+            )}
           </div>
         )}
       </li>
@@ -300,6 +371,9 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
               </button>
             ))}
           </div>
+          <button class="add-card-button" onClick={() => setAdding({})} aria-label="Karte hinzufügen" disabled={!catalogs.ordered.get(prefs.gameId)?.length}>
+            {icon('M12 5v14M5 12h14')}
+          </button>
           <CloudLine onOpen={onOpenProfile} />
           <button class="export-button" disabled={busy || !items.length} onClick={doExport} aria-label="Als Excel exportieren">
             {icon('M12 4v11M7 10l5 5 5-5M5 20h14')}
@@ -314,6 +388,14 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
         </p>
       )}
       {message && <p class="banner">{message}</p>}
+      {deleted && (
+        <p class="banner undo" role="status">
+          <span>„{catalogs.lookup(deleted.gameId, deleted.printingId)?.cardName ?? 'Karte'}“ gelöscht</span>
+          <button class="link" onClick={undoRemove}>
+            Rückgängig
+          </button>
+        </p>
+      )}
       {view === 'binder' && selectedBinder && (
         <BinderView
           binders={binders}
@@ -322,7 +404,7 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           onSelect={selectBinder}
           arriving={arriving.current}
           wished={account.signedIn ? wish.keys : undefined}
-          cardActions={account.signedIn ? cardActions : undefined}
+          cardActions={cardActions}
           chipsEnd={albumsOn ? <NewAlbumChip onCreated={(a) => selectBinder(`${prefs.gameId}|album:${a.id}`)} /> : undefined}
           toolbar={
             selectedAlbum && (
@@ -375,6 +457,23 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
         })}
       </div>
       </>}
+      {adding && (
+        <AddCardSheet
+          catalogs={catalogs}
+          gameId={prefs.gameId}
+          items={items}
+          service={service}
+          language={prefs.language}
+          printing={adding.printing}
+          onClose={() => setAdding(null)}
+          onAdded={(p, n) => {
+            setAdding(null);
+            setDeleted(null);
+            setMessage(n > 1 ? `${n}× „${p.cardName}“ hinzugefügt` : `„${p.cardName}“ hinzugefügt`);
+            onChange();
+          }}
+        />
+      )}
       {sorting && (
         <Sheet label="Sortieren" onClose={() => setSorting(false)}>
           <h2>Sortieren</h2>
@@ -411,5 +510,11 @@ function icon(d: string) {
 const infoIcon = (
   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
     <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  </svg>
+);
+
+const trash = (
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 );
