@@ -17,8 +17,9 @@ früher nur im Browser und fragt nicht nach einer Anmeldung.
    [`migrations/0003_decks.sql`](migrations/0003_decks.sql) (Decks) und
    [`migrations/0004_wishlist.sql`](migrations/0004_wishlist.sql) (Wunschliste),
    [`migrations/0005_wishlist_alarm.sql`](migrations/0005_wishlist_alarm.sql) (Zielpreis für den Preisalarm) und
-   [`migrations/0006_albums.sql`](migrations/0006_albums.sql) (eigene Alben) und
-   [`migrations/0007_cloud_scan.sql`](migrations/0007_cloud_scan.sql) (Tageslimit der Cloud-Hilfe beim Scannen).
+   [`migrations/0006_albums.sql`](migrations/0006_albums.sql) (eigene Alben),
+   [`migrations/0007_cloud_scan.sql`](migrations/0007_cloud_scan.sql) (Tageslimit der Cloud-Hilfe beim Scannen) und
+   [`migrations/0008_wishlist_foil.sql`](migrations/0008_wishlist_foil.sql) (Foil-Wunsch auf der Wunschliste).
    Die Skripte dürfen mehrfach laufen.
 3. **Anmeldung mit Passwort:** *Authentication → Sign In / Providers → Email* öffnen und **Confirm email**
    ausschalten. Dann ist man nach „Konto erstellen“ sofort angemeldet. Supabase verschickt ohne

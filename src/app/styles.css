@@ -849,6 +849,10 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .wish-alarm .chips button { padding-inline: 12px; font-variant-numeric: tabular-nums; }
 .wish-alarm-remove { align-self: flex-start; padding: 0; }
 .wish-alarm-note { font-size: 0.82rem; }
+.wish-finish { padding-right: 3px; }
+.wish-finish .segmented { background: transparent; padding: 0; min-width: 168px; }
+.wish-finish .segmented button { min-height: 40px; }
+.tag.wish-qty { background: var(--raised); color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Eigene Alben */
 .binder-sets button.album-new { background: none; color: var(--accent-text); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent-text) 45%, transparent); gap: 4px; padding: 8px 14px; }

@@ -1141,7 +1141,7 @@ function DeckEditor(props: {
               <button
                 onClick={() => {
                   setSheet(null);
-                  for (const e of wishable) void wishlist.add(pool.gameId, e.card.printing.printingId);
+                  for (const e of wishable) void wishlist.add(pool.gameId, e.card.printing.printingId, e.lacking);
                   warn(`${wishable.length} ${wishable.length === 1 ? 'Karte' : 'Karten'} auf die Wunschliste gesetzt`);
                 }}
               >

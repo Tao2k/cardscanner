@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { watchWishes, wishAlerts, wishKey, wishOwners, withWish, withoutWish, type Wish } from '../src/core/wishlist';
+import type { Printing } from '../src/core/types';
+import { foilChoice, watchWishes, wishAlerts, wishFinish, wishKey, wishOwners, withWish, withoutWish, type Wish } from '../src/core/wishlist';
 
 const wish = (printingId: string, addedAt = '2026-11-02T08:00:00Z'): Wish => ({ gameId: 'riftbound', printingId, quantity: 1, addedAt });
 const card = (printingId: string, quantity: number, finish: 'normal' | 'foil' = 'normal') => ({ gameId: 'riftbound', printingId, finish, quantity });
@@ -18,6 +19,30 @@ describe('Wunschliste', () => {
     // Ohne Exemplar zählt niemand, Karten ohne Wunsch auch nicht
     expect(owners.has('riftbound|c')).toBe(false);
     expect(owners.has('riftbound|b')).toBe(false);
+  });
+
+  it('zählt bei einem Foil-Wunsch nur Foil-Exemplare der Freunde', () => {
+    const friends = new Map([
+      ['anna', [card('a', 3)]],
+      ['ben', [card('a', 1), card('a', 2, 'foil')]],
+    ]);
+    const owners = wishOwners([{ ...wish('a'), quantity: 3, foil: true }], friends, 1);
+    expect(owners.get('riftbound|a')).toEqual([{ userId: 'ben', quantity: 2, spare: 1 }]);
+  });
+
+  it('bietet Foil nur bei Common und Uncommon an', () => {
+    const p = (rarity: string, finishes?: Printing['finishes']) => ({ rarity, finishes }) as Printing;
+    expect(foilChoice(p('Common'))).toBe(true);
+    expect(foilChoice(p('uncommon', ['normal', 'foil']))).toBe(true);
+    expect(foilChoice(p('Common', ['normal']))).toBe(false);
+    expect(foilChoice(p('Rare', ['foil']))).toBe(false);
+    expect(foilChoice(p('Epic'))).toBe(false);
+    expect(foilChoice(undefined)).toBe(false);
+    expect(wishFinish(p('Common'), true)).toBe('foil');
+    expect(wishFinish(p('Common'), false)).toBe('normal');
+    expect(wishFinish(p('Rare', ['foil']))).toBe('foil');
+    // Foil-Wunsch auf einer Karte ohne Foil-Wahl zählt nicht
+    expect(wishFinish(p('Common', ['normal']), true)).toBe('normal');
   });
 
   it('setzt neue Wünsche nach oben und entfernt sie wieder', () => {
