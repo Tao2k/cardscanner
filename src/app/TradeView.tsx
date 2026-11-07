@@ -12,7 +12,7 @@ import type { Album } from '../core/albums';
 import { BinderView, heart } from './BinderView';
 import { cloud } from './cloud';
 import { printingCode } from './format';
-import { WishAlarmSheet } from './WishAlarmSheet';
+import { WishSheet } from './WishSheet';
 import { useWishAlarm, useWishlist, wishlist, wishPrice, type WishAlarmState, type WishlistState } from './wishlist';
 
 interface Props {
@@ -373,10 +373,10 @@ const bell = (
   </svg>
 );
 
-/** Eigene Anzahl je Druck (über Sprache, Zustand und Ausführung). */
-function ownedCounts(items: CollectionItem[]) {
+/** Eigene Anzahl je Druck (über Sprache, Zustand und Ausführung); mit foil nur die Foil-Exemplare. */
+function ownedCounts(items: CollectionItem[], foil = false) {
   const counts = new Map<string, number>();
-  for (const i of items) counts.set(wishKey(i), (counts.get(wishKey(i)) ?? 0) + i.quantity);
+  for (const i of items) if (!foil || i.finish === 'foil') counts.set(wishKey(i), (counts.get(wishKey(i)) ?? 0) + i.quantity);
   return counts;
 }
 
@@ -402,7 +402,11 @@ function WishlistSection({
   /** Preisalarme, die beim Öffnen neu waren; bleiben als „Neu“ markiert, solange die Liste offen ist. */
   const [fresh, setFresh] = useState<Map<string, WishAlert>>(new Map());
   const owned = useMemo(() => ownedCounts(items), [items]);
-  const priceOf = (gameId: string, printing?: Printing) => (printing ? wishPrice(catalogs, gameId, printing.printingId) : undefined);
+  const ownedFoil = useMemo(() => ownedCounts(items, true), [items]);
+  /** Was man von einem Wunsch schon hat: bei Foil-Wunsch nur Foil. */
+  const haveOf = (w: Wish) => (w.foil ? ownedFoil : owned).get(wishKey(w)) ?? 0;
+  const priceOf = (gameId: string, printing?: Printing, foil?: boolean) => (printing ? wishPrice(catalogs, gameId, printing.printingId, foil) : undefined);
+  const wanted = wish.wishes.reduce((n, w) => n + w.quantity, 0);
 
   useEffect(() => {
     if (!alarm.alerts.length) return;
@@ -426,7 +430,7 @@ function WishlistSection({
     return hits;
   }, [q, catalogs, gameId]);
 
-  const value = wish.wishes.reduce((n, w) => n + (priceOf(w.gameId, catalogs.lookup(w.gameId, w.printingId)) ?? 0) * w.quantity, 0);
+  const value = wish.wishes.reduce((n, w) => n + (priceOf(w.gameId, catalogs.lookup(w.gameId, w.printingId), w.foil) ?? 0) * w.quantity, 0);
   const ownersText = (key: string) => {
     const list = owners.get(key) ?? [];
     if (!list.length) return null;
@@ -488,30 +492,32 @@ function WishlistSection({
       {wish.status === 'loading' && !wish.wishes.length && <p class="muted">Lade …</p>}
       {wish.wishes.length > 0 && (
         <p class="muted trade-sum">
-          {wish.wishes.length} {wish.wishes.length === 1 ? 'Karte' : 'Karten'} · {formatEur(value)}
+          {wanted} {wanted === 1 ? 'Karte' : 'Karten'} · {formatEur(value)}
         </p>
       )}
       {wish.wishes.length > 0 && (
         <ol class="items wish-list" aria-label="Wunschliste">
           {wish.wishes.map((w) => {
             const printing = catalogs.lookup(w.gameId, w.printingId);
-            const price = priceOf(w.gameId, printing);
+            const price = priceOf(w.gameId, printing, w.foil);
             const key = wishKey(w);
             const at = ownersText(key);
-            const have = owned.get(key) ?? 0;
+            const have = haveOf(w);
             const news = fresh.get(key);
             const reached = w.target !== undefined && price !== undefined && price <= w.target;
             return (
               <li key={key} class={news ? 'alarm' : undefined}>
                 <div class="main">
                   {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" loading="lazy" />}
-                  <button class="info" aria-label={`${printing?.cardName ?? w.printingId}, Preisalarm einstellen`} onClick={() => setEditing(key)}>
+                  <button class="info" aria-label={`${printing?.cardName ?? w.printingId}, ${w.quantity}×${w.foil ? ' Foil' : ''}, Wunsch bearbeiten`} onClick={() => setEditing(key)}>
                     <strong>{printing?.cardName ?? w.printingId}</strong>
                     <small>
                       {printing ? printingCode(printing) : ''}
-                      {have > 0 ? ` · ${have}× bei dir` : ''}
+                      {have > 0 ? ` · ${have}×${w.foil ? ' Foil' : ''} bei dir` : ''}
                     </small>
                     <span class="line">
+                      {w.quantity > 1 && <em class="tag wish-qty">{w.quantity}×</em>}
+                      {w.foil && <em class="tag foil">Foil</em>}
                       {price !== undefined && <span class="price">{formatEur(price)}</span>}
                       {reached ? (
                         <em class="tag up">{bell} Ziel erreicht</em>
@@ -535,9 +541,19 @@ function WishlistSection({
           const w = wish.wishes.find((x) => wishKey(x) === editing);
           if (!w) return null;
           const printing = catalogs.lookup(w.gameId, w.printingId);
-          return <WishAlarmSheet wish={w} printing={printing} price={priceOf(w.gameId, printing)} targets={wish.targets} onClose={() => setEditing(null)} />;
+          return (
+            <WishSheet
+              wish={w}
+              printing={printing}
+              price={priceOf(w.gameId, printing, w.foil)}
+              targets={wish.targets}
+              foil={wish.foil}
+              have={haveOf(w)}
+              onClose={() => setEditing(null)}
+            />
+          );
         })()}
-      {wish.wishes.length > 0 && <p class="muted wish-hint">Tippe auf eine Karte für den Preisalarm.</p>}
+      {wish.wishes.length > 0 && <p class="muted wish-hint">Tippe auf eine Karte für Anzahl, Foil und Preisalarm.</p>}
       {wish.status === 'ready' && !wish.wishes.length && !q && (
         <div class="empty-state">
           <span class="empty-heart" aria-hidden="true">
@@ -650,7 +666,7 @@ function FriendDetail({
           </div>
         ))}
 
-      {side === 'wishes' && <FriendWishes name={name} wishes={wishes} owned={owned} catalogs={catalogs} />}
+      {side === 'wishes' && <FriendWishes name={name} wishes={wishes} items={items} catalogs={catalogs} />}
 
       {(side === 'get' || side === 'give') && (
         <>
@@ -699,14 +715,17 @@ function FriendDetail({
 }
 
 /** Wunschliste eines Freundes: was du davon hast, zuerst die Karten, die du abgeben kannst. */
-function FriendWishes({ name, wishes, owned, catalogs }: { name: string; wishes: Wish[]; owned: Map<string, number>; catalogs: Catalogs }) {
+function FriendWishes({ name, wishes, items, catalogs }: { name: string; wishes: Wish[]; items: CollectionItem[]; catalogs: Catalogs }) {
   const rows = useMemo(() => {
+    const owned = ownedCounts(items);
+    const ownedFoil = ownedCounts(items, true);
     const list = wishes.map((w) => {
-      const have = owned.get(wishKey(w)) ?? 0;
-      return { wish: w, printing: catalogs.lookup(w.gameId, w.printingId), price: wishPrice(catalogs, w.gameId, w.printingId), have, spare: Math.max(0, have - KEEP) };
+      // Bei einem Foil-Wunsch zählen nur deine Foil-Exemplare
+      const have = (w.foil ? ownedFoil : owned).get(wishKey(w)) ?? 0;
+      return { wish: w, printing: catalogs.lookup(w.gameId, w.printingId), price: wishPrice(catalogs, w.gameId, w.printingId, w.foil), have, spare: Math.max(0, have - KEEP) };
     });
     return list.sort((a, b) => Number(b.spare > 0) - Number(a.spare > 0) || (b.price ?? -1) - (a.price ?? -1));
-  }, [wishes, owned, catalogs]);
+  }, [wishes, items, catalogs]);
   if (!rows.length) {
     return (
       <div class="empty-state">
@@ -716,10 +735,11 @@ function FriendWishes({ name, wishes, owned, catalogs }: { name: string; wishes:
   }
   const value = rows.reduce((n, r) => n + (r.price ?? 0) * r.wish.quantity, 0);
   const giveable = rows.filter((r) => r.spare > 0).length;
+  const wanted = rows.reduce((n, r) => n + r.wish.quantity, 0);
   return (
     <>
       <p class="muted trade-sum">
-        {rows.length} {rows.length === 1 ? 'Karte' : 'Karten'} · {formatEur(value)}
+        {wanted} {wanted === 1 ? 'Karte' : 'Karten'} · {formatEur(value)}
         {giveable > 0 && ` · ${giveable} hast du übrig`}
       </p>
       <ol class="items wish-list" aria-label={`Wunschliste von ${name}`}>
@@ -731,6 +751,8 @@ function FriendWishes({ name, wishes, owned, catalogs }: { name: string; wishes:
                 <strong>{printing?.cardName ?? w.printingId}</strong>
                 <small>{printing ? printingCode(printing) : ''}</small>
                 <span class="line">
+                  {w.quantity > 1 && <em class="tag wish-qty">{w.quantity}×</em>}
+                  {w.foil && <em class="tag foil">Foil</em>}
                   {price !== undefined && <span class="price">{formatEur(price)}</span>}
                   {spare > 0 ? <em class="tag up">{spare}× übrig bei dir</em> : have > 0 ? <em class="tag">{have}× bei dir</em> : null}
                 </span>

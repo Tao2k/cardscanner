@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { STRONG_PCT } from '../core/priceHistory';
 import { formatEur, parseEur } from '../core/prices';
 import type { Printing } from '../core/types';
-import type { Wish } from '../core/wishlist';
+import { foilChoice, MAX_WISH, type Wish } from '../core/wishlist';
 import { printingCode } from './format';
 import { Sheet } from './Sheet';
 import { wishlist } from './wishlist';
@@ -14,6 +14,10 @@ interface Props {
   price?: number;
   /** false: Server kann noch keine Zielpreise speichern. */
   targets: boolean;
+  /** false: Server kann noch keine Foil-Wünsche speichern. */
+  foil: boolean;
+  /** Wie viele Exemplare man schon hat (bei Foil-Wunsch nur Foil). */
+  have: number;
   onClose(): void;
 }
 
@@ -22,8 +26,8 @@ const STEPS = [0.1, 0.2, 0.3];
 
 const toInput = (n: number) => n.toFixed(2).replace('.', ',');
 
-/** Preisalarm für eine Karte der Wunschliste: Zielpreis setzen oder entfernen. */
-export function WishAlarmSheet({ wish, printing, price, targets, onClose }: Props) {
+/** Eine Karte der Wunschliste: Anzahl, Foil (nur Common/Uncommon) und Preisalarm. */
+export function WishSheet({ wish, printing, price, targets, foil, have, onClose }: Props) {
   const [text, setText] = useState(wish.target !== undefined ? toInput(wish.target) : '');
   const value = parseEur(text);
   const save = (target: number | undefined) => {
@@ -32,15 +36,43 @@ export function WishAlarmSheet({ wish, printing, price, targets, onClose }: Prop
   };
 
   return (
-    <Sheet class="wish-alarm" label="Preisalarm" onClose={onClose}>
+    <Sheet class="wish-alarm" label="Wunsch" onClose={onClose}>
       <div class="wish-alarm-card">
         {printing && <img src={printing.thumbUrl ?? printing.imageUrl} alt="" />}
         <span class="info">
           <strong>{printing?.cardName ?? wish.printingId}</strong>
-          <small>{printing ? printingCode(printing) : ''}</small>
-          <span class="price">{price !== undefined ? `Heute ${formatEur(price)}` : 'Noch kein Preis'}</span>
+          <small>
+            {printing ? printingCode(printing) : ''}
+            {have > 0 ? ` · ${have}×${wish.foil ? ' Foil' : ''} bei dir` : ''}
+          </small>
+          <span class="price">{price !== undefined ? `Heute ${formatEur(price)}${wish.foil ? ' als Foil' : ''}` : 'Noch kein Preis'}</span>
         </span>
       </div>
+      <div class="sheet-qty">
+        <span>Anzahl</span>
+        <div class="qty">
+          <button onClick={() => wishlist.update(wish.gameId, wish.printingId, { quantity: wish.quantity - 1 })} disabled={wish.quantity <= 1} aria-label="Eine weniger">
+            −
+          </button>
+          <span aria-live="polite">{wish.quantity}</span>
+          <button onClick={() => wishlist.update(wish.gameId, wish.printingId, { quantity: wish.quantity + 1 })} disabled={wish.quantity >= MAX_WISH} aria-label="Eine mehr">
+            +
+          </button>
+        </div>
+      </div>
+      {foilChoice(printing) && foil && (
+        <div class="sheet-qty wish-finish">
+          <span>Ausführung</span>
+          <div class="segmented" role="radiogroup" aria-label="Ausführung">
+            <button role="radio" aria-checked={!wish.foil} class={!wish.foil ? 'active' : ''} onClick={() => wishlist.update(wish.gameId, wish.printingId, { foil: false })}>
+              Normal
+            </button>
+            <button role="radio" aria-checked={!!wish.foil} class={wish.foil ? 'active' : ''} onClick={() => wishlist.update(wish.gameId, wish.printingId, { foil: true })}>
+              Foil
+            </button>
+          </div>
+        </div>
+      )}
       <h2>Preisalarm</h2>
       {targets ? (
         <>
