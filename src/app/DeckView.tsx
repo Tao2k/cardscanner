@@ -39,7 +39,8 @@ import {
   type DeckPool,
 } from '../core/deck';
 import { newId } from '../core/collection';
-import { buildFromMeta, loadMeta, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
+import { buildFromMeta, loadMeta, metaBanned, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
+import { banLabel, bannedNames, BUILTIN_BANLISTS, loadBanlist, newerBanlist, type BanlistFile } from '../core/banlist';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem } from '../core/types';
 import type { Catalogs } from './App';
@@ -89,9 +90,20 @@ const cardTitle = (c: DeckCard) => c.id;
 const legendTitle = (c: DeckCard) => c.championOf ?? c.name;
 
 export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: Props) {
+  // Banlist: eingebaut, aktualisiert durch die vom täglichen Build (falls neuer)
+  const [banlist, setBanlist] = useState<BanlistFile | null>(BUILTIN_BANLISTS[gameId] ?? null);
+  useEffect(() => {
+    let alive = true;
+    setBanlist(BUILTIN_BANLISTS[gameId] ?? null);
+    loadBanlist(import.meta.env.BASE_URL, gameId).then((b) => alive && b && setBanlist(newerBanlist(b, BUILTIN_BANLISTS[gameId])));
+    return () => {
+      alive = false;
+    };
+  }, [gameId]);
+  const bans = useMemo(() => bannedNames(banlist), [banlist]);
   const pool = useMemo(
-    () => (DECK_GAMES.includes(gameId) ? deckPool(gameId, catalogs.ordered.get(gameId) ?? [], catalogs.sets.get(gameId) ?? []) : null),
-    [catalogs, gameId],
+    () => (DECK_GAMES.includes(gameId) ? deckPool(gameId, catalogs.ordered.get(gameId) ?? [], catalogs.sets.get(gameId) ?? [], bans) : null),
+    [catalogs, gameId, bans],
   );
   const owned = useMemo(() => (pool ? ownedByCard(items, pool) : new Map<string, number>()), [items, pool]);
   const [screen, setScreen] = useState<Screen>({ kind: 'list' });
@@ -153,7 +165,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
             }
             const created = buildFromMeta(newDeck(gameId, legend, champion, newId(), new Date().toISOString()), stats, pool, { owned });
             onSave(created);
-            setNotice(builtNotice(stats));
+            setNotice(builtNotice(stats, pool));
             setScreen({ kind: 'edit', deckId: created.deckId });
           }}
           onShow={setShown}
@@ -202,6 +214,7 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           pool={pool}
           owned={owned}
           meta={meta}
+          banlist={banlist}
           notice={notice}
           priceOf={priceOf}
           wish={wish}
@@ -377,6 +390,8 @@ function ChampionPicker(props: {
   const { legend, pool, stats, current, backLabel, onBack, onPick, onShow } = props;
   useBack(true, onBack);
   const champions = championsFor(legend, pool);
+  // Gesperrte Champions bietet die Auswahl nicht an; ein Satz sagt, wo sie geblieben sind
+  const bannedChampions = [...pool.cards.values()].filter((c) => c.champion && c.banned && c.championOf === legend.championOf);
   // Champion, den die Turnierlisten am häufigsten spielen
   const favourite = stats && metaChampion(stats, champions);
   const favouriteRate = favourite && stats ? stats.champions.get(favourite.id) ?? 0 : 0;
@@ -411,6 +426,11 @@ function ChampionPicker(props: {
         <div class="empty-state">
           <strong>Kein passender Champion im Katalog</strong>
         </div>
+      )}
+      {bannedChampions.length > 0 && (
+        <p class="meta-note center">
+          {bannedChampions.map((c) => `${c.id} (${banLabel(c.banned!).toLowerCase()})`).join(', ')} {bannedChampions.length === 1 ? 'steht' : 'stehen'} auf der Banlist.
+        </p>
       )}
     </section>
   );
@@ -689,6 +709,7 @@ function DeckEditor(props: {
   pool: DeckPool;
   owned: Map<string, number>;
   meta: MetaFile | null;
+  banlist: BanlistFile | null;
   /** Kurzer Hinweis beim Öffnen, z. B. nach dem automatischen Bauen. */
   notice?: string | null;
   priceOf(card: DeckCard): number | undefined;
@@ -699,7 +720,7 @@ function DeckEditor(props: {
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, meta, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, meta, banlist, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   useBack(true, onBack);
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
@@ -792,7 +813,10 @@ function DeckEditor(props: {
           ? `Side Deck ist voll (${DECK_RULES.side} Karten)`
           : `Schon ${DECK_RULES.signatures} Signature-Karten im Deck`;
 
+  /** Hinweis, wenn eine gesperrte Karte ins Deck soll. */
+  const bannedWarn = (c: DeckCard) => c.banned && (warn(`${c.kind === 'battlefield' ? c.name : cardTitle(c)} steht auf der Banlist (${banLabel(c.banned).toLowerCase()})`), true);
   const addCard = (c: DeckCard) => {
+    if (bannedWarn(c)) return;
     if (!change((d) => withCard(d, c, 1, pool))) {
       warn(fullText(c, 'main'));
       return;
@@ -807,6 +831,7 @@ function DeckEditor(props: {
     setSpoken(`${cardTitle(c)} herausgenommen, ${copiesOf(current.current, c.id)} im Deck`);
   };
   const addSide = (c: DeckCard) => {
+    if (bannedWarn(c)) return;
     if (!change((d) => withSideCard(d, c, 1))) {
       warn(fullText(c, 'side'));
       return;
@@ -839,6 +864,7 @@ function DeckEditor(props: {
   };
   const toggleField = (b: DeckCard) => {
     const chosen = current.current.battlefields.includes(b.id);
+    if (!chosen && bannedWarn(b)) return;
     if (!change((d) => toggleBattlefield(d, b))) {
       warn(`Schon ${DECK_RULES.battlefields} Battlefields. Zieh eins aus dem Deck, um es herauszunehmen.`);
       return;
@@ -859,12 +885,13 @@ function DeckEditor(props: {
     return (
       <button
         key={`${area}${c.id}#${i}`}
-        class={`tile${extra}${lacking ? ' lacking' : ''}${isFresh ? ' fresh' : ''}`}
-        aria-label={`${label}${lacking ? ' (fehlt dir)' : ''}`}
+        class={`tile${extra}${lacking ? ' lacking' : ''}${isFresh ? ' fresh' : ''}${c.banned ? ' banned' : ''}`}
+        aria-label={`${label}${c.banned ? ' (gesperrt)' : ''}${lacking ? ' (fehlt dir)' : ''}`}
         {...dragOut({ onTap: () => setShown(c, from ?? undefined), onDrop: onRemove, zone: () => pane.current })}
       >
         <img src={thumb(c)} alt="" loading="lazy" draggable={false} />
         {extra === ' champ' && <b class="tile-champ">{starIcon}</b>}
+        {c.banned && <BanMark />}
       </button>
     );
   };
@@ -937,12 +964,13 @@ function DeckEditor(props: {
     return (
       <button
         key={c.id}
-        class={`tile${landscape ? ' landscape' : ''}${count ? ' in' : ''}${blocked ? ' blocked' : ''}`}
-        aria-label={`${name}, ${count} im Deck, ${own} in Sammlung`}
+        class={`tile${landscape ? ' landscape' : ''}${count ? ' in' : ''}${blocked ? ' blocked' : ''}${c.banned ? ' banned' : ''}`}
+        aria-label={`${name}${c.banned ? ', gesperrt' : ''}, ${count} im Deck, ${own} in Sammlung`}
         aria-disabled={blocked || undefined}
         {...press(onTap, () => setShown(c))}
       >
         <img src={thumb(c)} alt="" loading="lazy" draggable={false} />
+        {c.banned && <BanMark />}
         {count > 0 && (
           <b key={count} class={`tile-count${fresh?.id === c.id ? ' pop' : ''}`}>
             {landscape ? checkIcon : count}
@@ -1045,7 +1073,7 @@ function DeckEditor(props: {
     if (c.kind === 'battlefield') {
       const chosen = deck.battlefields.includes(c.id);
       return (
-        <button class={chosen ? '' : 'primary'} disabled={!chosen && deck.battlefields.length >= DECK_RULES.battlefields} onClick={() => toggleField(c)}>
+        <button class={chosen ? '' : 'primary'} disabled={!chosen && (!!c.banned || deck.battlefields.length >= DECK_RULES.battlefields)} onClick={() => toggleField(c)}>
           {chosen ? 'Aus dem Deck nehmen' : 'Ins Deck legen'}
         </button>
       );
@@ -1144,7 +1172,7 @@ function DeckEditor(props: {
               onClick={() => {
                 change((d) => buildFromMeta(d, stats, pool, { owned }));
                 setFresh(null);
-                warn(builtNotice(stats), 5000);
+                warn(builtNotice(stats, pool), 5000);
               }}
             >
               {sparkIcon}
@@ -1436,6 +1464,7 @@ function DeckEditor(props: {
               Deck löschen
             </button>
           </div>
+          {banlist && <BanlistNote banlist={banlist} />}
         </Sheet>
       )}
     </section>
@@ -1572,6 +1601,17 @@ function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?:
               <em class="tag">{owned ? `${owned} in Sammlung` : 'Nicht in Sammlung'}</em>
               {price !== undefined && <span class="price">{formatEur(price)}</span>}
             </span>
+            {card.banned && (
+              <p class="ban-line">
+                {banIcon}
+                <span>
+                  {banLabel(card.banned)}: Diese Karte darfst du bei offiziellen Turnieren nicht spielen.{' '}
+                  <a href={card.banned.source} target="_blank" rel="noopener">
+                    Banlist ↗
+                  </a>
+                </span>
+              </p>
+            )}
             {url && (
               <a href={url} target="_blank" rel="noopener">
                 Bei Cardmarket ansehen ↗
@@ -1582,6 +1622,31 @@ function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?:
       </div>
       {children}
     </Sheet>
+  );
+}
+
+/** Schild „Gesperrt“ auf einer Karte im Raster. */
+function BanMark() {
+  return (
+    <b class="tile-ban" aria-hidden="true">
+      {banIcon}
+      <span>Gesperrt</span>
+    </b>
+  );
+}
+
+const DAY = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** Woher die Banlist stammt und wie alt sie ist. */
+export function BanlistNote({ banlist }: { banlist: BanlistFile }) {
+  return (
+    <p class="meta-note center">
+      Gesperrte Karten nach der{' '}
+      <a href={banlist.sourceUrl} target="_blank" rel="noopener">
+        Banlist von {banlist.source}
+      </a>
+      , Stand {DAY.format(new Date(`${banlist.updatedAt}T12:00:00Z`))}
+    </p>
   );
 }
 
@@ -1650,7 +1715,10 @@ export function listsLabel(stats: MetaStats): string {
   return stats.community ? `${t} und ${stats.community} Community-Decks` : t;
 }
 
-const builtNotice = (stats: MetaStats) => `KI-Deck aus ${listsLabel(stats)} gebaut`;
+const builtNotice = (stats: MetaStats, pool: DeckPool) => {
+  const banned = metaBanned(stats, pool).length;
+  return `KI-Deck aus ${listsLabel(stats)} gebaut${banned ? `, ohne ${banned === 1 ? 'die gesperrte Karte' : `${banned} gesperrte Karten`}` : ''}`;
+};
 
 const trophyMini = (
   <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
@@ -1661,6 +1729,13 @@ const trophyMini = (
 const zoomIcon = (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
     <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4M11 8v6M8 11h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  </svg>
+);
+
+const banIcon = (
+  <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6" />
+    <path d="M6 18 18 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
   </svg>
 );
 

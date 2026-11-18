@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 import { byCost, DECK_RULES, deckValue, mainCount, missingCount, type CardKind, type Deck, type DeckCard, type DeckPool } from '../core/deck';
-import { buildFromMeta, deckFromList, playRate, type MetaDeck, type MetaFile, type MetaStats } from '../core/meta';
+import { bannedInList, buildFromMeta, deckFromList, metaBanned, playRate, type MetaDeck, type MetaFile, type MetaStats } from '../core/meta';
 import { formatEur } from '../core/prices';
 import { Sheet } from './Sheet';
 
@@ -42,6 +42,8 @@ export function MetaSheet(props: {
     .sort((a, b) => byKind(a.card, b.card));
   const core = cards.filter((e) => playRate(stats, e.card.id) >= 0.75).length;
   const champion = pool.cards.get(built.champion);
+  // Turnierlisten können älter sein als die Banlist: Was gesperrt ist, lässt der Vorschlag weg
+  const banned = useMemo(() => metaBanned(stats, pool), [stats, pool]);
 
   return (
     <Sheet class="meta-sheet" label="Deck aus der Meta" onClose={onClose}>
@@ -62,6 +64,16 @@ export function MetaSheet(props: {
           {trophyIcon}
           <span>
             Bestes Ergebnis: <strong>{stats.best.place}. Platz</strong> bei {stats.best.event}
+          </span>
+        </p>
+      )}
+
+      {banned.length > 0 && (
+        <p class="meta-ban">
+          {banIcon}
+          <span>
+            {names(banned)} {banned.length === 1 ? 'steht' : 'stehen'} auf der Banlist. Ältere Turnierlisten spielen{' '}
+            {banned.length === 1 ? 'die Karte' : 'sie'} noch, der Vorschlag lässt sie weg.
           </span>
         </p>
       )}
@@ -123,6 +135,7 @@ export function MetaSheet(props: {
                 key={list.id}
                 list={list}
                 champion={championOf(list, stats, pool)}
+                banned={bannedInList(list, pool)}
                 onApply={() => {
                   onApply(deckFromList(deck, list, stats.legend, pool));
                   onClose();
@@ -158,7 +171,7 @@ function championOf(list: MetaDeck, stats: MetaStats, pool: DeckPool): DeckCard 
   return best?.card;
 }
 
-function ListRow({ list, champion, onApply }: { list: MetaDeck; champion?: DeckCard; onApply(): void }) {
+function ListRow({ list, champion, banned, onApply }: { list: MetaDeck; champion?: DeckCard; banned: DeckCard[]; onApply(): void }) {
   return (
     <li class="meta-list">
       <b class={`meta-place${list.place === 1 ? ' first' : list.place && list.place <= 8 ? ' top' : ''}`}>{list.place ? `${list.place}.` : '–'}</b>
@@ -168,8 +181,17 @@ function ListRow({ list, champion, onApply }: { list: MetaDeck; champion?: DeckC
           {day(list.date)}
           {champion ? ` · ${champion.title ?? champion.name}` : ''}
         </small>
+        {banned.length > 0 && (
+          <small class="banned" title={`Gesperrt: ${names(banned)}. Beim Übernehmen bleiben ihre Plätze leer.`}>
+            {banned.length === 1 ? `${label(banned[0])} gesperrt` : `${banned.length} gesperrte Karten`}
+          </small>
+        )}
       </span>
-      <button class="small" onClick={onApply} aria-label={`Deck vom ${list.place ? `${list.place}. Platz ` : ''}${list.event} übernehmen`}>
+      <button
+        class="small"
+        onClick={onApply}
+        aria-label={`Deck vom ${list.place ? `${list.place}. Platz ` : ''}${list.event} übernehmen${banned.length ? `, ohne gesperrte Karten: ${names(banned)}` : ''}`}
+      >
         Übernehmen
       </button>
     </li>
@@ -187,6 +209,20 @@ function MetaTile({ card, n, have, rate, champ }: { card: DeckCard; n: number; h
     </span>
   );
 }
+
+const label = (c: DeckCard) => (c.kind === 'legend' ? c.championOf ?? c.name : c.id);
+/** „Riven, Broken Blade, Star Spring und Baited Hook“ */
+function names(cards: DeckCard[]): string {
+  const list = cards.map(label);
+  return list.length > 1 ? `${list.slice(0, -1).join(', ')} und ${list.at(-1)}` : list[0] ?? '';
+}
+
+const banIcon = (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.4" />
+    <path d="M6 18 18 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+  </svg>
+);
 
 export const sparkIcon = (
   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
