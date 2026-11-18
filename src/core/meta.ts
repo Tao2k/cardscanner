@@ -252,12 +252,13 @@ export function buildFromMeta(deck: Deck, stats: MetaStats, pool: DeckPool, opti
   }
 
   next = { ...next, runes: metaRunes(stats, runesFor(legend, pool)) };
-  const fields = [...stats.battlefields].filter(([id]) => pool.cards.get(id)?.kind === 'battlefield').sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  // Gesperrte Karten nie vorschlagen (bei Haupt- und Side Deck sorgen room/sideRoom dafür)
+  const fields = [...stats.battlefields].filter(([id]) => pool.cards.get(id)?.kind === 'battlefield' && !pool.cards.get(id)?.banned).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const chosen = fields.slice(0, DECK_RULES.battlefields).map(([id]) => id);
   // Zu wenige in den Listen: mit Battlefields aus der Sammlung, sonst alphabetisch auffüllen
   for (const b of [...battlefieldsOf(pool)].sort((a, c) => Number((owned.get(c.id) ?? 0) > 0) - Number((owned.get(a.id) ?? 0) > 0))) {
     if (chosen.length >= DECK_RULES.battlefields) break;
-    if (!chosen.includes(b.id)) chosen.push(b.id);
+    if (!chosen.includes(b.id) && !b.banned) chosen.push(b.id);
   }
   return fillSide({ ...next, battlefields: chosen }, stats, pool);
 }
@@ -279,9 +280,20 @@ function fillSide(deck: Deck, stats: MetaStats, pool: DeckPool): Deck {
   return next;
 }
 
+/** Karten einer Turnierliste (mit Sideboard), die inzwischen gesperrt sind; jede Karte einmal. */
+export function bannedInList(list: MetaDeck, pool: DeckPool): DeckCard[] {
+  const out = new Map<string, DeckCard>();
+  for (const printingId of [...Object.keys(list.cards), ...Object.keys(list.side ?? {})]) {
+    const card = pool.cardOf(printingId);
+    if (card?.banned) out.set(card.id, card);
+  }
+  return [...out.values()];
+}
+
 /**
  * Eine bestimmte Turnierliste übernehmen. Der Chosen Champion bleibt, wenn die Liste ihn spielt,
  * sonst wird es der Champion der Legende, den die Liste am häufigsten spielt.
+ * Gesperrte Karten bleiben draußen; ihre Plätze bleiben leer.
  */
 export function deckFromList(deck: Deck, list: MetaDeck, legend: DeckCard, pool: DeckPool): Deck {
   const cards: Record<string, number> = {};
@@ -289,7 +301,7 @@ export function deckFromList(deck: Deck, list: MetaDeck, legend: DeckCard, pool:
   const battlefields: string[] = [];
   for (const [printingId, n] of Object.entries(list.cards)) {
     const card = pool.cardOf(printingId);
-    if (!card || card.kind === 'legend' || !(n > 0)) continue;
+    if (!card || card.kind === 'legend' || card.banned || !(n > 0)) continue;
     if (card.kind === 'rune') runes[card.id] = (runes[card.id] ?? 0) + n;
     else if (card.kind === 'battlefield') battlefields.includes(card.id) || battlefields.push(card.id);
     else cards[card.id] = Math.min(DECK_RULES.copies, (cards[card.id] ?? 0) + n);
@@ -306,7 +318,7 @@ export function deckFromList(deck: Deck, list: MetaDeck, legend: DeckCard, pool:
   const side: Record<string, number> = {};
   for (const [printingId, n] of Object.entries(list.side ?? {})) {
     const card = pool.cardOf(printingId);
-    if (card && n > 0 && card.kind !== 'legend') side[card.id] = Math.min(DECK_RULES.copies, (side[card.id] ?? 0) + n);
+    if (card && n > 0 && card.kind !== 'legend' && !card.banned) side[card.id] = Math.min(DECK_RULES.copies, (side[card.id] ?? 0) + n);
   }
   return { ...deck, champion, cards, runes, battlefields: battlefields.slice(0, DECK_RULES.battlefields), side };
 }
@@ -332,4 +344,13 @@ export function metaRunes(stats: Pick<MetaStats, 'runes'>, runes: DeckCard[]): R
 /** Anteil der Listen, die die Karte überhaupt spielen (für die Anzeige „in 87 % der Listen“). */
 export function playRate(stats: MetaStats, id: string): number {
   return stats.share.get(id)?.[0] ?? stats.battlefields.get(id) ?? 0;
+}
+
+/** Gesperrte Karten, die die Listen dieser Legende spielen (meistgespielte zuerst): Der Vorschlag lässt sie weg. */
+export function metaBanned(stats: MetaStats, pool: DeckPool): DeckCard[] {
+  const ids = new Set([...stats.share.keys(), ...stats.side.keys(), ...stats.battlefields.keys()]);
+  return [...ids]
+    .map((id) => pool.cards.get(id))
+    .filter((c): c is DeckCard => !!c?.banned)
+    .sort((a, b) => playRate(stats, b.id) - playRate(stats, a.id) || a.id.localeCompare(b.id));
 }

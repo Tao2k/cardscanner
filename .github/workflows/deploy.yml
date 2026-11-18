@@ -51,6 +51,10 @@ jobs:
         # Fällt die Quelle aus, erscheint die App trotzdem, nur ohne Vorschläge aus der Meta.
         continue-on-error: true
         run: npm run meta -- riftbound
+      - name: Banlist von Riot prüfen
+        # Liest neue Bann-Artikel aus Riots Ankündigungen; fällt die Seite aus, gilt die eingebaute Liste.
+        continue-on-error: true
+        run: npm run banlist -- riftbound
       - name: Preisverlauf fortschreiben
         # Cardmarket kennt nur den heutigen Preis; der Verlauf liegt dauerhaft im Zweig price-history.
         continue-on-error: true
