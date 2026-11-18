@@ -1,3 +1,4 @@
+import { banKey, type Ban } from './banlist';
 import { compareCollectorNumbers, setRanks } from './excel';
 import type { CardSet, CollectionItem, GameId, Printing } from './types';
 
@@ -10,6 +11,7 @@ import type { CardSet, CollectionItem, GameId, Printing } from './types';
  *   - genau 12 Runen aus diesen Domains und 3 verschiedene Battlefields
  *   - Turnierregeln (seit Juli 2026): Side Deck mit höchstens 10 Karten, die auch ins Hauptdeck dürften;
  *     die Grenze von 3 Kopien gilt für Hauptdeck und Side Deck zusammen
+ *   - keine Karte von Riots Banlist (core/banlist.ts), weder im Hauptdeck noch im Side Deck
  */
 export const DECK_RULES = { main: 40, copies: 3, signatures: 3, runes: 12, battlefields: 3, side: 10 } as const;
 
@@ -39,6 +41,8 @@ export interface DeckCard {
   power: number | null;
   /** Druck für Bild und Preis: normaler Druck aus dem ältesten Set. */
   printing: Printing;
+  /** Auf der Banlist: darf in kein Deck. */
+  banned?: Ban;
 }
 
 export interface DeckPool {
@@ -104,7 +108,7 @@ function championTitle(p: Printing): string | undefined {
  * Alle Karten eines Spiels für den Deckbau. Je Karte zählt ein Druck (normal, ältestes Set);
  * Showcase-Drucke und Promos derselben Karte zeigen nur, ob man sie besitzt.
  */
-export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[]): DeckPool {
+export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[], bans?: Map<string, Ban>): DeckPool {
   const ranks = setRanks(sets);
   const promoSets = new Set(sets.filter((s) => s.promo).map((s) => s.code));
   const preference = (p: Printing) => (p.variant === 'normal' ? 0 : 1) + (promoSets.has(p.setCode) || p.variant === 'promo' ? 2 : 0);
@@ -162,6 +166,14 @@ export function deckPool(gameId: GameId, printings: Printing[], sets: CardSet[])
       printing: p,
     });
   }
+  if (bans?.size) {
+    for (const c of cards.values()) {
+      // Legenden heißen in der Galerie nur nach ihrem Titel, Riot schreibt „Master Yi, Wuju Bladesman“
+      const names = [c.id, c.kind === 'legend' && c.championOf ? `${c.championOf}, ${c.name}` : ''];
+      const ban = names.map((n) => n && bans.get(banKey(n))).find(Boolean);
+      if (ban) c.banned = ban;
+    }
+  }
   const legends = [...cards.values()]
     .filter((c) => c.kind === 'legend')
     .sort((a, b) => (a.championOf ?? a.name).localeCompare(b.championOf ?? b.name) || a.name.localeCompare(b.name));
@@ -177,7 +189,7 @@ export function fitsLegend(card: DeckCard, legend: DeckCard): boolean {
 
 /** Champion-Einheiten, die als Chosen Champion zur Legende passen. */
 export function championsFor(legend: DeckCard, pool: DeckPool): DeckCard[] {
-  return [...pool.cards.values()].filter((c) => c.champion && c.championOf === legend.championOf && fitsLegend(c, legend)).sort(byCost);
+  return [...pool.cards.values()].filter((c) => c.champion && !c.banned && c.championOf === legend.championOf && fitsLegend(c, legend)).sort(byCost);
 }
 
 /** Karten, die ins Hauptdeck dieser Legende dürfen. */
@@ -276,12 +288,14 @@ export function signatureCount(deck: Deck, pool: DeckPool): number {
 
 /** Wie viele Kopien noch ins Hauptdeck dürfen (Kopien je Name mit Side Deck, Signature-Karten gesamt). */
 export function room(deck: Deck, card: DeckCard, pool: DeckPool): number {
+  if (card.banned) return 0;
   const copies = DECK_RULES.copies - allCopiesOf(deck, card.id);
   return Math.max(0, card.signature ? Math.min(copies, DECK_RULES.signatures - signatureCount(deck, pool)) : copies);
 }
 
 /** Wie viele Kopien noch ins Side Deck dürfen (höchstens 10 Karten, Kopien je Name mit Hauptdeck). */
 export function sideRoom(deck: Deck, card: DeckCard): number {
+  if (card.banned) return 0;
   return Math.max(0, Math.min(DECK_RULES.copies - allCopiesOf(deck, card.id), DECK_RULES.side - sideCount(deck)));
 }
 
@@ -378,7 +392,7 @@ export function evenRunes(deck: Deck, runes: DeckCard[]): Deck {
 /** Battlefield wählen oder abwählen; mehr als drei gehen nicht. */
 export function toggleBattlefield(deck: Deck, battlefield: DeckCard): Deck {
   if (deck.battlefields.includes(battlefield.id)) return { ...deck, battlefields: deck.battlefields.filter((b) => b !== battlefield.id) };
-  if (deck.battlefields.length >= DECK_RULES.battlefields) return deck;
+  if (deck.battlefields.length >= DECK_RULES.battlefields || battlefield.banned) return deck;
   return { ...deck, battlefields: [...deck.battlefields, battlefield.id] };
 }
 
@@ -442,12 +456,22 @@ export function checkDeck(deck: Deck, pool: DeckPool): DeckCheck {
     const rune = pool.cards.get(id);
     if (legend && rune && !rune.domains.some((d) => legend.domains.includes(d))) problems.push(`${id} passt nicht zur Legende`);
   }
+  // Gesperrte Karten zuerst: Das Deck darf so bei keinem Turnier gespielt werden
+  const banned = bannedInDeck(deck, pool).map((c) => `${c.kind === 'legend' ? c.championOf ?? c.name : c.id} ist gesperrt`);
+  problems.unshift(...banned);
   const battlefields = new Set(deck.battlefields).size;
   if (battlefields < DECK_RULES.battlefields) {
     const n = DECK_RULES.battlefields - battlefields;
     problems.push(`Noch ${n} ${n === 1 ? 'Battlefield' : 'Battlefields'}`);
   }
   return { main, side, runes, battlefields, signatures, problems, complete: !problems.length };
+}
+
+/** Karten im Deck (auch Side Deck, Runen, Battlefields), die auf der Banlist stehen. */
+export function bannedInDeck(deck: Deck, pool: DeckPool): DeckCard[] {
+  return deckEntries(deck)
+    .map((e) => pool.cards.get(e.id))
+    .filter((c): c is DeckCard => !!c?.banned);
 }
 
 /** Alle Karten des Decks mit Anzahl: Legende, Champion, Hauptdeck, Side Deck, Runen, Battlefields. */

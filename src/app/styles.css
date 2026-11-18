@@ -778,6 +778,24 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 .tile-count { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px; display: grid; place-items: center; border-radius: 11px;
   background: var(--accent); color: var(--on-accent); font-size: 0.78rem; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg); }
 .tile-count.pop { animation: count-pop 0.35s ease-out; }
+/* Karte auf der Banlist: rotes Schild quer über der Kachel, Bild gedämpft */
+.tile.banned img { opacity: 0.45; filter: grayscale(0.8); }
+.tile.banned { box-shadow: inset 0 0 0 1.5px var(--down); }
+.tile-ban { position: absolute; left: 3px; right: 3px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; gap: 3px;
+  padding: 2px 3px; border-radius: 999px; background: var(--down); color: var(--on-down); font-size: 0.6rem; font-weight: 800; line-height: 1.2; white-space: nowrap;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); pointer-events: none; }
+.tile-ban svg { flex: none; width: 10px; height: 10px; }
+/* Im kleinen Deckraster nur das Zeichen */
+.deck-grid .tile-ban { left: 50%; right: auto; width: 20px; height: 20px; padding: 0; transform: translate(-50%, -50%); }
+.deck-grid .tile-ban span { display: none; }
+.deck-grid .tile-ban svg { width: 12px; height: 12px; }
+.ban-line { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 0; padding: 9px 12px; border-radius: 12px; background: var(--down-soft); color: var(--down);
+  font-size: 0.85rem; line-height: 1.35; text-align: left; }
+.ban-line svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+.ban-line a { color: inherit; font-weight: 700; }
+.meta-ban { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-radius: 12px; background: var(--down-soft); color: var(--down); font-size: 0.85rem; line-height: 1.35; }
+.meta-ban svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+.meta-list small.banned { color: var(--down); font-weight: 700; }
 .tile-own { position: absolute; left: 3px; bottom: 3px; display: inline-flex; align-items: center; gap: 2px; padding: 2px 5px 2px 4px; border-radius: 999px;
   background: rgba(16, 12, 20, 0.74); color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 
