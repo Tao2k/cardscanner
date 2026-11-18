@@ -1,0 +1,3 @@
+- Neu: Im Deckbau nimmst du eine Karte heraus, indem du sie kurz hältst und aus dem Deck ziehst. Ein einfacher Tipp nimmt nichts mehr aus Versehen heraus.
+- Neu: Tippst du eine Karte im Deck an, siehst du sie groß und kannst sie dort entfernen oder eine weitere Kopie dazulegen.
+- Neu: In der großen Ansicht wischst du seitlich durch alle Karten deines Decks.
