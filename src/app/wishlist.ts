@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { priceFor } from '../core/prices';
-import type { Printing } from '../core/types';
-import { watchWishes, wishAlerts, wishKey, withWish, withoutWish, type Wish, type WishAlert, type WishWatches } from '../core/wishlist';
+import { MAX_WISH, watchWishes, wishAlerts, wishFinish, wishKey, withWish, withoutWish, type Wish, type WishAlert, type WishWatches } from '../core/wishlist';
 import type { WishlistApi } from '../storage/wishlist';
 import type { Catalogs } from './App';
 import { cloud, useCloud } from './cloud';
@@ -15,9 +14,11 @@ export interface WishlistState {
   message?: string;
   /** false, solange der Server keine Zielpreise speichern kann (0005 nicht ausgeführt). */
   targets: boolean;
+  /** false, solange der Server keine Foil-Wünsche speichern kann (0008 nicht ausgeführt). */
+  foil: boolean;
 }
 
-const EMPTY: WishlistState = { wishes: [], keys: new Set(), status: 'idle', targets: true };
+const EMPTY: WishlistState = { wishes: [], keys: new Set(), status: 'idle', targets: true, foil: true };
 
 /**
  * Wunschliste der angemeldeten Person. Sie liegt nur auf dem Server (Tausch geht ohnehin nur online);
@@ -64,7 +65,7 @@ class Wishlist {
       try {
         const api = await this.client();
         const wishes = await api.list();
-        if (this.owner === owner) this.set({ wishes, status: 'ready', targets: api.targets });
+        if (this.owner === owner) this.set({ wishes, status: 'ready', targets: api.targets, foil: api.foil });
       } catch (e) {
         if (this.owner === owner) await this.failed(e);
       } finally {
@@ -75,8 +76,9 @@ class Wishlist {
   }
 
   private async failed(e: unknown) {
-    const { WishlistUnavailable, TargetUnavailable } = await import('../storage/wishlist');
-    if (e instanceof TargetUnavailable) this.set({ targets: false, message: 'Zielpreise sind auf dem Server noch nicht eingerichtet.' });
+    const { WishlistUnavailable, TargetUnavailable, FoilUnavailable } = await import('../storage/wishlist');
+    if (e instanceof FoilUnavailable) this.set({ foil: false, message: 'Foil-Wünsche sind auf dem Server noch nicht eingerichtet.' });
+    else if (e instanceof TargetUnavailable) this.set({ targets: false, message: 'Zielpreise sind auf dem Server noch nicht eingerichtet.' });
     else if (e instanceof WishlistUnavailable) this.set({ status: 'unavailable', message: undefined });
     else this.set({ status: this.state.status === 'loading' ? 'error' : this.state.status, message: /fetch|network/i.test((e as Error).message) ? 'Keine Verbindung zum Server.' : (e as Error).message });
   }
@@ -85,9 +87,10 @@ class Wishlist {
     return this.state.keys.has(wishKey({ gameId, printingId }));
   }
 
-  async add(gameId: string, printingId: string) {
+  /** Karte auf die Liste setzen; steht sie schon drauf, bleibt sie, wie sie ist. */
+  async add(gameId: string, printingId: string, quantity = 1) {
     if (this.has(gameId, printingId)) return;
-    const wish: Wish = { gameId, printingId, quantity: 1, addedAt: new Date().toISOString() };
+    const wish: Wish = { gameId, printingId, quantity: Math.min(MAX_WISH, Math.max(1, quantity)), addedAt: new Date().toISOString() };
     const before = this.state.wishes;
     this.set({ wishes: withWish(before, wish), message: undefined });
     try {
@@ -129,6 +132,35 @@ class Wishlist {
       await (await this.client()).setTarget(gameId, printingId, target);
     } catch (e) {
       swap(old);
+      await this.failed(e);
+    }
+  }
+
+  /** Anzahl (1–99) oder Foil eines Wunsches ändern. */
+  async update(gameId: string, printingId: string, patch: { quantity?: number; foil?: boolean }) {
+    const key = wishKey({ gameId, printingId });
+    const old = this.state.wishes.find((w) => wishKey(w) === key);
+    if (!old) return;
+    const next: Wish = { ...old };
+    if (patch.quantity !== undefined) next.quantity = Math.min(MAX_WISH, Math.max(1, Math.round(patch.quantity)));
+    if (patch.foil !== undefined) {
+      if (patch.foil) next.foil = true;
+      else delete next.foil;
+    }
+    if (next.quantity === old.quantity && !!next.foil === !!old.foil) return;
+    const swap = (w: Wish) => this.set({ wishes: this.state.wishes.map((x) => (wishKey(x) === key ? w : x)), message: undefined });
+    swap(next);
+    // Foil hat einen anderen Preis: Vergleichspreis für den Alarm neu merken
+    if (!!next.foil !== !!old.foil) wishAlarm.forget(key);
+    try {
+      const send: { quantity?: number; foil?: boolean } = {};
+      if (next.quantity !== old.quantity) send.quantity = next.quantity;
+      if (!!next.foil !== !!old.foil) send.foil = !!next.foil;
+      await (await this.client()).update(gameId, printingId, send);
+    } catch (e) {
+      const now = this.state.wishes.find((w) => wishKey(w) === key);
+      // Nur zurücknehmen, wenn nicht schon ein neuerer Tipp kam
+      if (now === next) swap(old);
       await this.failed(e);
     }
   }
@@ -188,6 +220,14 @@ class WishAlarm {
     for (const fn of this.listeners) fn(next);
   }
 
+  /** Vergleichspreis vergessen; er wird mit dem nächsten Preis neu gemerkt. */
+  forget(key: string) {
+    if (!(key in this.watches)) return;
+    const next = { ...this.watches };
+    delete next[key];
+    this.set(next);
+  }
+
   rearm(key: string) {
     const watch = this.watches[key];
     if (watch?.hit) this.set({ ...this.watches, [key]: { ref: watch.ref } });
@@ -204,13 +244,10 @@ function load(): WishWatches {
 
 export const wishAlarm = new WishAlarm();
 
-/** Ausführung, mit der eine gesuchte Karte bewertet wird: Foil nur bei reinen Foil-Drucken. */
-export const defaultFinish = (p?: Printing) => (p?.finishes?.length === 1 && p.finishes[0] === 'foil' ? 'foil' : 'normal');
-
-/** Heutiger Preis eines gewünschten Drucks. */
-export function wishPrice(catalogs: Catalogs, gameId: string, printingId: string): number | undefined {
+/** Heutiger Preis eines gewünschten Drucks (als Foil, wenn so gewünscht). */
+export function wishPrice(catalogs: Catalogs, gameId: string, printingId: string, foil?: boolean): number | undefined {
   const printing = catalogs.lookup(gameId, printingId);
-  return printing ? priceFor(catalogs.price(gameId, printingId), defaultFinish(printing), printing) : undefined;
+  return printing ? priceFor(catalogs.price(gameId, printingId), wishFinish(printing, foil), printing) : undefined;
 }
 
 export interface WishAlarmState {
@@ -224,7 +261,7 @@ export interface WishAlarmState {
 export function useWishAlarm(wish: WishlistState, catalogs: Catalogs | null): WishAlarmState {
   const [watches, setWatches] = useState(wishAlarm.watches);
   useEffect(() => wishAlarm.subscribe(setWatches), []);
-  const priceOf = (w: Wish) => (catalogs ? wishPrice(catalogs, w.gameId, w.printingId) : undefined);
+  const priceOf = (w: Wish) => (catalogs ? wishPrice(catalogs, w.gameId, w.printingId, w.foil) : undefined);
   const ready = wish.status === 'ready' && !!catalogs;
   useEffect(() => {
     // Erst mit geladener Liste, sonst fielen alle Vergleichspreise weg

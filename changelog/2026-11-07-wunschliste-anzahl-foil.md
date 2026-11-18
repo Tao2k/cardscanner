@@ -1,0 +1,3 @@
+- Neu: Auf der Wunschliste gibst du an, wie oft du eine Karte suchst. Tipp dazu auf die Karte und stell die Anzahl ein.
+- Neu: Bei Commons und Uncommons wählst du dort auch, ob die Karte Foil sein soll. Preis und Freunde-Abgleich richten sich danach.
+- Verbessert: Fehlende Deckkarten kommen gleich mit der fehlenden Anzahl auf die Wunschliste.

@@ -1,12 +1,14 @@
 import { isStrong } from './priceHistory';
-import type { Finish } from './types';
+import type { Finish, Printing } from './types';
 
 /** Ein Druck auf der Wunschliste. */
 export interface Wish {
   gameId: string;
   printingId: string;
-  /** Wie viele Exemplare gesucht werden (bisher immer 1). */
+  /** Wie viele Exemplare gesucht werden (1–99). */
   quantity: number;
+  /** Soll Foil sein (nur bei Common und Uncommon wählbar, siehe foilChoice). */
+  foil?: boolean;
   /** Wann die Karte auf die Liste kam (ISO), neueste zuerst. */
   addedAt: string;
   /** Zielpreis in Euro: Preisalarm, sobald die Karte so viel oder weniger kostet. */
@@ -14,6 +16,24 @@ export interface Wish {
 }
 
 export const wishKey = (w: { gameId: string; printingId: string }) => `${w.gameId}|${w.printingId}`;
+
+/** Höchstens so viele Exemplare je Wunsch (wie in der Tabelle wishlist). */
+export const MAX_WISH = 99;
+
+/**
+ * Lässt sich beim Wunsch Foil wählen? Nur bei Common und Uncommon, die es auch als Foil gibt;
+ * Rare, Epic und Co. sind ohnehin immer Foil.
+ */
+export function foilChoice(p?: Printing): boolean {
+  if (!p || !['common', 'uncommon'].includes((p.rarity ?? '').toLowerCase())) return false;
+  return !p.finishes || p.finishes.includes('foil');
+}
+
+/** Ausführung, mit der eine gesuchte Karte bewertet wird: Foil, wenn gewünscht oder nur als Foil gedruckt. */
+export function wishFinish(p: Printing | undefined, foil?: boolean): Finish {
+  if (foil && foilChoice(p)) return 'foil';
+  return p?.finishes?.length === 1 && p.finishes[0] === 'foil' ? 'foil' : 'normal';
+}
 
 type Owned = { gameId: string; printingId: string; finish: Finish; quantity: number };
 
@@ -26,17 +46,18 @@ export interface WishOwner {
 }
 
 /**
- * Wer von den Freunden welche gewünschte Karte hat (über Sprache, Ausführung und Zustand zusammengezählt).
- * Je Karte die Freunde mit den meisten übrigen Exemplaren zuerst.
+ * Wer von den Freunden welche gewünschte Karte hat (über Sprache und Zustand zusammengezählt,
+ * bei einem Foil-Wunsch nur die Foil-Exemplare). Je Karte die Freunde mit den meisten übrigen Exemplaren zuerst.
  */
 export function wishOwners(wishes: Wish[], friends: Map<string, Owned[]>, keep: number): Map<string, WishOwner[]> {
-  const wanted = new Set(wishes.map(wishKey));
+  const wanted = new Map(wishes.map((w) => [wishKey(w), w] as const));
   const result = new Map<string, WishOwner[]>();
   for (const [userId, cards] of friends) {
     const counts = new Map<string, number>();
     for (const c of cards) {
       const key = wishKey(c);
-      if (c.quantity > 0 && wanted.has(key)) counts.set(key, (counts.get(key) ?? 0) + c.quantity);
+      const w = wanted.get(key);
+      if (c.quantity > 0 && w && (!w.foil || c.finish === 'foil')) counts.set(key, (counts.get(key) ?? 0) + c.quantity);
     }
     for (const [key, quantity] of counts) result.set(key, [...(result.get(key) ?? []), { userId, quantity, spare: Math.max(0, quantity - keep) }]);
   }
