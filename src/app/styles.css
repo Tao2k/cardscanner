@@ -744,14 +744,8 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 .deck-grid.side { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; }
 .pane-head b.over { color: var(--warn); }
 /* Kosten des Hauptdecks je Farbe: Power groß, Energie klein darunter */
-.cost-bar { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px; background: var(--raised); font-variant-numeric: tabular-nums; }
-.cost-bar h3 { margin: 0; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
-.cost-bar ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(58px, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
-.cost-bar li { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
-.cost-bar li b { font-size: 1.05rem; }
-.cost-bar li small { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
-.cost-bar li.cost-all { border-right: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); }
-.cost-bar p { margin: 0; font-size: 0.68rem; color: var(--muted); text-align: center; }
+.pane-head.main small { margin-left: 4px; }
+.deck-power { margin-left: auto; padding: 2px 8px; border-radius: 999px; background: var(--raised); font-size: 0.72rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cost-dots { display: inline-flex; gap: 2px; height: 0.9rem; align-items: center; }
 /* Freie Plätze: zeigen, wie viel noch fehlt */
 .slot { display: block; aspect-ratio: 63 / 88; border-radius: 3px; border: 1.5px dashed color-mix(in srgb, var(--muted) 38%, transparent); }
@@ -794,15 +788,17 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 .deck-actions small { font-size: 0.8rem; }
 /* Seitlich wischen blättert durch das Deck */
 .card-swipe { display: flex; flex-direction: column; }
-.card-swipe.on { touch-action: pan-y; }
 .card-swipe-body { display: flex; flex-direction: column; gap: 14px; }
 .card-swipe-body.from-right { animation: card-from-right 0.22s cubic-bezier(.2, .8, .2, 1); }
 .card-swipe-body.from-left { animation: card-from-left 0.22s cubic-bezier(.2, .8, .2, 1); }
 @keyframes card-from-right { from { transform: translateX(40%); opacity: 0; } }
 @keyframes card-from-left { from { transform: translateX(-40%); opacity: 0; } }
-.card-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin: -6px 0 -4px; font-size: 0.85rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-.card-nav button { font-size: 1.4rem; line-height: 1; }
-.card-nav button:disabled { opacity: 0.3; }
+.card-stage { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.card-stage > img { flex: none; min-width: 0; }
+.card-stage.nav > img.landscape { width: min(72vw, 420px); }
+.card-stage button { flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 1.4rem; line-height: 1; }
+.card-stage button:disabled { opacity: 0.3; }
+.card-pos { margin: -8px 0 -4px; text-align: center; font-size: 0.8rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tile.lacking { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 40%, transparent); }
 .tile.lacking img { opacity: 0.4; filter: grayscale(0.7); }
 .tile.fresh { animation: tile-in 0.24s cubic-bezier(.2, .8, .2, 1); }
@@ -889,7 +885,6 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .wish-list button.info { flex: 1; }
 .tag.alarm-target, .tag.up:has(svg) { gap: 4px; }
 .tag.alarm-target { background: var(--accent-soft); color: var(--accent-text); }
-.wish-hint { font-size: 0.82rem; text-align: center; margin: 2px 0 0; }
 .wish-alarm-card { display: flex; gap: 12px; align-items: center; }
 .wish-alarm-card img { width: 56px; border-radius: 6px; flex: none; }
 .wish-alarm h2 { margin: 0; }
@@ -900,7 +895,6 @@ button.reset-filters { align-self: flex-start; min-height: 40px; padding: 8px 16
 .wish-alarm-form button { flex: none; }
 .wish-alarm .chips button { padding-inline: 12px; font-variant-numeric: tabular-nums; }
 .wish-alarm-remove { align-self: flex-start; padding: 0; }
-.wish-alarm-note { font-size: 0.82rem; }
 .wish-finish { padding-right: 3px; }
 .wish-finish .segmented { background: transparent; padding: 0; min-width: 168px; }
 .wish-finish .segmented button { min-height: 40px; }

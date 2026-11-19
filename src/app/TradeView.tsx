@@ -553,7 +553,6 @@ function WishlistSection({
             />
           );
         })()}
-      {wish.wishes.length > 0 && <p class="muted wish-hint">Tippe auf eine Karte für Anzahl, Foil und Preisalarm.</p>}
       {wish.status === 'ready' && !wish.wishes.length && !q && (
         <div class="empty-state">
           <span class="empty-heart" aria-hidden="true">
@@ -671,8 +670,7 @@ function FriendDetail({
       {(side === 'get' || side === 'give') && (
         <>
           <p class="muted trade-sum">
-            {side === 'get' ? 'Hat übrig, fehlt dir oder steht auf deiner Wunschliste' : 'Hast du übrig, fehlt ihr/ihm oder steht auf ihrer/seiner Wunschliste'} ·{' '}
-            {formatEur(value(trade[side]))}
+            {trade[side].length} {trade[side].length === 1 ? 'Karte' : 'Karten'} · {formatEur(value(trade[side]))}
           </p>
           {trade[side].length ? (
             <ol class="items">

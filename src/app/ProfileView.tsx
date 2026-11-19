@@ -230,13 +230,11 @@ function InstallGroup() {
   return (
     <div class="profile-group">
       <h2>Als App installieren</h2>
-      <p class="muted profile-note">
-        {install.kind === 'ios'
-          ? 'Tippe in Safari unten auf „Teilen“ und dann auf „Zum Home-Bildschirm“. ScannR öffnet sich dann wie eine App.'
-          : install.kind === 'prompt'
-            ? 'ScannR bekommt ein eigenes Symbol auf dem Startbildschirm und öffnet sich ohne Browserleiste.'
-            : 'Noch nicht installiert? Tippe im Browser oben rechts auf das Menü (⋮) und dann auf „App installieren“ oder „Zum Startbildschirm hinzufügen“.'}
-      </p>
+      {install.kind !== 'prompt' && (
+        <p class="muted profile-note">
+          {install.kind === 'ios' ? 'Safari: Teilen → Zum Home-Bildschirm' : 'Browsermenü (⋮) → App installieren'}
+        </p>
+      )}
       {install.kind === 'prompt' && (
         <button
           class="primary"

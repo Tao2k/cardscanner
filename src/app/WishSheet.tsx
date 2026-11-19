@@ -1,5 +1,4 @@
 import { useState } from 'preact/hooks';
-import { STRONG_PCT } from '../core/priceHistory';
 import { formatEur, parseEur } from '../core/prices';
 import type { Printing } from '../core/types';
 import { foilChoice, MAX_WISH, type Wish } from '../core/wishlist';
@@ -76,7 +75,6 @@ export function WishSheet({ wish, printing, price, targets, foil, have, onClose 
       <h2>Preisalarm</h2>
       {targets ? (
         <>
-          <p class="muted">Du siehst einen Hinweis, sobald die Karte höchstens so viel kostet.</p>
           <form
             class="wish-alarm-form"
             onSubmit={(e) => {
@@ -121,11 +119,6 @@ export function WishSheet({ wish, printing, price, targets, foil, have, onClose 
       ) : (
         <p class="muted">Zielpreise sind auf dem Server noch nicht eingerichtet.</p>
       )}
-      <p class="muted wish-alarm-note">
-        {wish.target !== undefined || (targets && value !== undefined)
-          ? 'Mit Zielpreis meldet ScannR nur das Erreichen des Ziels.'
-          : `Ohne Zielpreis meldet ScannR, wenn die Karte ${Math.round(STRONG_PCT * 100)} % oder mehr günstiger wird.`}
-      </p>
     </Sheet>
   );
 }

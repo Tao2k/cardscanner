@@ -66,7 +66,6 @@ export function WhatsNewSheet({ entries, onClose }: { entries: ChangeEntry[]; on
   return (
     <Sheet class="whats-new" label={title} onClose={onClose}>
       <h2>{title}</h2>
-      <p class="muted">Das hat sich seit deinem letzten Besuch geändert:</p>
       <Points items={byKind(entries)} />
       <button class="primary" onClick={onClose}>Weiter</button>
     </Sheet>
