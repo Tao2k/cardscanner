@@ -1,0 +1,3 @@
+- Verbessert: In der Großansicht einer Deckkarte stehen die Pfeile jetzt links und rechts neben der Karte. Wischen blättert nicht mehr versehentlich weiter.
+- Verbessert: Statt der großen Kostenübersicht unter dem Deck siehst du die gesamte Power jetzt klein über dem Deck.
+- Verbessert: Die App ist aufgeräumter – überflüssige Erklärtexte sind weg.

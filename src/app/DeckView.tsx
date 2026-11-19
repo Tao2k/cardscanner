@@ -34,7 +34,6 @@ import {
   withSideCard,
   type CardKind,
   type Deck,
-  type DomainCost,
   type DeckCard,
   type DeckPool,
 } from '../core/deck';
@@ -243,7 +242,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           <span class="ai-deck-icon">{sparkIcon}</span>
           <span class="ai-deck-text">
             <strong>KI-Deck bauen</strong>
-            <small>Legende wählen, den Rest baut die App aus aktuellen Turnierdecks</small>
           </span>
           <i aria-hidden="true">›</i>
         </button>
@@ -340,7 +338,6 @@ function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; auto
           ‹ Decks
         </button>
         <h1>{auto ? 'KI-Deck bauen' : 'Legende wählen'}</h1>
-        {auto && <p class="muted legend-line">Wähle eine Legende. Champion, Karten, Runen und Battlefields kommen aus den Turnierdecks.</p>}
       </header>
       <div class="find">
         <input type="search" enterkeyhint="search" placeholder="Champion suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
@@ -763,7 +760,7 @@ function DeckEditor(props: {
   const missing = missingCount(deck, owned);
   const value = deckValue(deck, pool, priceOf);
   const ownedOf = (c: DeckCard) => owned.get(c.id) ?? 0;
-  const costs = costByDomain(deck, pool);
+  const power = costByDomain(deck, pool).reduce((n, c) => n + c.power, 0);
   const domainOrder = legend?.domains ?? [];
   const byKindDomain = (a: DeckCard, b: DeckCard) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || byCostThenDomain(domainOrder)(a, b);
   /** Karten, die man nicht (oft genug) besitzt und noch nicht auf der Wunschliste hat. */
@@ -1178,15 +1175,12 @@ function DeckEditor(props: {
               {sparkIcon}
               <span>
                 <strong>KI-Deck bauen</strong>
-                <small>
-                  Ein Tipp, die App baut das Deck aus {listsLabel(stats)}
-                </small>
               </span>
               <i aria-hidden="true">›</i>
             </button>
           )}
 
-          <h2 class="pane-head">
+          <h2 class="pane-head main">
             Hauptdeck
             <b class={check.main >= DECK_RULES.main ? 'done' : ''}>
               {check.main}/{DECK_RULES.main}
@@ -1196,13 +1190,17 @@ function DeckEditor(props: {
                 Signature {check.signatures}/{DECK_RULES.signatures}
               </small>
             )}
+            {power > 0 && (
+              <span class="deck-power" aria-label={`${power} Power im Hauptdeck`}>
+                {power} Power
+              </span>
+            )}
           </h2>
           <div class="deck-grid">
             {champion && deckTile(champion, `${cardTitle(champion)}, Champion`, null, undefined, ' champ')}
             {inDeck.flatMap(({ card, n }) => Array.from({ length: n }, () => deckTile(card, cardTitle(card), 'main', () => removeCard(card))))}
             {slots(DECK_RULES.main - check.main)}
           </div>
-          {costs.length > 0 && <CostBar costs={costs} />}
 
           <h2 class="pane-head">
             Side Deck
@@ -1479,16 +1477,9 @@ interface CardNav {
   next?(): void;
 }
 
-/** Ab so viel Weg (px) oder Tempo (px/ms) springt das Blatt zur nächsten Karte, sonst federt es zurück. */
-const SWIPE_DISTANCE = 64;
-const SWIPE_SPEED = 0.45;
-
 function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?: string; nav?: CardNav; onClose(): void; children?: ComponentChildren }) {
   const { card, owned, price, url, nav, onClose, children } = props;
   const landscape = card.printing.attributes?.orientation === 'landscape';
-  const box = useRef<HTMLDivElement>(null);
-  const swipe = useRef<{ x: number; y: number; t: number; id: number; dx: number; lock: 'x' | 'y' | null } | null>(null);
-  const swiped = useRef(false);
   // Richtung des letzten Wechsels: die neue Karte kommt von dieser Seite herein
   const [dir, setDir] = useState(0);
   const go = (d: 1 | -1) => {
@@ -1509,86 +1500,34 @@ function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?:
     return () => removeEventListener('keydown', onKey);
   }, [!!nav]);
 
-  const slide = (dx: number, animate: boolean) => {
-    const el = box.current;
-    if (!el) return;
-    el.style.transition = animate ? 'transform 0.22s cubic-bezier(.2, .8, .2, 1)' : 'none';
-    el.style.transform = dx ? `translateX(${dx}px)` : '';
-  };
-  const gestures = nav && {
-    onPointerDown: (e: PointerEvent) => {
-      if (e.button > 0) return;
-      swiped.current = false;
-      swipe.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, dx: 0, lock: null };
-    },
-    onPointerMove: (e: PointerEvent) => {
-      const s = swipe.current;
-      if (!s || s.id !== e.pointerId) return;
-      const dx = e.clientX - s.x;
-      const dy = e.clientY - s.y;
-      if (!s.lock) {
-        if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
-          s.lock = 'x';
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        } else if (Math.abs(dy) > 8) s.lock = 'y';
-      }
-      if (s.lock !== 'x') return;
-      // Am Anfang und Ende des Decks gibt es nach, geht aber nicht weiter
-      const end = (dx < 0 && !nav.next) || (dx > 0 && !nav.prev);
-      s.dx = end ? dx / 4 : dx;
-      slide(s.dx, false);
-    },
-    onPointerUp: (e: PointerEvent) => {
-      const s = swipe.current;
-      swipe.current = null;
-      if (!s || s.id !== e.pointerId || s.lock !== 'x') return;
-      swiped.current = true;
-      const speed = s.dx / Math.max(1, e.timeStamp - s.t);
-      if ((s.dx < -SWIPE_DISTANCE || speed < -SWIPE_SPEED) && nav.next) {
-        slide(0, false);
-        go(1);
-      } else if ((s.dx > SWIPE_DISTANCE || speed > SWIPE_SPEED) && nav.prev) {
-        slide(0, false);
-        go(-1);
-      } else slide(0, true);
-    },
-    onPointerCancel: () => {
-      swipe.current = null;
-      slide(0, true);
-    },
-    // Nach dem Wischen kein versehentlicher Tipp auf den Cardmarket-Link
-    onClickCapture: (e: MouseEvent) => {
-      if (!swiped.current) return;
-      swiped.current = false;
-      e.preventDefault();
-      e.stopPropagation();
-    },
-  };
-
   return (
     <Sheet class="binder-card" label={cardTitle(card)} onClose={onClose}>
-      <div class={`card-swipe${nav ? ' on' : ''}`} ref={box} {...gestures}>
+      <div class="card-swipe">
         <div key={card.id} class={`card-swipe-body${dir > 0 ? ' from-right' : dir < 0 ? ' from-left' : ''}`}>
-          <img
-            class={landscape ? 'landscape' : ''}
-            src={card.printing.imageUrl}
-            srcset={cardSrcSet(card.printing.imageUrl, [480, 720, 960])}
-            sizes={landscape ? 'min(86vw, 420px)' : 'min(62vw, 260px)'}
-            alt={cardTitle(card)}
-            draggable={false}
-          />
-          {nav && (
-            <div class="card-nav">
+          <div class={`card-stage${nav ? ' nav' : ''}`}>
+            {nav && (
               <button class="tool" aria-label="Vorherige Karte im Deck" disabled={!nav.prev} onClick={() => go(-1)}>
                 ‹
               </button>
-              <span aria-live="polite">
-                {nav.pos} von {nav.total}
-              </span>
+            )}
+            <img
+              class={landscape ? 'landscape' : ''}
+              src={card.printing.imageUrl}
+              srcset={cardSrcSet(card.printing.imageUrl, [480, 720, 960])}
+              sizes={landscape ? 'min(72vw, 420px)' : 'min(62vw, 260px)'}
+              alt={cardTitle(card)}
+              draggable={false}
+            />
+            {nav && (
               <button class="tool" aria-label="Nächste Karte im Deck" disabled={!nav.next} onClick={() => go(1)}>
                 ›
               </button>
-            </div>
+            )}
+          </div>
+          {nav && (
+            <span class="card-pos" aria-live="polite">
+              {nav.pos} von {nav.total}
+            </span>
           )}
           <div class="binder-card-info">
             <h2>{card.kind === 'legend' ? `${legendTitle(card)} · ${card.name}` : cardTitle(card)}</h2>
@@ -1647,36 +1586,6 @@ export function BanlistNote({ banlist }: { banlist: BanlistFile }) {
       </a>
       , Stand {DAY.format(new Date(`${banlist.updatedAt}T12:00:00Z`))}
     </p>
-  );
-}
-
-/**
- * Kosten des Hauptdecks nach Farbe: Power (farbige Kostensymbole) und Energie je Domain.
- * Zweifarbige Karten stehen unter beiden Punkten, weil die Galerie die Farbe ihrer Power nicht nennt.
- */
-function CostBar({ costs }: { costs: DomainCost[] }) {
-  const power = costs.reduce((n, c) => n + c.power, 0);
-  const energy = costs.reduce((n, c) => n + c.energy, 0);
-  const name = (c: DomainCost) => (c.domains[0] === COLORLESS ? 'Farblos' : c.domains.join(' und '));
-  return (
-    <div class="cost-bar">
-      <h3>Kosten im Hauptdeck</h3>
-      <ul>
-        <li class="cost-all" aria-label={`Gesamt: ${power} Power, ${energy} Energie`}>
-          <small>Gesamt</small>
-          <b>{power}</b>
-          <small>{energy} Energie</small>
-        </li>
-        {costs.map((c) => (
-          <li key={c.key} aria-label={`${name(c)}: ${c.power} Power, ${c.energy} Energie, ${c.cards} ${c.cards === 1 ? 'Karte' : 'Karten'}`}>
-            <span class="cost-dots">{c.domains[0] === COLORLESS ? <i class="domain-dot" /> : c.domains.map((d) => <DomainDot domain={d} />)}</span>
-            <b>{c.power}</b>
-            <small>{c.energy} Energie</small>
-          </li>
-        ))}
-      </ul>
-      <p>Große Zahl = Power, darunter die Energie</p>
-    </div>
   );
 }
 

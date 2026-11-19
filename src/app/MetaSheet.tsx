@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks';
-import { byCost, DECK_RULES, deckValue, mainCount, missingCount, type CardKind, type Deck, type DeckCard, type DeckPool } from '../core/deck';
+import { byCost, deckValue, mainCount, missingCount, type CardKind, type Deck, type DeckCard, type DeckPool } from '../core/deck';
 import { bannedInList, buildFromMeta, deckFromList, metaBanned, playRate, type MetaDeck, type MetaFile, type MetaStats } from '../core/meta';
 import { formatEur } from '../core/prices';
 import { Sheet } from './Sheet';
@@ -54,10 +54,8 @@ export function MetaSheet(props: {
       <p class="muted">
         Aus {stats.decks} {stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'} mit {stats.legend.championOf ?? stats.legend.name}
         {stats.events > 1 ? ` von ${stats.events} Turnieren` : ''}
-        {stats.oldest && stats.newest ? ` (${stats.oldest === stats.newest ? day(stats.newest) : `${day(stats.oldest)} bis ${day(stats.newest)}`})` : ''}.{' '}
-        Neue Turniere und bessere Plätze zählen mehr.
-        {stats.community > 0 &&
-          ` Weil es wenige Turnierlisten gibt, zählen ${stats.community} veröffentlichte Decks der Community mit, aber schwächer.`}
+        {stats.oldest && stats.newest ? ` (${stats.oldest === stats.newest ? day(stats.newest) : `${day(stats.oldest)} bis ${day(stats.newest)}`})` : ''}
+        {stats.community > 0 && ` + ${stats.community} Community-Decks`}
       </p>
       {stats.best && (
         <p class="meta-best">
@@ -72,8 +70,7 @@ export function MetaSheet(props: {
         <p class="meta-ban">
           {banIcon}
           <span>
-            {names(banned)} {banned.length === 1 ? 'steht' : 'stehen'} auf der Banlist. Ältere Turnierlisten spielen{' '}
-            {banned.length === 1 ? 'die Karte' : 'sie'} noch, der Vorschlag lässt sie weg.
+            {names(banned)} {banned.length === 1 ? 'steht' : 'stehen'} auf der Banlist.
           </span>
         </p>
       )}
@@ -105,10 +102,6 @@ export function MetaSheet(props: {
           <MetaTile card={card} n={n} have={Math.max(0, (owned.get(card.id) ?? 0) - (card.id === built.champion ? 1 : 0))} rate={playRate(stats, card.id)} />
         ))}
       </div>
-      <p class="meta-note">
-        Prozent: in so vielen Listen gespielt. Blasse Karten fehlen dir. Dazu kommen {DECK_RULES.runes} Runen im Verhältnis der Listen, die 3 meistgespielten
-        Battlefields und ein Side Deck aus den Sideboards.
-      </p>
 
       <label class="check">
         <input type="checkbox" checked={preferOwned} onChange={(e) => setPreferOwned(e.currentTarget.checked)} />
