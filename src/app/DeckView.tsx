@@ -213,7 +213,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           pool={pool}
           owned={owned}
           meta={meta}
-          banlist={banlist}
           notice={notice}
           priceOf={priceOf}
           wish={wish}
@@ -387,8 +386,6 @@ function ChampionPicker(props: {
   const { legend, pool, stats, current, backLabel, onBack, onPick, onShow } = props;
   useBack(true, onBack);
   const champions = championsFor(legend, pool);
-  // Gesperrte Champions bietet die Auswahl nicht an; ein Satz sagt, wo sie geblieben sind
-  const bannedChampions = [...pool.cards.values()].filter((c) => c.champion && c.banned && c.championOf === legend.championOf);
   // Champion, den die Turnierlisten am häufigsten spielen
   const favourite = stats && metaChampion(stats, champions);
   const favouriteRate = favourite && stats ? stats.champions.get(favourite.id) ?? 0 : 0;
@@ -423,11 +420,6 @@ function ChampionPicker(props: {
         <div class="empty-state">
           <strong>Kein passender Champion im Katalog</strong>
         </div>
-      )}
-      {bannedChampions.length > 0 && (
-        <p class="meta-note center">
-          {bannedChampions.map((c) => `${c.id} (${banLabel(c.banned!).toLowerCase()})`).join(', ')} {bannedChampions.length === 1 ? 'steht' : 'stehen'} auf der Banlist.
-        </p>
       )}
     </section>
   );
@@ -706,7 +698,6 @@ function DeckEditor(props: {
   pool: DeckPool;
   owned: Map<string, number>;
   meta: MetaFile | null;
-  banlist: BanlistFile | null;
   /** Kurzer Hinweis beim Öffnen, z. B. nach dem automatischen Bauen. */
   notice?: string | null;
   priceOf(card: DeckCard): number | undefined;
@@ -717,7 +708,7 @@ function DeckEditor(props: {
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, meta, banlist, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, meta, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   useBack(true, onBack);
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
@@ -1413,7 +1404,6 @@ function DeckEditor(props: {
         <MetaSheet
           deck={deck}
           stats={stats}
-          meta={meta}
           pool={pool}
           owned={owned}
           priceOf={priceOf}
@@ -1462,7 +1452,6 @@ function DeckEditor(props: {
               Deck löschen
             </button>
           </div>
-          {banlist && <BanlistNote banlist={banlist} />}
         </Sheet>
       )}
     </section>
@@ -1543,12 +1532,7 @@ function CardSheet(props: { card: DeckCard; owned: number; price?: number; url?:
             {card.banned && (
               <p class="ban-line">
                 {banIcon}
-                <span>
-                  {banLabel(card.banned)}: Diese Karte darfst du bei offiziellen Turnieren nicht spielen.{' '}
-                  <a href={card.banned.source} target="_blank" rel="noopener">
-                    Banlist ↗
-                  </a>
-                </span>
+                <span>{banLabel(card.banned)}</span>
               </p>
             )}
             {url && (
@@ -1571,21 +1555,6 @@ function BanMark() {
       {banIcon}
       <span>Gesperrt</span>
     </b>
-  );
-}
-
-const DAY = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-
-/** Woher die Banlist stammt und wie alt sie ist. */
-export function BanlistNote({ banlist }: { banlist: BanlistFile }) {
-  return (
-    <p class="meta-note center">
-      Gesperrte Karten nach der{' '}
-      <a href={banlist.sourceUrl} target="_blank" rel="noopener">
-        Banlist von {banlist.source}
-      </a>
-      , Stand {DAY.format(new Date(`${banlist.updatedAt}T12:00:00Z`))}
-    </p>
   );
 }
 

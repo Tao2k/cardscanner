@@ -1,0 +1,1 @@
+- Verbessert: Quellen- und Stand-Hinweise unter Menüs und Listen sind weg, die App wirkt dadurch ruhiger.

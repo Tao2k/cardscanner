@@ -821,7 +821,6 @@ button.tool.set { background: var(--accent-soft); color: var(--accent-text); }
 .ban-line { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 0; padding: 9px 12px; border-radius: 12px; background: var(--down-soft); color: var(--down);
   font-size: 0.85rem; line-height: 1.35; text-align: left; }
 .ban-line svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
-.ban-line a { color: inherit; font-weight: 700; }
 .meta-ban { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-radius: 12px; background: var(--down-soft); color: var(--down); font-size: 0.85rem; line-height: 1.35; }
 .meta-ban svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
 .meta-list small.banned { color: var(--down); font-weight: 700; }
@@ -948,9 +947,6 @@ button.album-toggle.icon.on { background: var(--accent); color: var(--on-accent)
 .meta-rate { display: block; margin-top: 2px; text-align: center; font-size: 0.66rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .meta-lack { position: absolute; bottom: 18px; left: 2px; padding: 0 4px; border-radius: 6px; background: var(--warn); color: var(--on-warn);
   font-size: 0.64rem; font-weight: 750; font-style: normal; }
-.meta-note { font-size: 0.78rem; color: var(--muted); }
-.meta-note.center { text-align: center; }
-.meta-note a { color: inherit; }
 .meta-rate-line { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--accent-text); font-weight: 600; }
 .meta-rate-line svg { width: 16px; height: 16px; flex: none; }
 .options button small { font-weight: 500; }
