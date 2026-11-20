@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 import { byCost, deckValue, mainCount, missingCount, type CardKind, type Deck, type DeckCard, type DeckPool } from '../core/deck';
-import { bannedInList, buildFromMeta, deckFromList, metaBanned, playRate, type MetaDeck, type MetaFile, type MetaStats } from '../core/meta';
+import { bannedInList, buildFromMeta, deckFromList, metaBanned, playRate, type MetaDeck, type MetaStats } from '../core/meta';
 import { formatEur } from '../core/prices';
 import { Sheet } from './Sheet';
 
@@ -20,14 +20,13 @@ const FIRST_LISTS = 8;
 export function MetaSheet(props: {
   deck: Deck;
   stats: MetaStats;
-  meta: MetaFile;
   pool: DeckPool;
   owned: Map<string, number>;
   priceOf(card: DeckCard): number | undefined;
   onApply(deck: Deck): void;
   onClose(): void;
 }) {
-  const { deck, stats, meta, pool, owned, priceOf, onApply, onClose } = props;
+  const { deck, stats, pool, owned, priceOf, onApply, onClose } = props;
   const [preferOwned, setPreferOwned] = useState(false);
   const [allLists, setAllLists] = useState(false);
   const built = useMemo(() => buildFromMeta(deck, stats, pool, { owned, preferOwned }), [deck, stats, pool, owned, preferOwned]);
@@ -117,7 +116,6 @@ export function MetaSheet(props: {
       >
         {replaces ? 'Deck ersetzen' : 'Deck übernehmen'}
       </button>
-      {replaces && <p class="meta-note center">Ersetzt Hauptdeck, Side Deck, Runen und Battlefields. Legende und Champion bleiben.</p>}
 
       {stats.lists.length > 0 && (
         <>
@@ -143,13 +141,6 @@ export function MetaSheet(props: {
           )}
         </>
       )}
-      <p class="meta-note center">
-        Turnierlisten von{' '}
-        <a href={meta.sourceUrl} target="_blank" rel="noopener">
-          {meta.source}
-        </a>
-        , Stand {DATE.format(new Date(meta.builtAt))}
-      </p>
     </Sheet>
   );
 }
