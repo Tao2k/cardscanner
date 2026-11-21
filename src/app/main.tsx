@@ -2,6 +2,8 @@ import { render } from 'preact';
 import { App } from './App';
 import { startUpdates } from './updates';
 import { watchInstall } from './install';
+// Schrift für Überschriften, Wortmarke und große Zahlen; liegt im App-Paket, damit sie offline da ist
+import '@fontsource-variable/bricolage-grotesque';
 import './styles.css';
 
 startUpdates();

@@ -26,6 +26,13 @@
   --bar: rgba(255, 255, 255, 0.86);
   --r-card: 24px;
   --r-row: 18px;
+  /* Trennlinie in gruppierten Listen */
+  --sep: color-mix(in srgb, var(--text) 9%, transparent);
+  /* Kurven: kräftiges Ease-out für Reaktionen, iOS-Kurve für Blätter von unten */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Überschriften, Wortmarke und große Zahlen: Grotesk mit Charakter, der Rest bleibt Systemschrift */
+  --font-display: 'Bricolage Grotesque Variable', system-ui, -apple-system, sans-serif;
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
@@ -66,7 +73,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 #app, .app { height: 100%; height: 100dvh; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 20px 6px; }
 .brand img { border-radius: 8px; }
-.brand span { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; }
+.brand span { font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; letter-spacing: -0.04em; }
 .brand b { color: var(--accent-text); font-weight: 900; }
 /* Profil oben rechts in der Markenzeile */
 .profile-button { margin-left: auto; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; background: var(--surface); color: var(--text); }
@@ -79,8 +86,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 main:has(> section.deck-edit) > .shelf-head, main:has(> section.decks > header.friend-head) > .shelf-head { display: none; }
 main:has(> section.decks > header.friend-head) > .shelf-head + section { padding-top: 16px; }
 main { flex: 1; overflow-y: auto; padding-bottom: 24px; overscroll-behavior: contain; }
-h1 { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; line-height: 1.1; }
-h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+h1 { font-family: var(--font-display); font-size: 2.2rem; font-weight: 750; letter-spacing: -0.04em; margin: 0; line-height: 1.05; }
+h2 { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .muted { color: var(--muted); }
 p { line-height: 1.4; }
 section { padding: 16px 16px; display: flex; flex-direction: column; gap: 14px; }
@@ -97,7 +104,7 @@ button, .button, select, input {
   border: none; border-radius: 999px; padding: 12px 18px; min-height: 48px;
 }
 button, .button { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600;
-  transition: transform 0.12s ease-out, background-color 0.15s ease-out, color 0.15s ease-out;
+  transition: transform 160ms var(--ease-out), background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
   /* Wie native Bedienelemente: sofort reagieren (kein Warten auf Doppeltipp), Beschriftung nicht markierbar */
   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 button img { -webkit-touch-callout: none; -webkit-user-drag: none; }
@@ -170,6 +177,12 @@ main > .banner { margin: 8px 16px 0; }
 .recent, .items { list-style: none; margin: 0; padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .items { padding: 0; }
 .recent li, .items li { display: flex; flex-direction: column; align-items: stretch; gap: 10px; background: var(--surface); border-radius: var(--r-row); padding: 8px 10px 8px 8px; }
+/* Wie gruppierte Listen bei iOS: eine Fläche, Zeilen durch feine Linien getrennt (eingerückt bis hinter das Kartenbild) */
+.recent, .items { gap: 0; }
+.recent { margin: 0 16px; padding: 0; }
+.recent, .items:not(:empty) { background: var(--surface); border-radius: var(--r-card); overflow: hidden; }
+.recent li, .items li { background: transparent; border-radius: 0; padding: 10px 12px 10px 10px; }
+.recent li + li, .items li + li { background-image: linear-gradient(var(--sep), var(--sep)); background-repeat: no-repeat; background-position: 66px 0; background-size: calc(100% - 66px) 1px; }
 .recent .main, .items .main { display: flex; gap: 12px; align-items: center; min-width: 0; }
 .recent img, .items img { width: 44px; height: 61px; object-fit: cover; border-radius: 7px; flex: none; background: var(--raised); box-shadow: var(--shadow-soft); }
 .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -214,6 +227,11 @@ select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; 
 .options { display: flex; flex-direction: column; gap: 6px; }
 .options button { justify-content: space-between; background: var(--surface); font-weight: 500; }
 .options button.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+/* Auswahllisten im Blatt als eine gruppierte Fläche */
+.options { gap: 0; background: var(--surface); border-radius: var(--r-card); overflow: hidden; }
+.options button { border-radius: 0; background: transparent; min-height: 52px; }
+.options button + button { background-image: linear-gradient(var(--sep), var(--sep)); background-repeat: no-repeat; background-position: 18px 0; background-size: calc(100% - 18px) 1px; }
+.options button:active:not(:disabled) { transform: none; background-color: color-mix(in srgb, var(--text) 6%, transparent); }
 .items .details .chips button:not(.active) { background: var(--raised); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions > * { flex: 1; }
@@ -225,7 +243,7 @@ select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; 
 .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stat { background: var(--surface); border-radius: var(--r-row); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stat span { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
-.stat strong { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat strong { font-family: var(--font-display); font-size: 1.3rem; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat.accent { background: var(--accent); color: var(--on-accent); }
 .stat.accent span { color: rgba(255, 255, 255, 0.78); }
 .stat small { font-size: 0.72rem; color: var(--muted); }
@@ -258,7 +276,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(10, 14, 10, 0.4); animation: fade-in 0.2s ease-out; }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 85vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain; max-width: 640px; margin: 0 auto;
   display: flex; flex-direction: column; gap: 14px; padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
-  background: var(--raised); border-radius: 28px 28px 0 0; box-shadow: var(--shadow); animation: sheet-in 0.28s cubic-bezier(.2, .8, .2, 1); }
+  background: var(--raised); border-radius: 28px 28px 0 0; box-shadow: var(--shadow); animation: sheet-in 0.42s var(--ease-drawer); }
 .sheet p { margin: 0; }
 .sheet:focus { outline: none; }
 /* Griff oben: breite Fläche zum Herunterwischen (Sheet.tsx), der Strich selbst gut sichtbar */
@@ -266,7 +284,7 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .sheet-handle.draggable { touch-action: none; cursor: grab; }
 .sheet .grabber { width: 40px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, transparent); margin: 0 auto; }
 /* Beim Hinausfahren gehen Tipps schon an die App darunter */
-.sheet.closing { animation: sheet-out 0.22s cubic-bezier(.4, 0, 1, 1) forwards; pointer-events: none; }
+.sheet.closing { animation: sheet-out 0.24s var(--ease-drawer) forwards; pointer-events: none; }
 .backdrop.closing { animation: fade-out 0.22s ease-in forwards; pointer-events: none; }
 .sheet .chips button { background: var(--surface); }
 .sheet .chips button.active { background: var(--accent); }
@@ -302,22 +320,27 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 @keyframes fade-out { to { opacity: 0; } }
 
 /* Navigation unten */
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-  background: var(--bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 -1px 0 var(--border); }
-.tabs.three { grid-template-columns: repeat(3, 1fr); }
+.tabs { --n: 4; position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 0; padding: 6px; flex: none;
+  width: min(calc(100% - 32px), calc(var(--n) * 84px + 12px)); margin: 4px auto max(10px, env(safe-area-inset-bottom));
+  border-radius: 999px; background: var(--bar); backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: 0 0 0 1px var(--border), 0 10px 28px rgba(22, 19, 26, 0.14); }
+.tabs.three { --n: 3; }
+.tab-lens { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / var(--n)); border-radius: 999px; background: var(--accent);
+  transform: translateX(calc(var(--tab) * 100%)); transition: transform 360ms var(--ease-out), opacity 200ms ease; pointer-events: none; }
+.tabs.no-lens .tab-lens { opacity: 0; transition: opacity 200ms ease; }
 /* Tippt man in ein Feld, schiebt Android die Seite über die Tastatur (interactive-widget in index.html);
    die Leiste würde dann über der Tastatur kleben und Platz wegnehmen. Darum blendet sie sich aus. */
 @media (pointer: coarse) {
   .app:has(:is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"]), textarea, [contenteditable]):focus) .tabs { display: none; }
 }
 /* Nur Symbole, keine Beschriftung: der Name steht im aria-label */
-.tabs button { background: transparent; min-height: 52px; padding: 6px 2px; border-radius: 18px; color: var(--muted); position: relative; }
+.tabs button { background: transparent; min-height: 50px; padding: 6px 2px; border-radius: 999px; color: var(--muted); position: relative; z-index: 1; }
 .tabs button svg { width: 26px; height: 26px; }
-.tabs button.active svg { color: var(--accent-text); }
-.tabs button.active .tab-icon { background: var(--accent-soft); }
-.tab-icon { display: inline-flex; padding: 5px 20px; border-radius: 999px; transition: background-color 0.2s; }
+.tabs button.active { color: var(--on-accent); }
+.tabs button svg { transition: color 200ms ease; }
+.tab-icon { display: inline-flex; }
 .count { position: absolute; top: 2px; left: calc(50% + 10px); font-size: 0.7rem; line-height: 1; background: var(--text); color: var(--bg);
-  border-radius: 999px; padding: 3px 6px; font-weight: 700; border: 2px solid var(--bg); }
+  border-radius: 999px; padding: 3px 6px; font-weight: 700; border: 2px solid var(--raised); }
 .count.warn { background: var(--warn); color: var(--on-warn); }
 .count.accent { background: var(--accent); color: var(--on-accent); }
 
@@ -329,15 +352,16 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .tabs .count { animation: count-pop 0.4s ease-out; }
 @keyframes count-pop { 0% { transform: scale(1); } 40% { transform: scale(1.4); } 100% { transform: scale(1); } }
 .recent li:first-child { animation: added-row 1.2s ease-out; }
-@keyframes added-row { 0% { background: var(--success-soft); } 100% { background: var(--surface); } }
+@keyframes added-row { 0% { background-color: var(--success-soft); } 100% { background-color: transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .sheet, .backdrop, .tabs .count, .recent li:first-child, .overlay .frame span, .spinner { animation: none; }
+  .tab-lens { transition: opacity 200ms ease; }
 }
 
 /* Preise: Steigen in Logo-Grün, Fallen in Rot, sonst neutral */
 .value-card { background: var(--surface); border-radius: var(--r-card); padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 4px; }
 .value-card > .muted { font-size: 0.85rem; font-weight: 600; }
-.value-card .total { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.value-card .total { font-family: var(--font-display); font-size: 2.6rem; font-weight: 750; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .value-card .empty { margin: 8px 0 4px; }
 .change, .delta { font-weight: 650; font-variant-numeric: tabular-nums; }
 .change { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 0.88rem; margin-top: 2px; }
@@ -418,7 +442,6 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
   main > section, main > .shelf-head { max-width: 680px; margin: 0 auto; width: 100%; }
   .viewfinder { max-width: 656px; margin: 0 auto; }
   .recent, .section-title { max-width: 680px; margin-left: auto; margin-right: auto; }
-  .tabs { padding-left: calc(50% - 320px); padding-right: calc(50% - 320px); }
 }
 
 /* Sammlung: alle Karten, fehlende blass */
