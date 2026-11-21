@@ -298,7 +298,13 @@ export function App() {
           </p>
         )}
       </main>
-      <nav class={`tabs ${account.signedIn ? 'four' : 'three'}`} aria-label="Bereiche">
+      <nav
+        class={`tabs ${account.signedIn ? 'four' : 'three'}${tab === 'profile' ? ' no-lens' : ''}`}
+        aria-label="Bereiche"
+        style={{ '--tab': Math.max(0, (['scan', 'collection', 'prices', 'community'] as Tab[]).indexOf(tab)) }}
+      >
+        {/* Violette Linse hinter dem aktiven Symbol; gleitet beim Tabwechsel hinüber, beim Profil blendet sie aus */}
+        <span class="tab-lens" aria-hidden="true" />
         <button data-tab="scan" class={tab === 'scan' ? 'active' : ''} aria-label="Scannen" aria-current={tab === 'scan' ? 'page' : undefined} onClick={() => setTab('scan')}>
           {tabIcon(<>
             <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
