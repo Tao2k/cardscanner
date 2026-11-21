@@ -1,0 +1,3 @@
+- Verbessert: Frischeres Design mit eigener Schrift für Überschriften und große Zahlen.
+- Verbessert: Die Leiste unten schwebt jetzt, und die violette Markierung gleitet zum gewählten Bereich.
+- Verbessert: Kartenlisten und Auswahlmenüs sind ruhiger, als eine Fläche mit feinen Trennlinien.

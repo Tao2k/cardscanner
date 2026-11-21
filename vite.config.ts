@@ -62,7 +62,7 @@ export default defineConfig({
       },
       workbox: {
         // App-Hülle vorab cachen; Katalog und Modell erst bei Bedarf (groß, ändern sich mit jedem Build).
-        globPatterns: ['**/*.{js,css,html,svg,png}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         globIgnores: ['data/**', 'models/**'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
