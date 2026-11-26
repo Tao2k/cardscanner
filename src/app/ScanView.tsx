@@ -209,6 +209,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [added, setAdded] = useState<string | null>(null);
   /** Karte eingeben statt scannen. */
   const [typing, setTyping] = useState(false);
+  // Beim Eingeben pausiert die Erkennung, die Kamera läuft weiter
+  const typingRef = useRef(false);
+  typingRef.current = typing;
   const addedTimer = useRef<ReturnType<typeof setTimeout>>();
   /** Die eben erfasste Karte liegt noch im Bild (wird nicht noch einmal gezählt). */
   const [holding, setHolding] = useState(false);
@@ -600,7 +603,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     (async () => {
       await recognizer.ready;
       while (active) {
-        if (questionRef.current) {
+        if (questionRef.current || typingRef.current) {
           await new Promise((r) => setTimeout(r, 150));
           continue;
         }
@@ -1085,6 +1088,9 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             ) : (
               <span>Karte in den Rahmen halten</span>
             )}
+            <button class="hud-type" aria-label="Karte eingeben" onClick={() => setTyping(true)}>
+              {keyboardIcon}
+            </button>
             <button onClick={() => setRunning(false)}>Stopp</button>
           </div>
         )}
