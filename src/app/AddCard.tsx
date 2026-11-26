@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'preact/hooks';
-import type { CollectionService } from '../core/collection';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { AddResult, CollectionService, ScanInput } from '../core/collection';
 import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
@@ -16,7 +16,9 @@ interface Props {
   language: string;
   /** Schon gewählte Karte (aus Binder oder Liste); sonst beginnt das Blatt mit der Suche. */
   printing?: Printing;
-  onAdded(printing: Printing, quantity: number): void;
+  /** Titel des Blatts (im Scan-Tab „Karte eingeben“). */
+  title?: string;
+  onAdded(printing: Printing, quantity: number, result: AddResult, input: ScanInput): void;
   onClose(): void;
 }
 
@@ -24,7 +26,7 @@ interface Props {
  * Karte von Hand zur Sammlung hinzufügen: im Katalog suchen, Ausführung, Sprache, Zustand und Anzahl wählen.
  * Gespeichert wird wie ein bestätigter Scan, gleiche Exemplare werden zusammengezählt.
  */
-export function AddCardSheet({ catalogs, gameId, items, service, language, printing: preset, onAdded, onClose }: Props) {
+export function AddCardSheet({ catalogs, gameId, items, service, language, printing: preset, title = 'Karte hinzufügen', onAdded, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [chosen, setChosen] = useState<Printing | undefined>(preset);
   const languages = catalogs.languages.get(gameId) ?? [];
@@ -33,6 +35,12 @@ export function AddCardSheet({ catalogs, gameId, items, service, language, print
   const [condition, setCondition] = useState<Condition>('NM');
   const [quantity, setQuantity] = useState(1);
   const [saving, setSaving] = useState(false);
+
+  // Gleich lostippen können (das Blatt nimmt sonst selbst den Fokus)
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!chosen) searchRef.current?.focus({ preventScroll: true });
+  }, [chosen]);
 
   const printings = catalogs.ordered.get(gameId) ?? [];
   const results = useMemo(() => searchCatalog(printings, query), [printings, query]);
@@ -53,8 +61,9 @@ export function AddCardSheet({ catalogs, gameId, items, service, language, print
     if (!chosen || saving) return;
     setSaving(true);
     try {
-      await service.addScan({ gameId, printingId: chosen.printingId, language: lang, finish, condition, location: '', confirmed: true, quantity });
-      onAdded(chosen, quantity);
+      const input: ScanInput = { gameId, printingId: chosen.printingId, language: lang, finish, condition, location: '', confirmed: true, quantity };
+      const result = await service.addScan(input);
+      onAdded(chosen, quantity, result, input);
     } finally {
       setSaving(false);
     }
@@ -75,13 +84,14 @@ export function AddCardSheet({ catalogs, gameId, items, service, language, print
 
   if (!chosen) {
     return (
-      <Sheet class="add-card" label="Karte hinzufügen" onClose={onClose}>
-        <h2>Karte hinzufügen</h2>
+      <Sheet class="add-card" label={title} onClose={onClose}>
+        <h2>{title}</h2>
         <input
           type="search"
           enterkeyhint="search"
           placeholder="Name, Set oder Nummer"
           aria-label="Karte suchen"
+          ref={searchRef}
           value={query}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
@@ -111,7 +121,7 @@ export function AddCardSheet({ catalogs, gameId, items, service, language, print
   const finishes = finishesOf(chosen);
   const have = owned.get(chosen.printingId) ?? 0;
   return (
-    <Sheet class="add-card" label="Karte hinzufügen" onClose={onClose}>
+    <Sheet class="add-card" label={title} onClose={onClose}>
       <div class="add-chosen">
         <img src={chosen.thumbUrl ?? chosen.imageUrl} alt="" />
         <div>

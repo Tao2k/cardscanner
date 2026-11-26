@@ -149,6 +149,9 @@ main > .banner { margin: 8px 16px 0; }
 @keyframes scanline { 0%, 100% { transform: translateY(-46px); } 50% { transform: translateY(46px); } }
 .overlay .big { background: #fff; color: #5c0477; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
 .overlay .big:disabled { opacity: 1; background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; }
+.overlay .type-card { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 18px; margin-top: -6px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14); color: #fff; font-weight: 600; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.overlay .type-card:active { transform: scale(0.97); }
 .overlay .status { margin: 0; font-size: 0.9rem; color: rgba(255, 255, 255, 0.75); display: flex; align-items: center; gap: 8px; max-width: 280px; }
 .overlay .status.error { color: #ffb4a8; }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.3); border-top-color: #fff; animation: spin 0.8s linear infinite; flex: none; }
@@ -224,6 +227,11 @@ select.lang { min-height: 36px; padding: 6px 30px 6px 12px; font-size: 0.85rem; 
 .find { display: flex; gap: 8px; position: sticky; top: 0; z-index: 3; margin: 0 -16px; padding: 8px 16px; background: var(--bg); }
 .find input { flex: 1; min-width: 0; }
 .find .sort { flex: none; padding: 12px 16px; }
+/* Schwebender Knopf: klebt beim Scrollen unten rechts im Inhalt, über der Tab-Leiste */
+.fab { position: sticky; bottom: 16px; z-index: 4; align-self: flex-end; width: 56px; height: 56px; min-height: 56px; padding: 0; margin-top: -4px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 40%, transparent), 0 2px 6px rgba(22, 19, 26, 0.18);
+  transition: transform 160ms var(--ease-out); }
+.fab:active { transform: scale(0.94); }
 .options { display: flex; flex-direction: column; gap: 6px; }
 .options button { justify-content: space-between; background: var(--surface); font-weight: 500; }
 .options button.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
@@ -459,6 +467,12 @@ button.link { background: none; color: var(--accent-text); padding: 0 0 0 6px; m
 .title-actions { display: flex; align-items: center; gap: 8px; }
 .view-switch { flex: none; margin-right: auto; }
 .view-switch button { min-height: 38px; padding: 6px 14px; }
+/* Umschalter nur mit Symbolen (Name im aria-label) */
+.segmented.icons button { display: grid; place-items: center; }
+.segmented.icons button svg { display: block; }
+.shelf-head .segmented.icons { align-self: flex-start; grid-auto-columns: 64px; }
+.shelf-head .segmented.icons button { position: relative; }
+.shelf-head .segmented.icons .seg-count { position: absolute; top: 2px; right: 6px; margin: 0; }
 .binder-view { display: flex; flex-direction: column; gap: 10px; }
 /* Farben des Sets wie sein Display (binderThemes.ts); ohne Eintrag das Violett der App */
 .binder-view { --set-light: #8d2bb0; --set-base: #5c0477; --set-deep: #3c0350; --set-glow: 72% 18%; --set-accent: #ffffff; --set-second: #ffffff;
@@ -942,14 +956,6 @@ button.album-toggle.icon.on { background: var(--accent); color: var(--on-accent)
 .pick-badge { position: absolute; top: 11px; left: 11px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 6px; border-radius: 10px;
   background: color-mix(in srgb, #16131a 72%, transparent); color: #fff; font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums;
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
-.meta-cta { width: 100%; justify-content: flex-start; gap: 12px; margin: 2px 0 12px; padding: 12px 14px; border-radius: var(--r-row); text-align: left;
-  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #c86be8)); color: var(--on-accent); box-shadow: var(--shadow-soft); }
-.meta-cta span { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.meta-cta strong { font-size: 0.98rem; }
-.meta-cta small { font-weight: 500; opacity: 0.85; font-size: 0.8rem; }
-.meta-cta i { font-style: normal; font-size: 1.5rem; line-height: 1; opacity: 0.8; }
-.meta-cta svg { flex: none; }
-.meta-cta:active { transform: scale(0.98); }
 .meta-sheet h2 { display: flex; align-items: center; gap: 8px; }
 .meta-sheet h2 svg { color: var(--accent-text); }
 .meta-best { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; background: var(--surface); font-size: 0.9rem; }
@@ -974,16 +980,6 @@ button.album-toggle.icon.on { background: var(--accent); color: var(--on-accent)
 .meta-rate-line svg { width: 16px; height: 16px; flex: none; }
 .options button small { font-weight: 500; }
 
-/* KI-Deck: prominent über den Decks */
-.ai-deck { width: 100%; justify-content: flex-start; gap: 14px; margin: 0 0 16px; padding: 16px 16px; border-radius: var(--r-card); text-align: left;
-  background: linear-gradient(125deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #c86be8)); color: var(--on-accent); box-shadow: var(--shadow); }
-.ai-deck:active { transform: scale(0.98); }
-.ai-deck-icon { flex: none; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: rgba(255, 255, 255, 0.18); }
-.ai-deck-icon svg { width: 26px; height: 26px; }
-.ai-deck-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.ai-deck-text strong { font-size: 1.12rem; font-weight: 750; }
-.ai-deck-text small { font-size: 0.84rem; font-weight: 500; opacity: 0.88; }
-.ai-deck > i { font-style: normal; font-size: 1.6rem; line-height: 1; opacity: 0.8; }
 .meta-lists-head { margin: 14px 0 0; font-size: 1.05rem; }
 .meta-lists { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .meta-list { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; border-radius: 14px; background: var(--surface); }

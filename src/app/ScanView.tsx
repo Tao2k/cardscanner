@@ -6,6 +6,7 @@ import { guideRect } from '../core/geometry';
 import { CONDITIONS, type CollectionItem, type Condition, type Finish, type Printing } from '../core/types';
 import type { Catalogs } from './App';
 import { Sheet } from './Sheet';
+import { AddCardSheet } from './AddCard';
 import { ChangelogSheet } from './WhatsNew';
 import { CONDITION_CROP_HEIGHT, drawAroundCard, drawCard, frameLuma, grabCard, OCR_CROP_HEIGHT, setTorch, startCamera, stopCamera, torchSupported } from './camera';
 import { AutoTorch } from '../core/light';
@@ -39,6 +40,8 @@ interface Props {
   prefs: Prefs;
   setPrefs(patch: Partial<Prefs>): void;
   service: CollectionService;
+  /** Die Sammlung, für „schon in der Sammlung“ beim Eingeben. */
+  items: CollectionItem[];
   learning: LearningService;
   onChange(): void;
   /** Ein Exemplar (key „gameId|printingId“) wurde per Scan hinzugefügt (+1) oder rückgängig gemacht (−1), für den Hinweis am Tab „Sammlung“ und den Binder. */
@@ -184,7 +187,7 @@ function languageReason(guess: LanguageGuess | null, label: string): string | un
   return undefined;
 }
 
-export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, learning, onChange, onAdded, onMoved, onLearn }: Props) {
+export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, service, items, learning, onChange, onAdded, onMoved, onLearn }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stabilizer = useRef(new Stabilizer());
@@ -204,6 +207,8 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
   const [askingCloud, setAskingCloud] = useState(false);
   /** Zuletzt hinzugefügte Karte, kurz im Kamerabereich angezeigt. */
   const [added, setAdded] = useState<string | null>(null);
+  /** Karte eingeben statt scannen. */
+  const [typing, setTyping] = useState(false);
   const addedTimer = useRef<ReturnType<typeof setTimeout>>();
   /** Die eben erfasste Karte liegt noch im Bild (wird nicht noch einmal gezählt). */
   const [holding, setHolding] = useState(false);
@@ -674,7 +679,7 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
 
   const undo = async (saved: Saved) => {
     await service.undo(saved.result);
-    onAdded(-1, slotKey(saved.input.gameId, saved.input.printingId));
+    for (let i = 0; i < (saved.input.quantity ?? 1); i++) onAdded(-1, slotKey(saved.input.gameId, saved.input.printingId));
     if (saved.sample) await learning.forget(saved.sample.sampleId);
     setRecent((r) => r.filter((s) => s !== saved));
     stabilizer.current.reset();
@@ -1033,6 +1038,12 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
             <button class="primary big" disabled={!ready} onClick={() => { setCamError(null); setRunning(true); }}>
               Scannen starten
             </button>
+            {catalogs && (
+              <button class="type-card" onClick={() => setTyping(true)}>
+                {keyboardIcon}
+                Karte eingeben
+              </button>
+            )}
             {!ready && (
               <p class={`status${status.startsWith('Fehler') ? ' error' : ''}`} role="status">
                 {!status.startsWith('Fehler') && <span class="spinner" />}
@@ -1106,6 +1117,28 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
       {confirming && renderConfirm(confirming)}
       {fixing && fixed && renderFix(fixed, fixing.kind)}
       {settingsOpen && renderSettings()}
+      {typing && catalogs && (
+        <AddCardSheet
+          catalogs={catalogs}
+          gameId={prefs.gameId}
+          items={items}
+          service={service}
+          language={prefs.language}
+          title="Karte eingeben"
+          onClose={() => setTyping(false)}
+          onAdded={(printing, quantity, result, input) => {
+            setTyping(false);
+            // Wie ein von dir gewählter Scan in „Zuletzt gescannt“, mit Rückgängig und Korrigieren
+            const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            setRecent((r) => [{ result, printing, input, key, auto: false }, ...r].slice(0, 5));
+            for (let i = 0; i < quantity; i++) onAdded(1, slotKey(input.gameId, printing.printingId));
+            clearTimeout(addedTimer.current);
+            setAdded(quantity > 1 ? `${quantity}× ${printing.cardName}` : printing.cardName);
+            addedTimer.current = setTimeout(() => setAdded(null), 2500);
+            onChange();
+          }}
+        />
+      )}
       {changelogOpen && <ChangelogSheet onClose={() => setChangelogOpen(false)} />}
 
       {recent.length > 0 && (
@@ -1179,3 +1212,10 @@ export function ScanView({ catalogs, recognizer, status, prefs, setPrefs, servic
     </section>
   );
 }
+
+const keyboardIcon = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="2.5" y="6" width="19" height="12" rx="2.2" />
+    <path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8" />
+  </svg>
+);

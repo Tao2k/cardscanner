@@ -38,7 +38,7 @@ import {
   type DeckPool,
 } from '../core/deck';
 import { newId } from '../core/collection';
-import { buildFromMeta, loadMeta, metaBanned, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
+import { loadMeta, metaChampion, metaCounts, metaStats, playRate, type MetaFile, type MetaStats } from '../core/meta';
 import { banLabel, bannedNames, BUILTIN_BANLISTS, loadBanlist, newerBanlist, type BanlistFile } from '../core/banlist';
 import { formatEur, priceFor } from '../core/prices';
 import type { CollectionItem } from '../core/types';
@@ -58,7 +58,7 @@ interface Props {
   onDelete(deckId: string): void;
 }
 
-type Screen = { kind: 'list' } | { kind: 'legend'; auto?: boolean } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
+type Screen = { kind: 'list' } | { kind: 'legend' } | { kind: 'champion'; legend: string; deckId?: string } | { kind: 'edit'; deckId: string };
 type Part = 'cards' | 'side' | 'runes' | 'battlefields';
 type Kind = 'all' | 'unit' | 'spell' | 'gear';
 type Sort = 'energy' | 'power' | 'kind' | 'name' | 'owned';
@@ -118,8 +118,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   }, [gameId]);
   const counts = useMemo(() => (pool ? metaCounts(meta, pool) : new Map<string, number>()), [meta, pool]);
   const wish = useWishlist();
-  // Hinweis im Deck nach dem automatischen Bauen
-  const [notice, setNotice] = useState<string | null>(null);
 
   if (!pool) {
     return (
@@ -147,26 +145,8 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
         <LegendPicker
           pool={pool}
           counts={counts}
-          auto={screen.auto}
           onBack={() => setScreen({ kind: 'list' })}
-          onPick={(legend) => {
-            if (!screen.auto) {
-              setScreen({ kind: 'champion', legend: legend.id });
-              return;
-            }
-            // KI-Deck: Champion und Karten kommen aus den Turnierlisten
-            const stats = metaStats(meta, legend, pool);
-            const champions = championsFor(legend, pool);
-            const champion = (stats && metaChampion(stats, champions)) ?? champions[0];
-            if (!stats || !champion) {
-              setScreen({ kind: 'champion', legend: legend.id });
-              return;
-            }
-            const created = buildFromMeta(newDeck(gameId, legend, champion, newId(), new Date().toISOString()), stats, pool, { owned });
-            onSave(created);
-            setNotice(builtNotice(stats, pool));
-            setScreen({ kind: 'edit', deckId: created.deckId });
-          }}
+          onPick={(legend) => setScreen({ kind: 'champion', legend: legend.id })}
           onShow={setShown}
         />
         {sheet}
@@ -213,15 +193,11 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
           pool={pool}
           owned={owned}
           meta={meta}
-          notice={notice}
           priceOf={priceOf}
           wish={wish}
           urlOf={(card) => catalogs.price(gameId, card.printing.printingId)?.url}
           onSave={onSave}
-          onBack={() => {
-            setNotice(null);
-            setScreen({ kind: 'list' });
-          }}
+          onBack={() => setScreen({ kind: 'list' })}
           onChangeChampion={() => setScreen({ kind: 'champion', legend: deck.legend, deckId: deck.deckId })}
           onDelete={() => {
             if (!confirm(`Deck „${deck.name}“ löschen?`)) return;
@@ -236,15 +212,6 @@ export function DeckView({ catalogs, items, decks, gameId, onSave, onDelete }: P
   return (
     <section class="decks">
       {pool.legends.length > 0 && !pool.legends.some((l) => l.championOf) && <p class="banner">Kartendaten werden aktualisiert. Bitte die App gleich neu öffnen.</p>}
-      {counts.size > 0 && (
-        <button class="ai-deck" onClick={() => setScreen({ kind: 'legend', auto: true })}>
-          <span class="ai-deck-icon">{sparkIcon}</span>
-          <span class="ai-deck-text">
-            <strong>KI-Deck bauen</strong>
-          </span>
-          <i aria-hidden="true">›</i>
-        </button>
-      )}
       {decks.length > 0 ? (
         <ul class="deck-boxes">
           <li>
@@ -319,8 +286,8 @@ function DeckBox({ deck, pool, owned, priceOf, onOpen }: { deck: Deck; pool: Dec
   );
 }
 
-function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; auto?: boolean; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
-  const { pool, counts, auto, onBack, onPick, onShow } = props;
+function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; onBack(): void; onPick(legend: DeckCard): void; onShow(card: DeckCard): void }) {
+  const { pool, counts, onBack, onPick, onShow } = props;
   useBack(true, onBack);
   const [query, setQuery] = useState('');
   const [domain, setDomain] = useState<string | null>(null);
@@ -329,14 +296,13 @@ function LegendPicker(props: { pool: DeckPool; counts: Map<string, number>; auto
     (l) => (!domain || l.domains.includes(domain)) && (!q || `${l.championOf} ${l.name}`.toLowerCase().includes(q)),
   );
   // Fürs KI-Deck: die meistgespielten Legenden zuerst
-  if (auto) legends.sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) || (a.championOf ?? a.name).localeCompare(b.championOf ?? b.name));
   return (
     <section class="decks">
       <header class="friend-head">
         <button class="link back" onClick={onBack}>
           ‹ Decks
         </button>
-        <h1>{auto ? 'KI-Deck bauen' : 'Legende wählen'}</h1>
+        <h1>Legende wählen</h1>
       </header>
       <div class="find">
         <input type="search" enterkeyhint="search" placeholder="Champion suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
@@ -698,8 +664,6 @@ function DeckEditor(props: {
   pool: DeckPool;
   owned: Map<string, number>;
   meta: MetaFile | null;
-  /** Kurzer Hinweis beim Öffnen, z. B. nach dem automatischen Bauen. */
-  notice?: string | null;
   priceOf(card: DeckCard): number | undefined;
   urlOf(card: DeckCard): string | undefined;
   wish: WishlistState;
@@ -708,7 +672,7 @@ function DeckEditor(props: {
   onChangeChampion(): void;
   onDelete(): void;
 }) {
-  const { initial, pool, owned, meta, notice, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
+  const { initial, pool, owned, meta, priceOf, urlOf, wish, onSave, onBack, onChangeChampion, onDelete } = props;
   useBack(true, onBack);
   const [deck, setDeck] = useState(initial);
   // Schnelle Tipps hintereinander bauen aufeinander auf, nicht auf einem veralteten Stand
@@ -775,9 +739,6 @@ function DeckEditor(props: {
       if (drag.opts) endDrag(false);
     };
   }, []);
-  useEffect(() => {
-    if (notice) warn(notice, 5000);
-  }, [notice]);
 
   useEffect(() => {
     const box = pane.current;
@@ -1154,22 +1115,6 @@ function DeckEditor(props: {
             </span>
           </div>
           {broken.length > 0 && <p class="deck-problems">{broken.slice(0, 2).join(' · ')}</p>}
-          {stats && check.main <= 1 && check.runes === 0 && (
-            <button
-              class="meta-cta"
-              onClick={() => {
-                change((d) => buildFromMeta(d, stats, pool, { owned }));
-                setFresh(null);
-                warn(builtNotice(stats, pool), 5000);
-              }}
-            >
-              {sparkIcon}
-              <span>
-                <strong>KI-Deck bauen</strong>
-              </span>
-              <i aria-hidden="true">›</i>
-            </button>
-          )}
 
           <h2 class="pane-head main">
             Hauptdeck
@@ -1592,11 +1537,6 @@ export function listsLabel(stats: MetaStats): string {
   const t = `${stats.decks} ${stats.decks === 1 ? 'Turnierliste' : 'Turnierlisten'}`;
   return stats.community ? `${t} und ${stats.community} Community-Decks` : t;
 }
-
-const builtNotice = (stats: MetaStats, pool: DeckPool) => {
-  const banned = metaBanned(stats, pool).length;
-  return `KI-Deck aus ${listsLabel(stats)} gebaut${banned ? `, ohne ${banned === 1 ? 'die gesperrte Karte' : `${banned} gesperrte Karten`}` : ''}`;
-};
 
 const trophyMini = (
   <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">

@@ -1,0 +1,4 @@
+- Neu: Im Scannen-Tab kannst du eine Karte auch eingeben, per Name oder Nummer, statt sie zu scannen.
+- Verbessert: Karten, Decks und Wunschliste sowie Binder und Liste wählst du jetzt über Symbole.
+- Verbessert: Sortieren schwebt als runder Knopf unten rechts über der Liste.
+- Verbessert: Der große Knopf „KI-Deck bauen“ ist weg; das Meta-Deck findest du weiter im Deck unter „⋯“.

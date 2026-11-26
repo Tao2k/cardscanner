@@ -1,4 +1,4 @@
-import type { ComponentChildren } from 'preact';
+import type { ComponentChildren, JSX } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CollectionService } from '../core/collection';
 import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
@@ -18,7 +18,7 @@ import { ScanView } from './ScanView';
 import { CollectionView } from './CollectionView';
 import { PriceView } from './PriceView';
 import { CommunityView, WishlistView, takeInvite } from './TradeView';
-import { DeckView } from './DeckView';
+import { DECK_ICON_PATH, DeckView } from './DeckView';
 import { ProfileView } from './ProfileView';
 import { updates, useUpdatePending } from './updates';
 import { withoutLast } from './binder';
@@ -253,6 +253,7 @@ export function App() {
             prefs={prefs}
             setPrefs={setPrefs}
             service={service}
+            items={items}
             learning={learning}
             onChange={refresh}
             onAdded={countScan}
@@ -263,10 +264,10 @@ export function App() {
         {tab === 'collection' && (
           <div class="shelf-head">
             <h1>Sammlung</h1>
-            <div class="segmented" role="radiogroup" aria-label="Bereich der Sammlung">
+            <div class="segmented icons" role="radiogroup" aria-label="Bereich der Sammlung">
               {shelves.map(([value, label]) => (
-                <button role="radio" aria-checked={currentShelf === value} class={currentShelf === value ? 'active' : ''} onClick={() => setShelf(value)}>
-                  {label}
+                <button role="radio" aria-checked={currentShelf === value} aria-label={label} title={label} class={currentShelf === value ? 'active' : ''} onClick={() => setShelf(value)}>
+                  {SHELF_ICONS[value]}
                   {value === 'wishlist' && wishAlarm.alerts.length > 0 && currentShelf !== 'wishlist' && (
                     <span class="seg-count" aria-label={`${wishAlarm.alerts.length} Preisalarm`}>
                       {wishAlarm.alerts.length}
@@ -393,3 +394,21 @@ function saveSeenPrices(seen: Record<string, number>) {
     /* ohne Speicher kommen die Warnungen beim nächsten Start erneut */
   }
 }
+
+const segIcon = (body: JSX.Element) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {body}
+  </svg>
+);
+
+/** Symbole statt Namen für die Bereiche der Sammlung (die Namen stehen im aria-label). */
+const SHELF_ICONS: Record<Shelf, JSX.Element> = {
+  cards: segIcon(<>
+    <rect x="5" y="2.5" width="14" height="19" rx="2.2" />
+    <path d="M12 8.2 14.8 12 12 15.8 9.2 12z" />
+  </>),
+  decks: segIcon(<path d={DECK_ICON_PATH} />),
+  wishlist: segIcon(
+    <path d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 8 3.6 4.5 7.1 4.5c2 0 3.6 1.1 4.9 2.9 1.3-1.8 2.9-2.9 4.9-2.9 3.5 0 5.7 3.5 4.4 6.8-1.8 4.6-9.3 9.2-9.3 9.2z" />,
+  ),
+};
