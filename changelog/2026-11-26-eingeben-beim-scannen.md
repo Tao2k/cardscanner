@@ -1,0 +1,1 @@
+- Verbessert: Auch während die Kamera läuft, kannst du eine Karte eingeben: über das Tastatur-Symbol neben „Stopp“.
