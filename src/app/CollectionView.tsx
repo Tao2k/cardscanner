@@ -1,3 +1,4 @@
+import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { CollectionService } from '../core/collection';
 import { compareCollectorNumbers, exportOrder, exportWorkbook, setRanks } from '../core/excel';
@@ -364,10 +365,17 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
     <section class="collection">
       <header class="title-row">
         <div class="title-actions">
-          <div class="segmented view-switch" role="radiogroup" aria-label="Ansicht">
+          <div class="segmented icons view-switch" role="radiogroup" aria-label="Ansicht">
             {(['binder', 'list'] as const).map((v) => (
-              <button role="radio" aria-checked={view === v} class={view === v ? 'active' : ''} onClick={() => showView(v)}>
-                {v === 'binder' ? 'Binder' : 'Liste'}
+              <button
+                role="radio"
+                aria-checked={view === v}
+                aria-label={v === 'binder' ? 'Binder' : 'Liste'}
+                title={v === 'binder' ? 'Binder' : 'Liste'}
+                class={view === v ? 'active' : ''}
+                onClick={() => showView(v)}
+              >
+                {v === 'binder' ? binderIcon : listIcon}
               </button>
             ))}
           </div>
@@ -416,12 +424,6 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
       {view === 'list' && <>
       <div class="find">
         <input type="search" enterkeyhint="search" placeholder="Suchen" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <button class="sort" aria-haspopup="dialog" onClick={() => setSorting(true)}>
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Sortieren
-        </button>
       </div>
       <label class="check">
         <input type="checkbox" checked={prefs.collectionOwnedOnly} onChange={(e) => setPrefs({ collectionOwnedOnly: e.currentTarget.checked })} />
@@ -456,6 +458,12 @@ export function CollectionView({ items, catalogs, service, prefs, setPrefs, hist
           );
         })}
       </div>
+      {/* Schwebt unten rechts über der Liste, damit Sortieren auch weit unten griffbereit ist */}
+      <button class="fab sort-fab" aria-haspopup="dialog" aria-label={`Sortieren: ${SORTS.find((o) => o.value === prefs.collectionSort)?.label ?? ''}`} onClick={() => setSorting(true)}>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
       </>}
       {adding && (
         <AddCardSheet
@@ -518,3 +526,19 @@ const trash = (
     <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 );
+
+const viewIcon = (body: JSX.Element) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {body}
+  </svg>
+);
+
+/** Binder: vier Kartenfächer wie auf einer Seite. */
+const binderIcon = viewIcon(<>
+  <rect x="3.5" y="3" width="7.5" height="8" rx="1.4" />
+  <rect x="13" y="3" width="7.5" height="8" rx="1.4" />
+  <rect x="3.5" y="13" width="7.5" height="8" rx="1.4" />
+  <rect x="13" y="13" width="7.5" height="8" rx="1.4" />
+</>);
+
+const listIcon = viewIcon(<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />);
