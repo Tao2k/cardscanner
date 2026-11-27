@@ -1,0 +1,1 @@
+- Behoben: K/DA-Promokarten zeigen wieder ihren Namen und stehen bei den Promos statt unter „Ohne Set“.

@@ -5,6 +5,7 @@ import { loadGames, type CatalogFile, type GameEntry } from '../core/catalog';
 import { loadPrices, type PriceEntry, type PriceFile } from '../core/prices';
 import { collectionMovers, loadPriceHistory, moverKey, priceAlerts, type PriceHistoryFile } from '../core/priceHistory';
 import type { CardSet, CollectionItem, LanguageInfo, Printing } from '../core/types';
+import { lookupWithRenames, renamedPrinting } from '../core/renamed';
 import { IndexedDbSampleStore } from '../storage/indexeddb';
 import { SyncingStore } from '../storage/outbox';
 import { DeckStore } from '../storage/decks';
@@ -121,11 +122,13 @@ export function App() {
         const sets = new Map<string, CardSet[]>();
         const compare = new Map<string, Map<string, string[]>>();
         const prices = new Map<string, PriceFile>();
+        const lookups = new Map<string, (id: string) => Printing | undefined>();
         for (const g of games) {
           const pricesLoaded = loadPrices(BASE, g.gameId);
           const file: CatalogFile = await fetch(`${BASE}data/${g.gameId}/catalog.json`).then((r) => r.json());
           byGame.set(g.gameId, new Map(file.printings.map((p) => [p.printingId, p])));
           ordered.set(g.gameId, file.printings);
+          lookups.set(g.gameId, lookupWithRenames(byGame.get(g.gameId)!, file.printings));
           languages.set(g.gameId, file.meta.languages ?? [{ code: 'en', label: 'EN' }]);
           sets.set(g.gameId, file.meta.sets ?? []);
           const byPrinting = new Map<string, string[]>();
@@ -144,7 +147,7 @@ export function App() {
           ordered,
           languages,
           sets,
-          lookup: (gameId, id) => byGame.get(gameId)?.get(id),
+          lookup: (gameId, id) => lookups.get(gameId)?.(id),
           prices,
           price: (gameId, id) => prices.get(gameId)?.prices[id],
           compareRefs: (gameId, id) => compare.get(gameId)?.get(id) ?? [],
@@ -164,6 +167,17 @@ export function App() {
       }
     })();
   }, []);
+
+  // Von dotgg umbenannte Promokarten (z. B. die K/DA-Karten) auf ihren neuen Druck umstellen
+  useEffect(() => {
+    if (!catalogs) return;
+    const moved = items
+      .filter((i) => !catalogs.byGame.get(i.gameId)?.has(i.printingId))
+      .map((i) => ({ item: i, to: renamedPrinting(i.printingId, catalogs.ordered.get(i.gameId) ?? []) }))
+      .filter((m): m is { item: CollectionItem; to: Printing } => !!m.to);
+    if (!moved.length) return;
+    Promise.all(moved.map((m) => service.update(m.item.itemId, { printingId: m.to.printingId }))).then(refresh);
+  }, [catalogs, items]);
 
   const movers = useMemo(
     () => (catalogs ? collectionMovers(items, histories, catalogs.lookup, prefs.pricePeriod, catalogs.price) : []),
